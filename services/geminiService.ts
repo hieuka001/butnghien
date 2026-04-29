@@ -14,18 +14,27 @@ Nhiệm vụ bắt buộc:
 1. Biến dữ liệu đầu vào thành hồ sơ tác phẩm có nhân quả rõ ràng.
 2. Lập lộ trình đủ từ chương 1 đến chương cuối, chia thành các Arc hợp lý.
 3. Mỗi chương phải có mục tiêu, chức năng trong Arc, các beat cần viết và yếu tố bắt buộc.
-4. Không viết văn xuôi truyện ở bước này. Chỉ trả về JSON hợp lệ.`;
+4. Dựng Thiên Cơ Lục như sổ canon: timeline, số liệu, quan hệ, vật phẩm, luật thế giới, mâu thuẫn mở và điều cấm phá logic.
+5. Mọi dữ kiện chưa chắc phải ghi "chưa khóa"; không bịa số liệu mơ hồ để lấp chỗ trống.
+6. Không viết văn xuôi truyện ở bước này. Chỉ trả về JSON hợp lệ.`;
 
 const SYSTEM_INSTRUCTION_NEXT_ARC = `Bạn là biên kịch trưởng đang mở rộng một truyện dài đã có hồ sơ.
 Dựa vào Thiên Cơ Lục, đại cục và lịch sử chương, hãy tạo Arc kế tiếp sao cho không phá logic cũ, không lặp tình tiết và vẫn đẩy tác phẩm tới kết cục đã chọn.
+Không được đổi số liệu, timeline, quan hệ, luật thế giới, vật phẩm hoặc cấp bậc đã khóa nếu không có lý do nhân quả rõ trong truyện.
 Chỉ trả về JSON hợp lệ.`;
 
 const WRITER_SYSTEM_INSTRUCTION = `Bạn là tiểu thuyết gia tiếng Việt có tư duy biên kịch chặt chẽ.
 Luôn viết thành văn xuôi hoàn chỉnh, giàu cảnh, giàu hành động cụ thể, giàu tâm lý nhân vật.
-Bạn phải bám lộ trình chương, giữ đúng tính cách và mục tiêu nhân vật, không nhảy cóc, không tóm tắt thay cho cảnh, không dùng markdown, không gạch đầu dòng.`;
+Bạn phải bám lộ trình chương, giữ đúng tính cách và mục tiêu nhân vật, không nhảy cóc, không tóm tắt thay cho cảnh, không dùng markdown, không gạch đầu dòng.
+Khóa canon tuyệt đối:
+- Mọi tên riêng, số liệu, mốc thời gian, cấp bậc, quan hệ, vật phẩm và luật thế giới phải lấy từ Thiên Cơ Lục, Đại cục, Arc và kế hoạch chương.
+- Không tự ý đổi tuổi, số lượng, thời hạn, khoảng cách, tài nguyên, cảnh giới, chức vụ hoặc quan hệ nếu chưa có nguyên nhân và hậu quả trong cảnh.
+- Nếu cần thêm dữ kiện mới, phải đưa vào bằng hành động/đối thoại cụ thể và không mâu thuẫn dữ kiện cũ.
+- Không lan man: mỗi đoạn phải phục vụ ít nhất một việc: đẩy mục tiêu chương, bộc lộ nhân vật, tạo hậu quả, hoặc chuẩn bị xung đột kế tiếp.`;
 
 const EDITOR_SYSTEM_INSTRUCTION = `Bạn là biên tập viên tuyến truyện khó tính.
-Chỉ chấp nhận chương nếu nó bám đúng đại cục, đúng Arc, đúng mục tiêu chương, không phá logic nhân vật, không lặp chương cũ và không kết thúc sớm khi chưa tới chương cuối.`;
+Chỉ chấp nhận chương nếu nó bám đúng đại cục, đúng Arc, đúng mục tiêu chương, không phá logic nhân vật, không lặp chương cũ và không kết thúc sớm khi chưa tới chương cuối.
+Thẩm định bắt buộc cả timeline, số liệu, tên riêng, quan hệ, cấp bậc/quy tắc thế giới, vật phẩm, khoảng cách, mục tiêu chương, nhịp độ và mức lan man.`;
 
 class GeminiRequestError extends Error {
   status?: number;
@@ -574,13 +583,15 @@ YÊU CẦU LẬP LỘ TRÌNH:
 - Mỗi chương phải có: title, summary, objective, đúng 3 beats dạng cảnh, 2 mustInclude, targetWords=${params.length}, pacing.
 - Mỗi chương cần có một biến chuyển không thể đảo ngược: thông tin mới, lựa chọn mới, tổn thất mới hoặc quan hệ đổi trạng thái.
 - General summary nêu rõ mở đầu, trung đoạn, cao trào, kết cục theo mode "${params.mode}" trong tối đa 120 từ.
-- World building có quy luật, giới hạn, rủi ro, bí mật trung tâm và điều cấm phá logic trong tối đa 160 từ.
+- World building phải là Thiên Cơ Lục khởi tạo dạng Markdown, tối đa 260 từ, có đủ mục: # TIMELINE, # SỐ LIỆU VÀ QUY TẮC, # NHÂN VẬT VÀ QUAN HỆ, # ĐỊA DANH/VẬT PHẨM/HỆ THỐNG, # MÂU THUẪN ĐANG MỞ, # ĐIỀU CẤM PHÁ LOGIC.
+- Khóa rõ các dữ kiện định lượng đã có: số chương, mục tiêu chữ, số lượng nhân vật/địa điểm/vật phẩm quan trọng, cấp bậc, thời hạn, khoảng cách. Dữ kiện chưa chắc phải ghi "chưa khóa".
+- Không mở tuyến phụ nếu tuyến đó không có chức năng trong Arc hoặc không tạo hậu quả cho chương sau.
 - Nếu có truyện mẫu/lưu ý tham chiếu, chỉ học nhịp độ và chất văn, không sao chép tên riêng hay tình tiết.
 
 JSON bắt buộc:
 {
   "title": "tên tác phẩm",
-  "worldBuilding": "markdown ngắn về thế giới và luật logic",
+  "worldBuilding": "Thiên Cơ Lục khởi tạo dạng markdown với các mục canon bắt buộc",
   "generalSummary": "đại cục toàn truyện",
   "volumes": [
     {
@@ -652,6 +663,8 @@ ${history || "Chưa có chương đã viết."}
 Hãy lập Arc ${safeVolumes.length + 1}, phủ chương ${start}-${end}.
 Arc mới phải nối logic với các Arc đã có, có mục tiêu riêng, và mỗi chương phải có kế hoạch viết rõ ràng.
 Viết JSON gọn: summary/objective tối đa 18 từ, mỗi chương 3 beats và 2 mustInclude.
+Mỗi chương trong Arc mới phải nêu được dữ kiện canon cần giữ và hậu quả nối sang chương sau.
+Không thêm nhân vật, vật phẩm, địa danh, cấp bậc hoặc số liệu mới nếu không ghi rõ chức năng trong Arc và không mâu thuẫn Thiên Cơ Lục.
 Trả về JSON của một Volume có index, title, summary, purpose, chapterStart, chapterEnd, chapters.`;
   
   const data = await chatJson(PLAN_MODEL, SYSTEM_INSTRUCTION_NEXT_ARC, prompt, 0.35, DEFAULT_MAX_OUTPUT_TOKENS);
@@ -708,6 +721,13 @@ ${generalSummary}
 [THIÊN CƠ LỤC]
 ${worldBible}
 
+[KHÓA CANON]
+- Giữ nguyên tên riêng, số liệu, mốc thời gian, quan hệ, cấp bậc, luật thế giới và vật phẩm đã khóa trong Thiên Cơ Lục.
+- Nếu chương buộc phải thêm dữ kiện mới, dữ kiện đó phải xuất hiện tự nhiên trong cảnh và không được phủ định dữ kiện cũ.
+- Không mở tuyến phụ ngoài kế hoạch chương/Arc; nếu nhắc tuyến phụ, nó phải tạo hậu quả trực tiếp cho mục tiêu chương.
+- Mọi cảnh chính phải bám ít nhất một beat hoặc yếu tố bắt buộc. Cắt bỏ đoạn chỉ giải thích, trang trí hoặc lặp ý.
+- Không dùng số liệu tùy tiện. Nếu dữ kiện chưa khóa, diễn đạt thận trọng thay vì tự đặt con số chắc chắn.
+
 [LỊCH SỬ CÁC CHƯƠNG GẦN NHẤT]
 ${history || "Chưa có."}
 
@@ -724,6 +744,9 @@ YÊU CẦU VIẾT:
 - Mỗi beat phải được viết thành cảnh có hành động, cảm giác, đối thoại hoặc quyết định cụ thể; không tóm tắt thay cho cảnh.
 - Ưu tiên văn hay: hình ảnh chính xác, nhịp câu biến hóa, đối thoại có hàm ý, ít giải thích trực tiếp.
 - Nhân vật chính phải chủ động lựa chọn, sai lầm hoặc trả giá trong chương.
+- Mỗi cảnh phải làm rõ mục tiêu, trở ngại, lựa chọn hoặc hậu quả. Không kéo dài hồi tưởng/miêu tả nếu không đổi trạng thái truyện.
+- Không mở bí mật, nhiệm vụ, nhân vật, tổ chức hoặc vật phẩm mới nếu nó không phục vụ mục tiêu chương hoặc Arc hiện tại.
+- Tên riêng, số lượng, thời gian, cảnh giới, khoảng cách, vật phẩm, quan hệ phải nhất quán với Thiên Cơ Lục.
 - Không viết dàn ý, không giải thích rằng bạn đang viết, không dùng markdown.
 - Không kết thúc toàn bộ truyện nếu đây chưa phải chương ${params.totalChapters}.
 - Nếu chương là phần giữa truyện, cuối chương phải tạo lực kéo sang chương sau.`;
@@ -737,6 +760,7 @@ YÊU CẦU VIẾT:
     const continuationPrompt = `Chương ${newIndex} hiện mới khoảng ${countWords(fullText)} chữ, thấp hơn mục tiêu ${targetWords}.
 Hãy VIẾT TIẾP ngay từ đoạn cuối, không lặp lại dòng "Tên chương", không tóm tắt, không viết lại từ đầu.
 Ưu tiên hoàn tất các beat còn thiếu và làm sâu tâm lý/xung đột.
+Không mở tuyến phụ mới, không đổi số liệu/timeline, không thêm dữ kiện canon nếu không cần cho beat còn thiếu.
 
 [KẾ HOẠCH CHƯƠNG]
 ${chapterPlan?.objective || ""}
@@ -764,6 +788,19 @@ export const validateChapterLogic = async (
 ): Promise<{ isValid: boolean; reason?: string }> => {
   const wordCount = countWords(currentChapterContent);
   const targetWords = params?.length || currentArc.chapters?.find(chapter => chapter.index === chapterIndex)?.targetWords;
+  const chapterPlan = currentArc.chapters?.find(chapter => chapter.index === chapterIndex);
+  if (params?.projectType === "Trường Thiên" && !chapterPlan) {
+    return {
+      isValid: false,
+      reason: `Chưa có bản đồ chi tiết cho chương ${chapterIndex || ""}.`,
+    };
+  }
+  if (params?.projectType === "Trường Thiên" && countWords(worldBible) < 45) {
+    return {
+      isValid: false,
+      reason: "Thiên Cơ Lục quá mỏng, chưa đủ dữ kiện để khóa canon dài kỳ.",
+    };
+  }
   if (targetWords && wordCount < Math.max(350, targetWords * 0.62)) {
     return {
       isValid: false,
@@ -774,9 +811,8 @@ export const validateChapterLogic = async (
   const lastChapter = [...previousChapters]
     .filter(chapter => chapter.index !== chapterIndex)
     .sort((a, b) => b.index - a.index)[0];
-  const chapterPlan = currentArc.chapters?.find(chapter => chapter.index === chapterIndex);
   
-  const prompt = `THẨM ĐỊNH TÍNH NHẤT QUÁN VÀ LỘ TRÌNH
+  const prompt = `THẨM ĐỊNH CANON, TÍNH NHẤT QUÁN VÀ ĐỘ TẬP TRUNG
 
 [KẾ HOẠCH TỔNG THỂ]
 ${generalSummary}
@@ -798,12 +834,16 @@ ${currentChapterContent.slice(0, 6500)}
 
 CÂU HỎI KIỂM ĐỊNH:
 1. Chương có thực hiện đúng mục tiêu và beat chính không?
-2. Có phá logic thế giới, nhân vật hoặc đại cục không?
-3. Có lặp tình tiết chương trước mà không tạo biến chuyển mới không?
-4. Có kết thúc toàn truyện quá sớm không?
-5. Độ dài và nhịp chương có phù hợp mục tiêu không?
+2. Tên riêng, số liệu, thời gian, khoảng cách, cấp bậc, vật phẩm, địa danh có khớp Thiên Cơ Lục không?
+3. Tính cách, mục tiêu, quan hệ nhân vật có đổi vô cớ không?
+4. Có mở tuyến phụ, bí mật, nhiệm vụ hoặc nhân vật mới không phục vụ chương/Arc không?
+5. Có cảnh nào chỉ lan man giải thích, lặp ý, tả cảnh dài hoặc hồi tưởng mà không đổi trạng thái truyện không?
+6. Có lặp tình tiết chương trước mà không tạo biến chuyển mới không?
+7. Có kết thúc toàn truyện quá sớm không?
+8. Độ dài và nhịp chương có phù hợp mục tiêu không?
 
-Trả về JSON: { "isValid": boolean, "reason": string }.`;
+Chỉ chấp nhận nếu chương vừa đúng canon vừa tập trung vào mục tiêu chương. Nếu có lỗi canon hoặc lan man đáng kể, isValid=false.
+Trả về JSON: { "isValid": boolean, "reason": string, "canonIssues": string[], "ramblingIssues": string[], "fixPlan": string }.`;
 
   return chatJson(PLAN_MODEL, EDITOR_SYSTEM_INSTRUCTION, prompt, 0.2, 2500);
 };
@@ -851,9 +891,11 @@ ${JSON.stringify(plannedChapters, null, 2)}
 ${JSON.stringify(manuscript, null, 2)}
 
 Hãy kiểm tra logic toàn truyện đã viết:
-- Có mâu thuẫn thế giới, nhân vật, quan hệ, timeline không?
+- Có mâu thuẫn thế giới, nhân vật, quan hệ, timeline, số liệu, cấp bậc, vật phẩm hoặc địa danh không?
 - Chương nào lệch khỏi kế hoạch chương hoặc Arc?
-- Có lặp tình tiết, nhảy cóc, kết thúc quá sớm, hoặc thiếu hậu quả không?
+- Có lặp tình tiết, nhảy cóc, kết thúc quá sớm, mở tuyến phụ rơi rớt hoặc thiếu hậu quả không?
+- Có chương nào lan man: nhiều đoạn giải thích/tả/hồi tưởng nhưng không đẩy mục tiêu chương?
+- Có dữ kiện nào mới xuất hiện nhưng chưa được Thiên Cơ Lục ghi nhận hoặc mâu thuẫn dữ kiện đã khóa không?
 - Chương tiếp theo nên tập trung sửa/đẩy điều gì?
 
 Trả về JSON:
@@ -898,19 +940,32 @@ ${currentBible}
 [NỘI DUNG CHƯƠNG VỪA VIẾT]
 ${lastChapterContent.slice(0, 7500)}
 
-Hãy cập nhật hồ sơ truyện, không làm mất dữ kiện cũ quan trọng.`;
+Hãy cập nhật hồ sơ truyện như một sổ canon dài kỳ:
+- Giữ lại dữ kiện cũ quan trọng, nhất là dữ kiện chưa được giải quyết.
+- Thêm dữ kiện mới theo đúng mục Markdown, không xóa mâu thuẫn đang mở nếu chương chưa giải quyết.
+- Nếu chương phát sinh số liệu/timeline/quan hệ/vật phẩm mới, ghi lại rõ ràng.
+- Nếu phát hiện nguy cơ lệch canon hoặc lan man, ghi vào # ĐỐI CHIẾU LOGIC.`;
 
   return chatJson(
     PLAN_MODEL,
     `Nhiệm vụ: rút tên chương, tóm tắt chương, cập nhật Thiên Cơ Lục.
 Thiên Cơ Lục phải có các mục Markdown:
 # DIỄN TIẾN TRUYỆN
+# TIMELINE
+# SỐ LIỆU VÀ QUY TẮC
 # NHÂN VẬT CHÍNH
 # NHÂN VẬT PHỤ VÀ QUAN HỆ
-# HỆ THỐNG THẾ GIỚI
+# ĐỊA DANH/VẬT PHẨM/HỆ THỐNG
 # MÂU THUẪN ĐANG MỞ
+# ĐIỀU CẤM PHÁ LOGIC
 # ĐỐI CHIẾU LOGIC
-Chỉ trả về JSON hợp lệ.`,
+Luôn bảo toàn dữ kiện cũ, chỉ sửa khi chương mới thật sự thay đổi canon.
+Chỉ trả về JSON hợp lệ:
+{
+  "chapterTitle": "tên chương",
+  "chapterSummary": "tóm tắt chương trong 1-2 câu",
+  "updatedBible": "Thiên Cơ Lục markdown đầy đủ các mục trên"
+}`,
     prompt,
     0.3,
     6000,
@@ -929,6 +984,8 @@ Yêu cầu:
 - Có mở truyện, phát triển xung đột, bước ngoặt, cao trào và dư âm.
 - Nhân vật chính phải hành động theo tính cách và mục tiêu đã nhập.
 - Bám thể loại, tông giọng và mode kết truyện.
+- Không lan man: mỗi cảnh phải phục vụ xung đột chính, tính cách nhân vật hoặc hậu quả cao trào.
+- Giữ nhất quán tên riêng, số liệu, mốc thời gian và luật thế giới đã tự thiết lập trong truyện ngắn.
 - Bắt đầu bằng "Tên truyện: [tên]".
 - Không dùng markdown, không dàn ý, không giải thích.`;
 

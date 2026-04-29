@@ -283,11 +283,23 @@ const App: React.FC = () => {
       '# DIỄN TIẾN TRUYỆN',
       summary || draft.seed || 'Đại cục đã được lập theo hồ sơ đầu vào.',
       '',
+      '# TIMELINE',
+      '- Chương 1 là mốc mở màn. Mọi mốc thời gian phát sinh sau này phải được ghi lại theo thứ tự.',
+      '- Dữ kiện chưa có ngày/giờ cụ thể được đánh dấu "chưa khóa" thay vì tự đặt số tùy tiện.',
+      '',
+      '# SỐ LIỆU VÀ QUY TẮC',
+      `- Lộ trình khóa: ${draft.totalChapters} chương, mục tiêu ${draft.length} chữ/chương.`,
+      '- Tuổi, số lượng, tiền bạc, khoảng cách, cấp bậc, thời hạn, tài nguyên và luật thế giới phải giữ nhất quán khi đã xuất hiện.',
+      '- Dữ kiện định lượng chưa chắc chắn phải ghi "chưa khóa".',
+      '',
       '# NHÂN VẬT CHÍNH',
       `- ${draft.character.name}: ${draft.character.personality || 'chưa mô tả tính cách'}.`,
       `- Mục tiêu: ${draft.character.goal || 'chưa mô tả mục tiêu'}.`,
       '',
-      '# HỆ THỐNG THẾ GIỚI',
+      '# NHÂN VẬT PHỤ VÀ QUAN HỆ',
+      '- Chưa khóa. Mỗi nhân vật phụ mới phải có quan hệ, chức năng trong Arc và trạng thái sau khi xuất hiện.',
+      '',
+      '# ĐỊA DANH/VẬT PHẨM/HỆ THỐNG',
       rawWorldBuilding?.trim() || 'Thế giới sẽ được giữ nhất quán theo thể loại, luật nhân quả và các giới hạn đã đặt.',
       '',
       '# LỘ TRÌNH ARC',
@@ -299,8 +311,14 @@ const App: React.FC = () => {
       '# MÂU THUẪN ĐANG MỞ',
       '- Mâu thuẫn khởi nguồn phải được đẩy qua từng chương, không giải quyết quá sớm.',
       '',
+      '# ĐIỀU CẤM PHÁ LOGIC',
+      '- Không đổi tên riêng, số liệu, timeline, cảnh giới, vật phẩm, quan hệ hoặc luật thế giới nếu chưa có nguyên nhân và hậu quả trong truyện.',
+      '- Không mở tuyến phụ không phục vụ mục tiêu chương hoặc Arc hiện tại.',
+      '- Không dùng hồi tưởng/miêu tả/giải thích dài nếu đoạn đó không làm thay đổi mục tiêu, lựa chọn hoặc hậu quả.',
+      '',
       '# ĐỐI CHIẾU LOGIC',
       '- Mỗi chương chỉ được viết sau khi có mục tiêu chương, Arc hiện tại và Thiên Cơ Lục khởi tạo.',
+      '- Sau mỗi chương, hệ thống phải cập nhật dữ kiện mới, mâu thuẫn còn mở và nguy cơ lệch canon.',
     ].join('\n');
   };
 
@@ -328,6 +346,15 @@ const App: React.FC = () => {
   const planCompletenessPercent = params.projectType === 'Trường Thiên'
     ? Math.min(100, Math.round((plannedChapterIndexes.size / Math.max(1, params.totalChapters)) * 100))
     : 100;
+  const canonChecklist = [
+    { label: 'Timeline', ok: /#\s*TIMELINE/i.test(worldBible) },
+    { label: 'Số liệu', ok: /#\s*SỐ LIỆU/i.test(worldBible) },
+    { label: 'Quan hệ', ok: /NHÂN VẬT PHỤ|NHÂN VẬT VÀ QUAN HỆ/i.test(worldBible) },
+    { label: 'Hệ thống', ok: /ĐỊA DANH|VẬT PHẨM|HỆ THỐNG/i.test(worldBible) },
+    { label: 'Mâu thuẫn', ok: /MÂU THUẪN ĐANG MỞ/i.test(worldBible) },
+    { label: 'Cấm phá logic', ok: /ĐIỀU CẤM PHÁ LOGIC|ĐỐI CHIẾU LOGIC/i.test(worldBible) },
+  ];
+  const canonReadyCount = canonChecklist.filter(item => item.ok).length;
   const progressPercent = plannedChapterCount > 0 ? Math.round((writtenChapters.length / plannedChapterCount) * 100) : 0;
   const workflowSteps = [
     { label: 'Hồ sơ', status: params.seed.trim() && params.character.name.trim() ? 'done' : 'active' },
@@ -454,7 +481,7 @@ const App: React.FC = () => {
           attempts > 1
         );
 
-        setGenerationStatus('Đang thẩm định số chữ, logic và độ bám lộ trình...');
+        setGenerationStatus('Đang thẩm định số chữ, canon, logic và độ tập trung...');
         const validation = await validateChapterLogic(finalContent, previousForValidation, worldBible, currentArc, generalSummary, params, currentChapterIndex);
         
         if (validation.isValid) {
@@ -462,6 +489,7 @@ const App: React.FC = () => {
         } else {
           console.warn("Lệch lộ trình:", validation.reason);
           if (attempts < maxAttempts) {
+            setGenerationStatus(`Chưa đạt khóa canon. ${validation.reason || 'Đang viết lại chặt hơn...'}`);
             setStory(''); 
           }
         }
@@ -471,7 +499,7 @@ const App: React.FC = () => {
         alert("Lưu ý: Chương này vẫn có điểm cần biên tập thêm, nhưng hệ thống đã thử viết lại theo lộ trình tốt nhất có thể.");
       }
 
-      setGenerationStatus('Đang cập nhật Thiên Cơ Lục...');
+      setGenerationStatus('Đang cập nhật Thiên Cơ Lục và khóa dữ kiện mới...');
       const updates = await updateWorldBibleAndSummary(worldBible, finalContent, currentChapterIndex, generalSummary, params, currentArc);
       
       const extracted = extractGeneratedTitle(finalContent, updates.chapterTitle || chapterPlan?.title || `Chương ${currentChapterIndex}`);
@@ -556,7 +584,7 @@ const App: React.FC = () => {
         setStory(extracted.body);
       } else {
         const result = await generateInitialRoadmap(workingParams);
-        setGenerationStatus('Bước 2/3: Đang kiểm tra độ phủ chương và dựng Thiên Cơ Lục...');
+        setGenerationStatus('Bước 2/3: Đang kiểm tra độ phủ chương và khóa sổ canon...');
         if (!result || !result.volumes?.length) throw new Error("Dữ liệu lộ trình không hợp lệ.");
         const initialVolumes = result.volumes;
         const initialChapterCount = new Set(initialVolumes.flatMap((volume: Volume) => (volume.chapters || []).map(chapter => chapter.index))).size;
@@ -993,7 +1021,7 @@ const App: React.FC = () => {
                 <h3 className="text-[10px] font-black text-indigo-600 uppercase mb-2">Đại cục Trường Thiên</h3>
                 <p className="story-font text-base italic text-slate-700 leading-relaxed">{generalSummary}</p>
               </section>
-              <section className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <section className="grid grid-cols-1 md:grid-cols-4 gap-3">
                 <div className="p-4 bg-white border border-slate-100 rounded-2xl shadow-sm">
                   <span className="block text-[8px] font-black uppercase text-slate-400 tracking-widest">Số chương</span>
                   <strong className="text-2xl font-black text-indigo-900">{plannedChapterIndexes.size}/{params.totalChapters}</strong>
@@ -1001,6 +1029,10 @@ const App: React.FC = () => {
                 <div className="p-4 bg-white border border-slate-100 rounded-2xl shadow-sm">
                   <span className="block text-[8px] font-black uppercase text-slate-400 tracking-widest">Arc</span>
                   <strong className="text-2xl font-black text-indigo-900">{volumes.length}</strong>
+                </div>
+                <div className="p-4 bg-white border border-slate-100 rounded-2xl shadow-sm">
+                  <span className="block text-[8px] font-black uppercase text-slate-400 tracking-widest">Canon</span>
+                  <strong className={`text-2xl font-black ${canonReadyCount === canonChecklist.length ? 'text-emerald-600' : 'text-amber-600'}`}>{canonReadyCount}/{canonChecklist.length}</strong>
                 </div>
                 <div className="p-4 bg-white border border-slate-100 rounded-2xl shadow-sm">
                   <span className="block text-[8px] font-black uppercase text-slate-400 tracking-widest">Trạng thái</span>
@@ -1032,6 +1064,13 @@ const App: React.FC = () => {
                   <button onClick={() => setView('bible')} className="px-4 py-2 bg-slate-900 text-white rounded-xl text-[9px] font-black uppercase hover:bg-indigo-900 transition-all">
                     Mở đầy đủ
                   </button>
+                </div>
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {canonChecklist.map(item => (
+                    <span key={item.label} className={`px-3 py-1 rounded-full text-[8px] font-black uppercase border ${item.ok ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-amber-50 text-amber-700 border-amber-100'}`}>
+                      {item.label}: {item.ok ? 'OK' : 'Thiếu'}
+                    </span>
+                  ))}
                 </div>
                 <p className="story-font text-base text-slate-700 leading-relaxed whitespace-pre-wrap line-clamp-4">{worldBible || 'Thiên Cơ Lục sẽ xuất hiện sau khi lập bản đồ chương.'}</p>
               </section>
