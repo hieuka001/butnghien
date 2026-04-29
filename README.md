@@ -30,6 +30,7 @@ Mặc định app dùng `gemini-2.5-flash`. Đây là lựa chọn cân bằng c
 - `GEMINI_MODEL`: dùng chung cho mọi tác vụ.
 - `GEMINI_PLAN_MODEL`: model lập lộ trình/kiểm tra logic.
 - `GEMINI_WRITE_MODEL`: model viết chương.
+- `GEMINI_FALLBACK_MODELS`: danh sách model dự phòng, cách nhau bằng dấu phẩy, để tự thử khi model chính quá tải 429/503.
 - `GEMINI_MAX_OUTPUT_TOKENS`: trần token đầu ra mỗi request. Mặc định 8192.
 
 Nếu muốn tiết kiệm quota hơn, có thể đổi sang `gemini-2.5-flash-lite`, nhưng chất văn và khả năng giữ logic truyện thường yếu hơn `gemini-2.5-flash`.

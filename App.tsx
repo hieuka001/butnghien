@@ -231,6 +231,7 @@ const App: React.FC = () => {
     const message = error instanceof Error ? error.message : String(error || '');
     if (message.includes('GEMINI_API_KEY')) return message;
     if (message.includes('429')) return 'Gemini đang bị giới hạn quota/rate limit. Hãy chờ một lúc, giảm số chữ/chương, hoặc dùng key khác.';
+    if (message.includes('503') || message.toLowerCase().includes('high demand')) return 'Gemini đang quá tải. Hệ thống đã thử model dự phòng nhưng vẫn chưa có lượt trống; hãy chờ vài phút rồi thử lại.';
     if (message.includes('400')) return 'Gemini từ chối request. Kiểm tra lại tên model, GEMINI_MAX_OUTPUT_TOKENS hoặc giảm độ dài chương.';
     if (message.includes('403') || message.includes('401')) return 'Gemini API key không hợp lệ hoặc chưa được cấp quyền dùng API.';
     if (message.includes('JSON')) return 'AI trả về dữ liệu không đúng định dạng. Hãy thử lại hoặc giảm số chương để lộ trình gọn hơn.';

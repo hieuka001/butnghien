@@ -61,6 +61,29 @@ const getGeminiKeys = () => {
 };
 
 const isRotatableStatus = (status: number) => [401, 402, 408, 429, 500, 502, 503].includes(status);
+const isFallbackStatus = (status: number) => [429, 500, 502, 503].includes(status);
+
+const splitEnvList = (value?: string) => (value || "")
+  .split(",")
+  .map(item => item.trim())
+  .filter(Boolean);
+
+const getFallbackModels = (requestedModel?: string) => {
+  const primaryModel = requestedModel || process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  const envFallbacks = splitEnvList(process.env.GEMINI_FALLBACK_MODELS);
+  const defaultFallbacks = [
+    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash-lite",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+  ];
+
+  return [primaryModel, ...envFallbacks, ...defaultFallbacks]
+    .filter((model, index, all) => model && all.indexOf(model) === index);
+};
+
+const shouldTryFallbackModel = (error: unknown) =>
+  error instanceof GeminiProxyError && isFallbackStatus(error.status);
 
 const markKeyCooling = (keyIndex: number, status: number) => {
   keyCooldownUntil.set(keyIndex, Date.now() + (status === 429 ? 90_000 : 20_000));
@@ -159,23 +182,36 @@ const requestHeaders = (apiKey: string) => ({
   "Content-Type": "application/json",
 });
 
-const callGemini = async (body: GeminiProxyBody) =>
-  withGeminiKeys(async (apiKey) => {
-    const model = body.model || process.env.GEMINI_MODEL || "gemini-2.5-flash";
-    const action = body.stream ? "streamGenerateContent?alt=sse" : "generateContent";
-    const response = await fetch(`${GEMINI_API_BASE}/models/${model}:${action}`, {
-      method: "POST",
-      headers: requestHeaders(apiKey),
-      body: JSON.stringify(buildGeminiPayload(body)),
-    });
+const callGemini = async (body: GeminiProxyBody) => {
+  let lastError: unknown;
+  const models = getFallbackModels(body.model);
 
-    if (!response.ok) {
-      const message = await parseErrorBody(response);
-      throw new GeminiProxyError(`Gemini loi ${response.status}: ${message}`, response.status, isRotatableStatus(response.status));
+  for (const model of models) {
+    try {
+      return await withGeminiKeys(async (apiKey) => {
+        const action = body.stream ? "streamGenerateContent?alt=sse" : "generateContent";
+        const response = await fetch(`${GEMINI_API_BASE}/models/${model}:${action}`, {
+          method: "POST",
+          headers: requestHeaders(apiKey),
+          body: JSON.stringify(buildGeminiPayload(body)),
+        });
+
+        if (!response.ok) {
+          const message = await parseErrorBody(response);
+          throw new GeminiProxyError(`Gemini loi ${response.status} (${model}): ${message}`, response.status, isRotatableStatus(response.status));
+        }
+
+        return response;
+      });
+    } catch (error) {
+      lastError = error;
+      if (shouldTryFallbackModel(error)) continue;
+      throw error;
     }
+  }
 
-    return response;
-  });
+  throw lastError instanceof Error ? lastError : new GeminiProxyError("Tat ca Gemini model du phong deu dang loi.", 503, true);
+};
 
 export default async function handler(req: ApiRequest, res: ApiResponse) {
   res.setHeader?.("Cache-Control", "no-store");
@@ -190,6 +226,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
       configured: getGeminiKeys().length > 0,
       keyCount: getGeminiKeys().length,
       model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
+      fallbackModels: getFallbackModels(),
     });
     return;
   }
