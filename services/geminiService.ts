@@ -416,6 +416,26 @@ const pacingForChapter = (index: number, total: number): Chapter["pacing"] => {
   return "Nhanh";
 };
 
+const chapterPhase = (index: number, total: number) => {
+  if (index === 1) return "khai mở mâu thuẫn và lời hứa thể loại";
+  if (index === total) return "cao trào, trả giá và dư âm kết cục";
+  const ratio = index / Math.max(1, total);
+  if (ratio < 0.35) return "đẩy nhân vật vào xung đột";
+  if (ratio < 0.7) return "tăng biến chứng và đảo chiều lựa chọn";
+  return "siết hậu quả, chuẩn bị cao trào";
+};
+
+const fallbackBeats = (index: number, total: number, volumeTitle: string) => [
+  `Mở cảnh bằng một áp lực cụ thể của ${volumeTitle}`,
+  `Nhân vật chính phải chọn hoặc trả giá`,
+  index === total ? "Khép đại cục nhưng để lại dư âm" : "Để lại một hậu quả kéo sang chương sau",
+];
+
+const fallbackMustInclude = (params: StoryParams, index: number) => [
+  `Giữ đúng tính cách ${params.character.name || "nhân vật chính"}`,
+  index === params.totalChapters ? "Không bỏ sót kết cục đã chọn" : "Không giải quyết mâu thuẫn trung tâm quá sớm",
+];
+
 const sliderBrief = (params: StoryParams) => {
   const labels: Record<keyof StoryParams["sliders"], string> = {
     romance: "tình cảm",
@@ -451,17 +471,23 @@ const normalizeChapter = (
   index: number,
   params: StoryParams,
   volumeTitle: string,
-): Chapter => ({
-  index,
-  title: asText(raw?.title, `Chương ${index}`),
-  summary: asText(raw?.summary, `Chương ${index} đẩy tuyến "${volumeTitle}" tiến thêm một nấc.`),
-  objective: asText(raw?.objective, `Thực hiện một bước ngoặt nhỏ trong Arc "${volumeTitle}".`),
-  beats: asStringArray(raw?.beats).slice(0, 6),
-  mustInclude: asStringArray(raw?.mustInclude).slice(0, 5),
-  cliffhanger: asText(raw?.cliffhanger),
-  targetWords: Number(raw?.targetWords) > 0 ? Number(raw?.targetWords) : params.length,
-  pacing: (["Chậm", "Trung bình", "Nhanh", "Cao trào"].includes(raw?.pacing) ? raw?.pacing : pacingForChapter(index, params.totalChapters)) as Chapter["pacing"],
-});
+): Chapter => {
+  const beats = asStringArray(raw?.beats).slice(0, 6);
+  const mustInclude = asStringArray(raw?.mustInclude).slice(0, 5);
+  const phase = chapterPhase(index, params.totalChapters);
+
+  return {
+    index,
+    title: asText(raw?.title, `Chương ${index}: ${volumeTitle}`),
+    summary: asText(raw?.summary, `Chương ${index} thuộc giai đoạn ${phase}.`),
+    objective: asText(raw?.objective, `Dùng một cảnh quyết định để ${phase}.`),
+    beats: beats.length >= 3 ? beats : fallbackBeats(index, params.totalChapters, volumeTitle),
+    mustInclude: mustInclude.length >= 2 ? mustInclude : fallbackMustInclude(params, index),
+    cliffhanger: asText(raw?.cliffhanger, index === params.totalChapters ? "Dư âm kết cục phản chiếu lựa chọn của nhân vật." : "Một hậu quả mới buộc nhân vật phải bước tiếp."),
+    targetWords: Number(raw?.targetWords) > 0 ? Number(raw?.targetWords) : params.length,
+    pacing: (["Chậm", "Trung bình", "Nhanh", "Cao trào"].includes(raw?.pacing) ? raw?.pacing : pacingForChapter(index, params.totalChapters)) as Chapter["pacing"],
+  };
+};
 
 const normalizeVolumes = (raw: AnyRecord, params: StoryParams): Volume[] => {
   const totalChapters = clamp(Math.round(params.totalChapters || 1), 1, 300);
@@ -470,6 +496,7 @@ const normalizeVolumes = (raw: AnyRecord, params: StoryParams): Volume[] => {
     : raw?.firstVolume
       ? [raw.firstVolume]
       : [];
+  const allRawChapters = rawVolumes.flatMap((volume: AnyRecord) => Array.isArray(volume?.chapters) ? volume.chapters : []);
   const volumeCount = clamp(Math.max(rawVolumes.length, desiredVolumeCount(totalChapters)), 1, totalChapters);
   const ranges = buildRanges(volumeCount, totalChapters);
 
@@ -480,7 +507,10 @@ const normalizeVolumes = (raw: AnyRecord, params: StoryParams): Volume[] => {
     const rawChapters = Array.isArray(rawVolume.chapters) ? rawVolume.chapters : [];
     const chapters = Array.from({ length: range.end - range.start + 1 }, (_, chapterOffset) => {
       const chapterIndex = range.start + chapterOffset;
-      const rawChapter = rawChapters.find((chapter: AnyRecord) => Number(chapter?.index) === chapterIndex) || rawChapters[chapterOffset];
+      const rawChapter =
+        rawChapters.find((chapter: AnyRecord) => Number(chapter?.index) === chapterIndex) ||
+        allRawChapters.find((chapter: AnyRecord) => Number(chapter?.index) === chapterIndex) ||
+        rawChapters[chapterOffset];
       return normalizeChapter(rawChapter, chapterIndex, params, title);
     });
 
@@ -538,9 +568,11 @@ export const generateInitialRoadmap = async (params: StoryParams) => {
 
 YÊU CẦU LẬP LỘ TRÌNH:
 - Tạo khoảng ${volumeCount} Arc, phủ đủ chương 1-${totalChapters}.
-- Không bỏ sót chương nào. Không tạo chương vượt quá ${totalChapters}.
+- Bắt buộc trả đúng ${totalChapters} chapter object, index liên tục từ 1 đến ${totalChapters}. Không bỏ sót, không trùng, không vượt quá ${totalChapters}.
+- Nếu tổng số chương ngắn, vẫn lập Arc như một khung ba hồi: mở mâu thuẫn, đảo chiều, trả giá/kết.
 - Viết JSON thật gọn để tiết kiệm quota: mỗi summary/objective tối đa 18 từ, mỗi beat tối đa 8 từ.
-- Mỗi chương phải có: title, summary, objective, 3 beats, 2 mustInclude, targetWords=${params.length}, pacing.
+- Mỗi chương phải có: title, summary, objective, đúng 3 beats dạng cảnh, 2 mustInclude, targetWords=${params.length}, pacing.
+- Mỗi chương cần có một biến chuyển không thể đảo ngược: thông tin mới, lựa chọn mới, tổn thất mới hoặc quan hệ đổi trạng thái.
 - General summary nêu rõ mở đầu, trung đoạn, cao trào, kết cục theo mode "${params.mode}" trong tối đa 120 từ.
 - World building có quy luật, giới hạn, rủi ro, bí mật trung tâm và điều cấm phá logic trong tối đa 160 từ.
 - Nếu có truyện mẫu/lưu ý tham chiếu, chỉ học nhịp độ và chất văn, không sao chép tên riêng hay tình tiết.
@@ -689,7 +721,9 @@ YÊU CẦU VIẾT:
 - Mục tiêu độ dài: khoảng ${targetWords} chữ, chấp nhận ${minWords}-${maxWords} chữ.
 - Bắt đầu bằng đúng mẫu: "Tên chương: [tên chương]".
 - Sau dòng tên chương, viết văn xuôi liền mạch bằng tiếng Việt.
-- Mỗi beat phải được viết thành cảnh có hành động, cảm giác, đối thoại hoặc quyết định cụ thể.
+- Mỗi beat phải được viết thành cảnh có hành động, cảm giác, đối thoại hoặc quyết định cụ thể; không tóm tắt thay cho cảnh.
+- Ưu tiên văn hay: hình ảnh chính xác, nhịp câu biến hóa, đối thoại có hàm ý, ít giải thích trực tiếp.
+- Nhân vật chính phải chủ động lựa chọn, sai lầm hoặc trả giá trong chương.
 - Không viết dàn ý, không giải thích rằng bạn đang viết, không dùng markdown.
 - Không kết thúc toàn bộ truyện nếu đây chưa phải chương ${params.totalChapters}.
 - Nếu chương là phần giữa truyện, cuối chương phải tạo lực kéo sang chương sau.`;
@@ -730,7 +764,7 @@ export const validateChapterLogic = async (
 ): Promise<{ isValid: boolean; reason?: string }> => {
   const wordCount = countWords(currentChapterContent);
   const targetWords = params?.length || currentArc.chapters?.find(chapter => chapter.index === chapterIndex)?.targetWords;
-  if (targetWords && wordCount < Math.max(350, targetWords * 0.45)) {
+  if (targetWords && wordCount < Math.max(350, targetWords * 0.62)) {
     return {
       isValid: false,
       reason: `Chương quá ngắn so với mục tiêu ${targetWords} chữ, hiện khoảng ${wordCount} chữ.`,

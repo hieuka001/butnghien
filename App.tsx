@@ -308,15 +308,33 @@ const App: React.FC = () => {
   const getChapterPlan = (chapterIndex: number, arcIndex = activeArcIndex) =>
     volumes.find(v => v.index === arcIndex)?.chapters?.find(ch => ch.index === chapterIndex);
   const activeProject = projects.find(project => project.id === activeProjectId);
-  const plannedChapterCount = volumes.reduce((total, volume) => total + (volume.chapters?.length || 0), 0);
-  const plannedChapterIndexes = new Set(volumes.flatMap(volume => (volume.chapters || []).map(chapter => chapter.index)));
-  const hasRoadmapReady = params.projectType !== 'Trường Thiên' || (
-    volumes.length > 0 &&
-    plannedChapterIndexes.size >= params.totalChapters &&
-    Boolean(generalSummary.trim()) &&
-    Boolean(worldBible.trim())
-  );
+  const plannedChapters = sortChapters(volumes.flatMap(volume => volume.chapters || []));
+  const plannedChapterCount = plannedChapters.length;
+  const plannedChapterIndexes = new Set(plannedChapters.map(chapter => chapter.index));
+  const missingChapterIndexes = params.projectType === 'Trường Thiên'
+    ? Array.from({ length: Math.max(0, params.totalChapters) }, (_, index) => index + 1).filter(index => !plannedChapterIndexes.has(index))
+    : [];
+  const roadmapIssues = params.projectType === 'Trường Thiên'
+    ? [
+        volumes.length === 0 ? 'Chưa có Arc.' : '',
+        missingChapterIndexes.length > 0 ? `Thiếu chương ${missingChapterIndexes.slice(0, 6).join(', ')}${missingChapterIndexes.length > 6 ? '...' : ''}.` : '',
+        !generalSummary.trim() ? 'Chưa có Đại cục.' : '',
+        !worldBible.trim() ? 'Chưa có Thiên Cơ Lục.' : '',
+      ].filter(Boolean)
+    : [];
+  const hasRoadmapReady = params.projectType !== 'Trường Thiên' || roadmapIssues.length === 0;
+  const firstUnwrittenPlan = plannedChapters.find(chapter => !writtenChapters.some(written => written.index === chapter.index));
+  const currentChapterPlan = getChapterPlan(currentChapterIndex);
+  const planCompletenessPercent = params.projectType === 'Trường Thiên'
+    ? Math.min(100, Math.round((plannedChapterIndexes.size / Math.max(1, params.totalChapters)) * 100))
+    : 100;
   const progressPercent = plannedChapterCount > 0 ? Math.round((writtenChapters.length / plannedChapterCount) * 100) : 0;
+  const workflowSteps = [
+    { label: 'Hồ sơ', status: params.seed.trim() && params.character.name.trim() ? 'done' : 'active' },
+    { label: 'Lộ trình', status: hasRoadmapReady ? 'done' : activeProjectId ? 'active' : 'locked' },
+    { label: 'Chấp bút', status: writtenChapters.length > 0 ? 'done' : hasRoadmapReady ? 'active' : 'locked' },
+    { label: 'Biên tập', status: logicReport ? 'done' : writtenChapters.length > 0 ? 'active' : 'locked' },
+  ];
   const isStoryProject = (value: unknown): value is StoryProject => {
     const project = value as Partial<StoryProject>;
     return Boolean(project?.id && project?.params && Array.isArray(project?.volumes));
@@ -511,7 +529,7 @@ const App: React.FC = () => {
     const workingParams = normalizeParams(params);
     setParams(workingParams);
     setIsGeneratingOutline(true);
-    setGenerationStatus('Đang thấu thị đại cục và lập bản đồ chương...');
+    setGenerationStatus(workingParams.projectType === 'Truyện Ngắn' ? 'Đang viết truyện ngắn hoàn chỉnh...' : 'Bước 1/3: Đang dựng Đại cục và chia Arc...');
     setLogicReport(null);
     try {
       if (workingParams.projectType === 'Truyện Ngắn') {
@@ -538,6 +556,7 @@ const App: React.FC = () => {
         setStory(extracted.body);
       } else {
         const result = await generateInitialRoadmap(workingParams);
+        setGenerationStatus('Bước 2/3: Đang kiểm tra độ phủ chương và dựng Thiên Cơ Lục...');
         if (!result || !result.volumes?.length) throw new Error("Dữ liệu lộ trình không hợp lệ.");
         const initialVolumes = result.volumes;
         const initialChapterCount = new Set(initialVolumes.flatMap((volume: Volume) => (volume.chapters || []).map(chapter => chapter.index))).size;
@@ -546,6 +565,7 @@ const App: React.FC = () => {
         }
         const initialSummary = result.generalSummary || workingParams.seed;
         const initialBible = buildOpeningWorldBible(result.worldBuilding || '', initialSummary, workingParams, initialVolumes);
+        setGenerationStatus('Bước 3/3: Đang mở bàn viết và lưu dự án...');
         setVolumes(initialVolumes);
         setWrittenChapters([]);
         setGeneralSummary(initialSummary);
@@ -612,7 +632,12 @@ const App: React.FC = () => {
     setActiveArcIndex(arcIndex);
     const arc = volumes.find(v => v.index === arcIndex);
     const firstUnwritten = sortChapters(arc?.chapters || []).find(ch => !writtenChapters.some(written => written.index === ch.index));
-    const nextIdx = firstUnwritten?.index || (writtenChapters.length > 0 ? Math.max(...writtenChapters.map(c => c.index)) + 1 : 1);
+    if (!firstUnwritten) {
+      alert('Arc này đã viết xong. Hãy chọn chương chưa viết ở Arc khác hoặc xem bản thảo.');
+      setView('outline');
+      return;
+    }
+    const nextIdx = firstUnwritten.index;
     if (!getChapterPlan(nextIdx, arcIndex)) {
       alert('Arc này chưa có kế hoạch chương hợp lệ. Hãy lập lại lộ trình trước khi viết.');
       setView('outline');
@@ -627,6 +652,13 @@ const App: React.FC = () => {
       alert('Chưa có đủ bố cục Arc, bản đồ chương và Thiên Cơ Lục. Hãy lập lộ trình trước khi chấp bút.');
       setView('outline');
       return;
+    }
+    if (firstUnwrittenPlan) {
+      const nextArc = volumes.find(volume => (volume.chapters || []).some(chapter => chapter.index === firstUnwrittenPlan.index));
+      if (nextArc) setActiveArcIndex(nextArc.index);
+      setCurrentChapterIndex(firstUnwrittenPlan.index);
+      setChapterIdea('');
+      setStory('');
     }
     setView('editor');
   };
@@ -682,9 +714,15 @@ const App: React.FC = () => {
     const loadedVolumes = (p.volumes || []).map(v => ({ ...v, chapters: sortChapters(v.chapters || []) }));
     setActiveProjectId(p.id); setParams(p.params); setVolumes(loadedVolumes);
     const loadedWritten = sortChapters(loadedVolumes.flatMap(v => v.chapters || []).filter(c => c.content));
-    setWrittenChapters(loadedWritten); setWorldBible(p.progressionSummary || ''); setGeneralSummary(p.generalSummary || '');
-    setActiveArcIndex(loadedVolumes[0]?.index || 1);
-    setCurrentChapterIndex(loadedWritten[0]?.index || 1);
+    const loadedPlans = sortChapters(loadedVolumes.flatMap(v => v.chapters || []));
+    const loadedNextPlan = loadedPlans.find(chapter => !loadedWritten.some(written => written.index === chapter.index));
+    const loadedBible = p.params.projectType === 'Truyện Ngắn'
+      ? (p.progressionSummary || 'Truyện ngắn hoàn chỉnh.')
+      : (p.progressionSummary || buildOpeningWorldBible('', p.generalSummary || p.params.seed || '', p.params, loadedVolumes));
+    const loadedNextArc = loadedNextPlan ? loadedVolumes.find(volume => (volume.chapters || []).some(chapter => chapter.index === loadedNextPlan.index)) : undefined;
+    setWrittenChapters(loadedWritten); setWorldBible(loadedBible); setGeneralSummary(p.generalSummary || '');
+    setActiveArcIndex(loadedNextArc?.index || loadedVolumes[0]?.index || 1);
+    setCurrentChapterIndex(loadedNextPlan?.index || loadedWritten[loadedWritten.length - 1]?.index || 1);
     setStory(p.params.projectType === 'Truyện Ngắn' ? (loadedWritten[0]?.content || '') : '');
     setLogicReport(null);
     setView(p.params.projectType === 'Truyện Ngắn' ? 'editor' : 'outline');
@@ -745,6 +783,27 @@ const App: React.FC = () => {
           <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
             <span className="block text-[8px] font-black uppercase text-slate-400">Firebase</span>
             <span className="text-[9px] font-bold text-slate-500 line-clamp-2">{cloudStatus}</span>
+          </div>
+        </div>
+        <div className="p-4 bg-slate-950 text-white rounded-2xl shadow-xl space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <span className="block text-[8px] font-black uppercase text-emerald-300 tracking-widest">Quy trình</span>
+              <span className="block text-xs font-black">Tạo truyện theo khóa logic</span>
+            </div>
+            <span className="text-[10px] font-black text-slate-300">{planCompletenessPercent}%</span>
+          </div>
+          <div className="grid grid-cols-4 gap-1.5">
+            {workflowSteps.map(step => (
+              <div key={step.label} className={`h-1.5 rounded-full ${step.status === 'done' ? 'bg-emerald-400' : step.status === 'active' ? 'bg-amber-300' : 'bg-white/15'}`} title={step.label} />
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {workflowSteps.map(step => (
+              <div key={step.label} className={`px-2 py-1.5 rounded-lg text-[8px] font-black uppercase ${step.status === 'done' ? 'bg-emerald-400/15 text-emerald-200' : step.status === 'active' ? 'bg-amber-300/15 text-amber-100' : 'bg-white/5 text-slate-500'}`}>
+                {step.label}
+              </div>
+            ))}
           </div>
         </div>
         <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-2">
@@ -868,10 +927,63 @@ const App: React.FC = () => {
 
         <div className="flex-1 overflow-y-auto p-4 md:p-12 custom-scrollbar bg-[url('https://www.transparenttextures.com/patterns/paper.png')]">
           {view === 'setup' && (
-            <div className="max-w-2xl mx-auto py-16 md:py-32 text-center space-y-6">
-              <h2 className="text-4xl md:text-6xl font-black text-slate-900 italic story-font leading-tight">Bút Nghiên <span className="text-indigo-600 not-italic">Thiên Cơ</span></h2>
-              <p className="text-xl text-slate-400 italic story-font">Hệ thống hỗ trợ sáng tác chuyên nghiệp với tính nhất quán lộ trình tuyệt đối.</p>
-              <button onClick={() => setView('my-stories')} className="px-8 py-3 bg-indigo-900 text-white rounded-full text-xs font-black uppercase tracking-widest shadow-xl hover:bg-black transition-all">Khám phá Tàng Thư</button>
+            <div className="max-w-5xl mx-auto py-8 md:py-14 space-y-8 animate-in fade-in">
+              <section className="grid lg:grid-cols-[1.15fr_0.85fr] gap-6 items-stretch">
+                <div className="bg-white border border-slate-100 rounded-[2rem] p-8 md:p-10 shadow-sm space-y-6">
+                  <div className="space-y-3">
+                    <span className="inline-flex px-3 py-1 bg-emerald-50 text-emerald-700 rounded-full text-[9px] font-black uppercase tracking-widest">Studio sáng tác</span>
+                    <h2 className="text-4xl md:text-6xl font-black text-slate-900 italic story-font leading-tight">Bút Nghiên <span className="text-indigo-600 not-italic">Thiên Cơ</span></h2>
+                    <p className="text-lg md:text-xl text-slate-500 story-font leading-relaxed">Nhập hồ sơ ở cột trái, hệ thống sẽ lập Đại cục, Arc, Thiên Cơ Lục và bản đồ từng chương trước khi cho phép chấp bút.</p>
+                  </div>
+                  <div className="grid sm:grid-cols-3 gap-3">
+                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                      <span className="block text-[8px] font-black uppercase text-slate-400">Dự án</span>
+                      <strong className="text-sm font-black text-slate-900">{params.projectType}</strong>
+                    </div>
+                    <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100">
+                      <span className="block text-[8px] font-black uppercase text-amber-600">Lộ trình</span>
+                      <strong className="text-sm font-black text-amber-900">{params.projectType === 'Trường Thiên' ? `${params.totalChapters} chương` : 'Truyện đơn'}</strong>
+                    </div>
+                    <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
+                      <span className="block text-[8px] font-black uppercase text-indigo-500">Mục tiêu</span>
+                      <strong className="text-sm font-black text-indigo-900">{params.length} chữ</strong>
+                    </div>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <button onClick={handleStartProject} disabled={isGeneratingOutline} className="px-8 py-4 bg-indigo-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:bg-black transition-all disabled:opacity-50">
+                      {isGeneratingOutline ? 'Đang dựng dự án...' : (params.projectType === 'Truyện Ngắn' ? 'Viết truyện ngắn' : 'Lập lộ trình trước')}
+                    </button>
+                    <button onClick={() => setView('my-stories')} className="px-8 py-4 bg-white border border-slate-200 text-slate-500 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all">
+                      Mở Tàng Thư
+                    </button>
+                  </div>
+                </div>
+                <div className="bg-slate-950 text-white rounded-[2rem] p-6 md:p-8 shadow-xl space-y-5">
+                  <div>
+                    <span className="text-[9px] font-black uppercase text-emerald-300 tracking-widest">Luồng bắt buộc</span>
+                    <h3 className="text-2xl font-black story-font mt-2">Không viết khi chưa có khung truyện</h3>
+                  </div>
+                  <div className="space-y-3">
+                    {workflowSteps.map((step, idx) => (
+                      <div key={step.label} className="flex items-center gap-3">
+                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-xs font-black ${step.status === 'done' ? 'bg-emerald-400 text-slate-950' : step.status === 'active' ? 'bg-amber-300 text-slate-950' : 'bg-white/10 text-slate-400'}`}>
+                          {idx + 1}
+                        </div>
+                        <div>
+                          <p className="text-sm font-black">{step.label}</p>
+                          <p className="text-[10px] text-slate-400">{step.status === 'done' ? 'Đã sẵn sàng' : step.status === 'active' ? 'Đang cần hoàn thiện' : 'Chờ bước trước'}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {roadmapIssues.length > 0 && (
+                    <div className="p-4 bg-amber-300/10 border border-amber-300/20 rounded-2xl">
+                      <p className="text-[10px] font-black uppercase text-amber-200 mb-2">Còn thiếu</p>
+                      <p className="text-xs text-amber-50 leading-relaxed">{roadmapIssues.join(' ')}</p>
+                    </div>
+                  )}
+                </div>
+              </section>
             </div>
           )}
 
@@ -895,6 +1007,23 @@ const App: React.FC = () => {
                   <strong className={`text-sm font-black ${hasRoadmapReady ? 'text-emerald-600' : 'text-red-500'}`}>
                     {hasRoadmapReady ? 'Sẵn sàng chấp bút' : 'Thiếu lộ trình'}
                   </strong>
+                </div>
+              </section>
+              <section className={`p-5 rounded-3xl border shadow-sm ${hasRoadmapReady ? 'bg-emerald-50 border-emerald-100' : 'bg-amber-50 border-amber-100'}`}>
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                  <div>
+                    <h3 className={`text-[10px] font-black uppercase tracking-widest ${hasRoadmapReady ? 'text-emerald-700' : 'text-amber-700'}`}>
+                      {hasRoadmapReady ? 'Quy trình đã khóa' : 'Cần hoàn thiện trước khi viết'}
+                    </h3>
+                    <p className="text-sm text-slate-700 mt-1">
+                      {hasRoadmapReady
+                        ? `Có ${plannedChapterIndexes.size} chương trong ${volumes.length} Arc. Chương kế tiếp nên viết: ${firstUnwrittenPlan ? `C.${firstUnwrittenPlan.index} - ${firstUnwrittenPlan.title}` : 'lộ trình đã hoàn tất'}.`
+                        : roadmapIssues.join(' ')}
+                    </p>
+                  </div>
+                  <button onClick={openEditorWithGuard} disabled={!hasRoadmapReady || !firstUnwrittenPlan} className="px-6 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-900 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
+                    {firstUnwrittenPlan ? 'Viết chương kế tiếp' : 'Đã đủ bản thảo'}
+                  </button>
                 </div>
               </section>
               <section className="p-6 bg-white border rounded-3xl shadow-sm border-l-4 border-l-slate-900">
@@ -1048,7 +1177,20 @@ const App: React.FC = () => {
 
           {view === 'editor' && (
             <div className="max-w-3xl mx-auto pb-48 animate-in fade-in">
-              {!story || isGenerating ? (
+              {params.projectType === 'Trường Thiên' && !hasRoadmapReady ? (
+                <section className="p-8 md:p-10 bg-amber-50 border border-amber-100 rounded-[2rem] shadow-sm space-y-5">
+                  <span className="inline-flex px-3 py-1 bg-white text-amber-700 rounded-full text-[9px] font-black uppercase tracking-widest">Chưa mở khóa chấp bút</span>
+                  <h2 className="text-3xl font-black story-font text-slate-900">Cần hoàn thiện lộ trình trước</h2>
+                  <div className="space-y-2">
+                    {roadmapIssues.map(issue => (
+                      <p key={issue} className="text-sm text-amber-800 font-bold">{issue}</p>
+                    ))}
+                  </div>
+                  <button onClick={() => setView('outline')} className="px-7 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-900 transition-all">
+                    Về lộ trình Arc
+                  </button>
+                </section>
+              ) : !story || isGenerating ? (
                 <section className="p-6 md:p-10 bg-white border rounded-[2rem] md:rounded-[3rem] shadow-2xl space-y-8 border-t-[12px] border-t-indigo-900 mt-6 md:mt-10 relative overflow-hidden">
                   <div className="text-center space-y-2">
                      <span className="text-[10px] font-black uppercase text-indigo-600 tracking-[0.3em]">Thiên Cơ Lệnh</span>
@@ -1057,17 +1199,24 @@ const App: React.FC = () => {
                      </h3>
                      <p className="text-xs text-slate-400 italic">Mục tiêu Arc: {volumes.find(v => v.index === activeArcIndex)?.summary}</p>
                   </div>
-                  {getChapterPlan(currentChapterIndex) && (
+                  {currentChapterPlan && (
                     <div className="p-5 bg-indigo-50/70 border border-indigo-100 rounded-2xl space-y-3">
                       <div className="flex items-center justify-between gap-3">
-                        <h4 className="text-xs font-black text-indigo-900 uppercase">{getChapterPlan(currentChapterIndex)?.title}</h4>
-                        <span className="px-3 py-1 bg-white text-indigo-600 rounded-full text-[9px] font-black shadow-sm">{getChapterPlan(currentChapterIndex)?.targetWords || params.length} chữ</span>
+                        <h4 className="text-xs font-black text-indigo-900 uppercase">{currentChapterPlan.title}</h4>
+                        <span className="px-3 py-1 bg-white text-indigo-600 rounded-full text-[9px] font-black shadow-sm">{currentChapterPlan.targetWords || params.length} chữ</span>
                       </div>
-                      <p className="text-xs text-indigo-700 leading-relaxed">{getChapterPlan(currentChapterIndex)?.objective || getChapterPlan(currentChapterIndex)?.summary}</p>
-                      {!!getChapterPlan(currentChapterIndex)?.beats?.length && (
+                      <p className="text-xs text-indigo-700 leading-relaxed">{currentChapterPlan.objective || currentChapterPlan.summary}</p>
+                      {!!currentChapterPlan.beats?.length && (
                         <div className="flex flex-wrap gap-2">
-                          {getChapterPlan(currentChapterIndex)?.beats?.map((beat, idx) => (
+                          {currentChapterPlan.beats?.map((beat, idx) => (
                             <span key={idx} className="px-2 py-1 bg-white/80 text-indigo-500 rounded-md text-[9px] font-bold border border-indigo-100">{beat}</span>
+                          ))}
+                        </div>
+                      )}
+                      {!!currentChapterPlan.mustInclude?.length && (
+                        <div className="pt-2 border-t border-indigo-100 flex flex-wrap gap-2">
+                          {currentChapterPlan.mustInclude.map((item, idx) => (
+                            <span key={idx} className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-md text-[9px] font-bold border border-emerald-100">{item}</span>
                           ))}
                         </div>
                       )}
@@ -1105,8 +1254,12 @@ const App: React.FC = () => {
                       <button onClick={() => { 
                         const allPlans = sortChapters(volumes.flatMap(v => v.chapters || []));
                         const nextPlan = allPlans.find(ch => ch.index > currentChapterIndex && !writtenChapters.some(w => w.index === ch.index));
-                        const max = writtenChapters.length > 0 ? Math.max(...writtenChapters.map(c => c.index)) : 0;
-                        setCurrentChapterIndex(nextPlan?.index || max + 1);
+                        if (!nextPlan) {
+                          alert('Không còn chương chưa viết trong lộ trình hiện tại.');
+                          setView('outline');
+                          return;
+                        }
+                        setCurrentChapterIndex(nextPlan.index);
                         const nextArc = nextPlan ? volumes.find(v => (v.chapters || []).some(ch => ch.index === nextPlan.index)) : undefined;
                         if (nextArc) setActiveArcIndex(nextArc.index);
                         setStory(''); 
