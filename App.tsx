@@ -23,7 +23,6 @@ import {
   saveProjectToFirebase,
   saveProjectsToFirebase,
 } from './services/firebaseService';
-import { syncProjectsToGitHub } from './services/githubSyncService';
 import React, { useState, useEffect, useRef } from 'react';
 import { GENRES, TONES, MODES } from './constants';
 import { StoryParams, StoryProject, Genre, Chapter, Volume, StoryLogicReport } from './types';
@@ -90,9 +89,6 @@ const App: React.FC = () => {
   const [isHydrated, setIsHydrated] = useState<boolean>(false);
   const [storageStatus, setStorageStatus] = useState<string>('Đang mở database...');
   const [cloudStatus, setCloudStatus] = useState<string>(isFirebaseConfigured() ? 'Đang mở Firebase...' : 'Firebase chưa cấu hình');
-  const [isSyncingGitHub, setIsSyncingGitHub] = useState<boolean>(false);
-  const [githubSyncStatus, setGithubSyncStatus] = useState<string>('GitHub chưa đồng bộ');
-  const [lastGitHubSyncUrl, setLastGitHubSyncUrl] = useState<string>('');
   const [isCheckingLogic, setIsCheckingLogic] = useState<boolean>(false);
   const [logicReport, setLogicReport] = useState<StoryLogicReport | null>(null);
   const [view, setView] = useState<'editor' | 'outline' | 'manuscript' | 'setup' | 'my-stories' | 'bible'>('setup');
@@ -404,41 +400,6 @@ const App: React.FC = () => {
     e?.stopPropagation();
     const safeTitle = project.title.replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, '_') || 'ButNghien';
     downloadTextFile(`BanThao_${safeTitle}.txt`, buildManuscriptText(project));
-  };
-
-  const friendlySyncError = (error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error || '');
-    if (message.includes('GITHUB_SYNC_TOKEN')) return 'Vercel chưa có GITHUB_SYNC_TOKEN. Hãy thêm token GitHub có quyền Contents: Read and write.';
-    if (message.includes('GITHUB_SYNC_REPO')) return 'Vercel chưa có GITHUB_SYNC_REPO đúng dạng owner/repository.';
-    if (message.includes('GitHub 401') || message.includes('GitHub 403')) return 'GitHub token không hợp lệ hoặc chưa có quyền ghi vào repo.';
-    if (message.includes('GitHub 404')) return 'Không tìm thấy repo/branch GitHub. Kiểm tra GITHUB_SYNC_REPO và GITHUB_SYNC_BRANCH.';
-    if (message.includes('Chua co API') || message.includes('Unexpected token')) return 'Đồng bộ GitHub chỉ chạy khi deploy trên Vercel hoặc chạy local bằng vercel dev.';
-    return message || 'Không đồng bộ được GitHub.';
-  };
-
-  const handleSyncToGitHub = async (scope: 'active' | 'all', e?: React.MouseEvent) => {
-    e?.stopPropagation();
-    if (isSyncingGitHub) return;
-    const syncTargets = scope === 'all' ? projects : (activeProject ? [activeProject] : []);
-    if (syncTargets.length === 0) {
-      alert(scope === 'all' ? 'Chưa có tác phẩm để đồng bộ.' : 'Hãy mở một tác phẩm trước khi đồng bộ.');
-      return;
-    }
-
-    setIsSyncingGitHub(true);
-    setGithubSyncStatus(scope === 'all' ? 'Đang đồng bộ toàn bộ Tàng Thư lên GitHub...' : 'Đang đồng bộ tác phẩm đang mở lên GitHub...');
-    try {
-      const result = await syncProjectsToGitHub(syncTargets);
-      setGithubSyncStatus(`Đã lưu ${result.files.length} file vào ${result.repo}`);
-      setLastGitHubSyncUrl(result.commitUrl);
-      alert(`Đã đồng bộ lên GitHub: ${result.repo}\nSố file: ${result.files.length}`);
-    } catch (error) {
-      const message = friendlySyncError(error);
-      setGithubSyncStatus(message);
-      alert(message);
-    } finally {
-      setIsSyncingGitHub(false);
-    }
   };
 
   const handleWriteChapter = async () => {
@@ -834,23 +795,6 @@ const App: React.FC = () => {
             ))}
           </div>
         </div>
-        <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-2">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <span className="block text-[8px] font-black uppercase text-slate-400">GitHub Sync</span>
-              <span className="block text-[9px] font-bold text-slate-500 line-clamp-2">{githubSyncStatus}</span>
-            </div>
-            <button onClick={(e) => handleSyncToGitHub('all', e)} disabled={isSyncingGitHub || projects.length === 0} className="px-3 py-2 bg-indigo-900 text-white rounded-lg text-[8px] font-black uppercase disabled:opacity-40 hover:bg-black transition-all shrink-0">
-              {isSyncingGitHub ? 'Đang gửi' : 'Sync'}
-            </button>
-          </div>
-          {lastGitHubSyncUrl && (
-            <a href={lastGitHubSyncUrl} target="_blank" rel="noreferrer" className="block text-[9px] font-black uppercase text-indigo-500 hover:text-indigo-900">
-              Mở commit mới nhất
-            </a>
-          )}
-        </div>
-        
         <div className="space-y-5">
           <div className="flex bg-slate-100 p-1 rounded-xl">
             {(['Truyện Ngắn', 'Trường Thiên'] as const).map(t => (
@@ -932,9 +876,6 @@ const App: React.FC = () => {
             </div>
             <button onClick={(e) => handleExportManuscript(activeProject, e)} className="w-full py-2 bg-white/10 hover:bg-white/20 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all">
               Xuất bản thảo .txt
-            </button>
-            <button onClick={(e) => handleSyncToGitHub('active', e)} disabled={isSyncingGitHub} className="w-full py-2 bg-indigo-300 text-indigo-950 hover:bg-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all disabled:opacity-50">
-              {isSyncingGitHub ? 'Đang đồng bộ...' : 'Đồng bộ tác phẩm lên GitHub'}
             </button>
           </div>
         )}
@@ -1155,9 +1096,6 @@ const App: React.FC = () => {
               <section className="p-6 md:p-8 bg-indigo-900 text-white rounded-3xl shadow-xl flex flex-col md:flex-row md:justify-between md:items-center gap-4">
                 <h2 className="text-2xl font-black italic story-font">Tàng Thư Của Bạn</h2>
                 <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
-                  <button onClick={(e) => handleSyncToGitHub('all', e)} disabled={isSyncingGitHub || projects.length === 0} className="bg-indigo-300 text-indigo-950 px-6 py-3 rounded-xl text-[10px] font-black uppercase shadow-lg hover:bg-white transition-all disabled:opacity-50">
-                    {isSyncingGitHub ? 'Đang đồng bộ...' : 'Đồng bộ GitHub'}
-                  </button>
                   <button onClick={() => fileInputRef.current?.click()} className="bg-white text-indigo-900 px-8 py-3 rounded-xl text-[10px] font-black uppercase shadow-lg hover:bg-slate-100 transition-all">Nhập file (.json)</button>
                 </div>
                 <input type="file" ref={fileInputRef} onChange={e => {
