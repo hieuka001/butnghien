@@ -232,6 +232,10 @@ const parseAIResponse = (text: string) => {
   }
 };
 
+const extractGeminiText = (data: AnyRecord) => (data?.candidates?.[0]?.content?.parts || [])
+  .map((part: AnyRecord) => part.text || "")
+  .join("");
+
 const chatJson = async (
   model: string,
   systemInstruction: string,
@@ -259,9 +263,7 @@ const chatJson = async (
       throw new GeminiRequestError(data.error.message || "Gemini trả về lỗi.", status, undefined, isRotatableStatus(status));
     }
 
-    const content = (data?.candidates?.[0]?.content?.parts || [])
-      .map((part: AnyRecord) => part.text || "")
-      .join("");
+    const content = extractGeminiText(data);
     if (!content) {
       const blockReason = data?.promptFeedback?.blockReason;
       throw new GeminiRequestError(blockReason ? `Gemini chặn prompt: ${blockReason}` : "Gemini không trả về nội dung.", response.status, undefined, true);
@@ -301,15 +303,87 @@ const chatJson = async (
     throw new GeminiRequestError(data.error.message || "Gemini trả về lỗi.", status, keyIndex, isRotatableStatus(status));
   }
 
-  const content = (data?.candidates?.[0]?.content?.parts || [])
-    .map((part: AnyRecord) => part.text || "")
-    .join("");
+  const content = extractGeminiText(data);
   if (!content) {
     const blockReason = data?.promptFeedback?.blockReason;
     throw new GeminiRequestError(blockReason ? `Gemini chặn prompt: ${blockReason}` : "Gemini không trả về nội dung.", response.status, keyIndex, true);
   }
 
   return parseAIResponse(content);
+  });
+};
+
+const chatText = async (
+  model: string,
+  systemInstruction: string,
+  prompt: string,
+  temperature = 0.78,
+  maxTokens = 8000,
+): Promise<string> => {
+  const outputTokens = capOutputTokens(maxTokens);
+
+  if (USE_GEMINI_PROXY) {
+    const response = await requestGeminiProxy(model, systemInstruction, prompt, temperature, outputTokens, false, false);
+    if (!response.ok) {
+      const message = await parseErrorBody(response);
+      const affordableTokens = extractAffordableTokens(message);
+      const nextMaxTokens = affordableTokens ? capOutputTokens(affordableTokens - 160) : Math.floor(outputTokens * 0.65);
+      if ((response.status === 429 || response.status === 400) && nextMaxTokens >= 512 && nextMaxTokens < outputTokens) {
+        return chatText(model, systemInstruction, prompt, temperature, nextMaxTokens);
+      }
+      throw new GeminiRequestError(`Gemini lỗi ${response.status}: ${message}`, response.status, undefined, isRotatableStatus(response.status));
+    }
+
+    const data = await response.json();
+    if (data?.error) {
+      const status = Number(data.error.code) || response.status;
+      throw new GeminiRequestError(data.error.message || "Gemini trả về lỗi.", status, undefined, isRotatableStatus(status));
+    }
+
+    const content = extractGeminiText(data);
+    if (!content) {
+      const blockReason = data?.promptFeedback?.blockReason;
+      throw new GeminiRequestError(blockReason ? `Gemini chặn prompt: ${blockReason}` : "Gemini không trả về nội dung.", response.status, undefined, true);
+    }
+    return cleanStoryText(content);
+  }
+
+  return withGeminiKeys(async (apiKey, keyIndex) => {
+    const response = await fetch(`${GEMINI_API_BASE}/models/${model}:generateContent`, {
+      method: "POST",
+      headers: requestHeaders(apiKey),
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemInstruction }] },
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature,
+          maxOutputTokens: outputTokens,
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      const message = await parseErrorBody(response);
+      const affordableTokens = extractAffordableTokens(message);
+      const nextMaxTokens = affordableTokens ? capOutputTokens(affordableTokens - 160) : Math.floor(outputTokens * 0.65);
+      if ((response.status === 429 || response.status === 400) && nextMaxTokens >= 512 && nextMaxTokens < outputTokens) {
+        return chatText(model, systemInstruction, prompt, temperature, nextMaxTokens);
+      }
+      throw new GeminiRequestError(`Gemini lỗi ${response.status}: ${message}`, response.status, keyIndex, isRotatableStatus(response.status));
+    }
+
+    const data = await response.json();
+    if (data?.error) {
+      const status = Number(data.error.code) || response.status;
+      throw new GeminiRequestError(data.error.message || "Gemini trả về lỗi.", status, keyIndex, isRotatableStatus(status));
+    }
+
+    const content = extractGeminiText(data);
+    if (!content) {
+      const blockReason = data?.promptFeedback?.blockReason;
+      throw new GeminiRequestError(blockReason ? `Gemini chặn prompt: ${blockReason}` : "Gemini không trả về nội dung.", response.status, keyIndex, true);
+    }
+    return cleanStoryText(content);
   });
 };
 
@@ -366,51 +440,64 @@ const streamChat = async (
   let buffer = "";
   let fullText = "";
 
+  const processSseEvent = (event: string) => {
+    const dataLines = event
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(line => line.startsWith("data:"))
+      .map(line => line.slice(5).trim());
+
+    for (const dataLine of dataLines) {
+      if (!dataLine || dataLine === "[DONE]") continue;
+      let payload: AnyRecord;
+      try {
+        payload = JSON.parse(dataLine);
+      } catch (error) {
+        console.warn("Bỏ qua một gói stream không phải JSON hợp lệ:", error);
+        continue;
+      }
+
+      if (payload?.error) {
+        const status = Number(payload.error.code) || 500;
+        throw new GeminiRequestError(
+          payload.error.message || "Gemini stream bị lỗi.",
+          status,
+          keyIndex,
+          !emittedAnyToken && isRotatableStatus(status),
+        );
+      }
+
+      const content = extractGeminiText(payload);
+      if (content) {
+        const cleaned = cleanStoryText(content);
+        emittedAnyToken = true;
+        fullText += cleaned;
+        onChunk(cleaned);
+      }
+    }
+  };
+
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
 
     buffer += decoder.decode(value, { stream: true });
-    const events = buffer.split("\n\n");
+    const events = buffer.split(/\r?\n\r?\n/);
     buffer = events.pop() || "";
 
     for (const event of events) {
-      const dataLines = event
-        .split("\n")
-        .map(line => line.trim())
-        .filter(line => line.startsWith("data:"))
-        .map(line => line.slice(5).trim());
+      processSseEvent(event);
+    }
+  }
 
-      for (const dataLine of dataLines) {
-        if (!dataLine || dataLine === "[DONE]") continue;
-        let payload: AnyRecord;
-        try {
-          payload = JSON.parse(dataLine);
-        } catch (error) {
-          console.warn("Bỏ qua một gói stream không phải JSON hợp lệ:", error);
-          continue;
-        }
+  buffer += decoder.decode();
+  if (buffer.trim()) processSseEvent(buffer);
 
-        if (payload?.error) {
-          const status = Number(payload.error.code) || 500;
-          throw new GeminiRequestError(
-            payload.error.message || "Gemini stream bị lỗi.",
-            status,
-            keyIndex,
-            !emittedAnyToken && isRotatableStatus(status),
-          );
-        }
-
-        const content = (payload?.candidates?.[0]?.content?.parts || [])
-          .map((part: AnyRecord) => part.text || "")
-          .join("");
-        if (content) {
-          const cleaned = cleanStoryText(content);
-          emittedAnyToken = true;
-          fullText += cleaned;
-          onChunk(cleaned);
-        }
-      }
+  if (!fullText.trim()) {
+    const fallbackText = await chatText(model, systemInstruction, prompt, temperature, outputTokens);
+    if (fallbackText.trim()) {
+      onChunk(fallbackText);
+      return fallbackText;
     }
   }
 
