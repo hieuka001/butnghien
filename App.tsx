@@ -586,6 +586,57 @@ const App: React.FC = () => {
 
     setIsGenerating(true);
     setStory('');
+
+    if (params.projectType === 'Truyện Ngắn') {
+      try {
+        setGenerationStatus('Đang viết truyện ngắn hoàn chỉnh...');
+        const fullText = await generateShortStoryStream(params, (chunk) => setStory(prev => prev + chunk), chapterIdea);
+        if (!fullText.trim()) throw new Error('Gemini chưa trả về nội dung truyện. Hãy thử lại với mục tiêu chữ thấp hơn hoặc bấm viết lại.');
+
+        const extracted = extractGeneratedTitle(fullText, writtenChapters[0]?.title || 'Toàn văn');
+        const shortChapter: Chapter = {
+          ...(writtenChapters[0] || {}),
+          index: 1,
+          title: extracted.title,
+          content: extracted.body,
+          summary: params.seed || extracted.body.slice(0, 240),
+          targetWords: params.length,
+        };
+        const shortVolume: Volume = {
+          ...(volumes[0] || {}),
+          index: 1,
+          title: 'Truyện ngắn',
+          summary: 'Nội dung truyện ngắn hoàn chỉnh',
+          purpose: 'Hoàn chỉnh một truyện độc lập',
+          chapterStart: 1,
+          chapterEnd: 1,
+          chapters: [shortChapter],
+        };
+        const nextWrittenList = [shortChapter];
+        setWrittenChapters(nextWrittenList);
+        setVolumes([shortVolume]);
+        setWorldBible('Truyện ngắn hoàn chỉnh.');
+        setStory(extracted.body);
+        setProjects(prevProjects => prevProjects.map(p => p.id === activeProjectId
+          ? {
+              ...p,
+              title: extracted.title || p.title,
+              volumes: [shortVolume],
+              progressionSummary: 'Truyện ngắn hoàn chỉnh.',
+              lastChapterWritten: 1,
+              updatedAt: Date.now(),
+            }
+          : p
+        ));
+      } catch (e) {
+        console.error(e);
+        alert(friendlyError(e));
+      } finally {
+        setIsGenerating(false);
+        setGenerationStatus('');
+      }
+      return;
+    }
     
     let attempts = 0;
     const maxAttempts = 2;
@@ -613,6 +664,8 @@ const App: React.FC = () => {
           (chunk) => setStory(prev => prev + chunk),
           attempts > 1
         );
+        setStory(finalContent);
+        if (!finalContent.trim()) throw new Error('Gemini chưa trả về nội dung chương. Hãy thử lại hoặc giảm mục tiêu số chữ.');
 
         setGenerationStatus('Đang thẩm định số chữ, canon, logic và độ tập trung...');
         const validation = await validateChapterLogic(finalContent, previousForValidation, worldBible, currentArc, generalSummary, params, currentChapterIndex);
@@ -629,11 +682,21 @@ const App: React.FC = () => {
       }
 
       if (!isValid) {
-        alert("Lưu ý: Chương này vẫn có điểm cần biên tập thêm, nhưng hệ thống đã thử viết lại theo lộ trình tốt nhất có thể.");
+        console.warn("Chương cần biên tập thêm, nhưng vẫn lưu bản tốt nhất đã viết.");
       }
 
       setGenerationStatus('Đang cập nhật Thiên Cơ Lục và khóa dữ kiện mới...');
-      const updates = await updateWorldBibleAndSummary(worldBible, finalContent, currentChapterIndex, generalSummary, params, currentArc);
+      let updates: { chapterTitle?: string; chapterSummary?: string; updatedBible: string };
+      try {
+        updates = await updateWorldBibleAndSummary(worldBible, finalContent, currentChapterIndex, generalSummary, params, currentArc);
+      } catch (updateError) {
+        console.warn('Không cập nhật được Thiên Cơ Lục, vẫn lưu chương đã viết:', updateError);
+        updates = {
+          chapterTitle: chapterPlan?.title || `Chương ${currentChapterIndex}`,
+          chapterSummary: chapterPlan?.summary || finalContent.slice(0, 240),
+          updatedBible: worldBible,
+        };
+      }
       
       const extracted = extractGeneratedTitle(finalContent, updates.chapterTitle || chapterPlan?.title || `Chương ${currentChapterIndex}`);
       const finalTitle = updates.chapterTitle || extracted.title;

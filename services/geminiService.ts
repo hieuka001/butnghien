@@ -830,7 +830,7 @@ YÊU CẦU VIẾT:
 
   let fullText = await streamChat(WRITE_MODEL, WRITER_SYSTEM_INSTRUCTION, prompt, onChunk, 0.78, estimateMaxTokens(targetWords, 2000));
   let rounds = 0;
-  const maxContinuationRounds = targetWords <= 2500 ? 1 : targetWords <= 6000 ? 2 : 3;
+  const maxContinuationRounds = targetWords <= 2500 ? 1 : targetWords <= 6000 ? 2 : targetWords <= 12000 ? 4 : 6;
 
   while (countWords(fullText) < minWords && rounds < maxContinuationRounds) {
     rounds++;
@@ -1049,7 +1049,7 @@ Chỉ trả về JSON hợp lệ:
   );
 };
 
-export const generateShortStoryStream = async (params: StoryParams, onChunk: (text: string) => void): Promise<string> => {
+export const generateShortStoryStream = async (params: StoryParams, onChunk: (text: string) => void, userIdea = ""): Promise<string> => {
   const targetWords = params.length || 3000;
   const minWords = Math.max(600, Math.floor(targetWords * 0.72));
   const maxWords = Math.ceil(targetWords * 1.2);
@@ -1064,12 +1064,16 @@ Yêu cầu:
 - Không lan man: mỗi cảnh phải phục vụ xung đột chính, tính cách nhân vật hoặc hậu quả cao trào.
 - Giữ nhất quán tên riêng, số liệu, mốc thời gian và luật thế giới đã tự thiết lập trong truyện ngắn.
 - Bắt đầu bằng "Tên truyện: [tên]".
-- Không dùng markdown, không dàn ý, không giải thích.`;
+- Không dùng markdown, không dàn ý, không giải thích.
+
+[Ý ĐỒ BỔ SUNG CỦA NGƯỜI DÙNG]
+${userIdea || "Không có bổ sung."}`;
 
   let fullText = await streamChat(WRITE_MODEL, WRITER_SYSTEM_INSTRUCTION, prompt, onChunk, 0.82, estimateMaxTokens(targetWords, 2000));
   let rounds = 0;
+  const maxContinuationRounds = targetWords <= 2500 ? 1 : targetWords <= 6000 ? 2 : targetWords <= 12000 ? 4 : 6;
 
-  while (countWords(fullText) < minWords && rounds < 2) {
+  while (countWords(fullText) < minWords && rounds < maxContinuationRounds) {
     rounds++;
     const continuationPrompt = `Truyện ngắn hiện mới khoảng ${countWords(fullText)} chữ, thấp hơn mục tiêu ${targetWords}.
 Hãy viết tiếp ngay từ đoạn cuối để hoàn chỉnh xung đột và dư âm, không lặp lại tiêu đề, không tóm tắt.
