@@ -61,21 +61,36 @@ const getGeminiKeys = () => {
 };
 
 const isRotatableStatus = (status: number) => [401, 402, 408, 429, 500, 502, 503].includes(status);
-const isFallbackStatus = (status: number) => [429, 500, 502, 503].includes(status);
+const isFallbackStatus = (status: number) => [404, 429, 500, 502, 503].includes(status);
 
 const splitEnvList = (value?: string) => (value || "")
   .split(",")
   .map(item => item.trim())
   .filter(Boolean);
 
+const normalizeGeminiModel = (model?: string) => {
+  const cleaned = (model || "").trim().replace(/^models\//, "");
+  if (!cleaned) return "gemini-2.5-flash";
+
+  const deprecatedModelMap: Record<string, string> = {
+    "gemini-1.5-flash": "gemini-2.5-flash",
+    "gemini-1.5-flash-latest": "gemini-2.5-flash",
+    "gemini-1.5-pro": "gemini-2.5-flash",
+    "gemini-1.5-pro-latest": "gemini-2.5-flash",
+    "gemini-pro": "gemini-2.5-flash",
+  };
+
+  return deprecatedModelMap[cleaned] || cleaned;
+};
+
 const getFallbackModels = (requestedModel?: string) => {
-  const primaryModel = requestedModel || process.env.GEMINI_MODEL || "gemini-2.5-flash";
-  const envFallbacks = splitEnvList(process.env.GEMINI_FALLBACK_MODELS);
+  const primaryModel = normalizeGeminiModel(requestedModel || process.env.GEMINI_MODEL || "gemini-2.5-flash");
+  const envFallbacks = splitEnvList(process.env.GEMINI_FALLBACK_MODELS).map(normalizeGeminiModel);
   const defaultFallbacks = [
+    "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
     "gemini-2.0-flash-lite",
     "gemini-2.0-flash",
-    "gemini-1.5-flash",
   ];
 
   return [primaryModel, ...envFallbacks, ...defaultFallbacks]
@@ -225,7 +240,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     res.status(200).json({
       configured: getGeminiKeys().length > 0,
       keyCount: getGeminiKeys().length,
-      model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
+      model: normalizeGeminiModel(process.env.GEMINI_MODEL || "gemini-2.5-flash"),
       fallbackModels: getFallbackModels(),
     });
     return;

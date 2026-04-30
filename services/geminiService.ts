@@ -4,8 +4,22 @@ type AnyRecord = Record<string, any>;
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
-const PLAN_MODEL = process.env.GEMINI_PLAN_MODEL || process.env.GEMINI_MODEL || "gemini-2.5-flash";
-const WRITE_MODEL = process.env.GEMINI_WRITE_MODEL || process.env.GEMINI_MODEL || "gemini-2.5-flash";
+const normalizeGeminiModel = (model?: string) => {
+  const cleaned = (model || "").trim().replace(/^models\//, "");
+  if (!cleaned) return "gemini-2.5-flash";
+
+  const deprecatedModelMap: Record<string, string> = {
+    "gemini-1.5-flash": "gemini-2.5-flash",
+    "gemini-1.5-flash-latest": "gemini-2.5-flash",
+    "gemini-1.5-pro": "gemini-2.5-flash",
+    "gemini-1.5-pro-latest": "gemini-2.5-flash",
+    "gemini-pro": "gemini-2.5-flash",
+  };
+
+  return deprecatedModelMap[cleaned] || cleaned;
+};
+const PLAN_MODEL = normalizeGeminiModel(process.env.GEMINI_PLAN_MODEL || process.env.GEMINI_MODEL || "gemini-2.5-flash");
+const WRITE_MODEL = normalizeGeminiModel(process.env.GEMINI_WRITE_MODEL || process.env.GEMINI_MODEL || "gemini-2.5-flash");
 const DEFAULT_MAX_OUTPUT_TOKENS = clamp(Number(process.env.GEMINI_MAX_OUTPUT_TOKENS) || 8192, 512, 65536);
 const USE_GEMINI_PROXY = process.env.GEMINI_SERVER_PROXY === "true";
 
