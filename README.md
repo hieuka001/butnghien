@@ -1,66 +1,60 @@
 # Bút Nghiên AI
 
-Ứng dụng hỗ trợ viết truyện bằng Gemini API, tập trung vào cấu trúc đầu vào: số chương, số chữ mỗi chương, nhân vật, tính cách, mục tiêu, thể loại, tông giọng và lộ trình Arc.
+Ứng dụng hỗ trợ viết truyện bằng Gemini API. Luồng chính bắt buộc đi theo hồ sơ đầu vào: loại truyện, số chương, số chữ mỗi chương, nhân vật, tính cách, mục tiêu, thể loại, giọng văn, bố cục, Đại cục, Arc và Thiên Cơ Lục.
 
-## Điểm chính
+## Điểm Chính
 
-- Lập bản đồ chương cho toàn bộ truyện dài ngay từ đầu.
-- Mỗi chương có mục tiêu, beat nội dung, yếu tố bắt buộc, nhịp độ và số chữ mục tiêu.
-- Khi chấp bút, AI được ép bám Đại cục, Thiên Cơ Lục, Arc hiện tại và kế hoạch chương.
-- Có thẩm định logic sau khi viết chương và cập nhật Thiên Cơ Lục sau mỗi chương.
-- Có kiểm tra logic toàn truyện đã viết: mâu thuẫn, lệch Arc, lặp tình tiết, trọng tâm chương kế tiếp.
-- Dùng `gemini-2.5-flash` mặc định: phù hợp viết truyện, context dài và có free tier giới hạn qua Google AI Studio.
-- Có thể cấu hình nhiều Gemini API key để xoay khi một key bị rate limit.
-- Hỗ trợ truyện ngắn, nhập/xuất dự án JSON và lưu dự án vào IndexedDB của trình duyệt.
+- Truyện dài chỉ lập Đại cục, Thiên Cơ Lục và lộ trình Arc ở bước đầu để chạy được cả dự án vài trăm đến 1000 chương.
+- Khi bắt đầu viết một Arc, app mới sinh bản đồ chương chi tiết cho Arc đó, tránh ép Gemini trả về quá nhiều JSON cùng lúc.
+- Mỗi chương có mục tiêu, beat cảnh, chi tiết bắt buộc, nhịp độ, hook và số chữ mục tiêu.
+- Khi chấp bút, AI bị ràng buộc bởi Đại cục, Thiên Cơ Lục, Arc hiện tại, bản đồ chương và lịch sử chương trước.
+- Sau mỗi chương, app thẩm định logic rồi cập nhật Thiên Cơ Lục để giữ canon, số liệu, timeline và quan hệ nhân vật.
+- Dữ liệu được lưu cục bộ bằng IndexedDB và đồng bộ lên Cloud Firestore theo tài khoản Firebase.
+- Trên Vercel, Gemini chạy qua API serverless `/api/gemini`, nên Gemini key nằm trong Environment Variables thay vì nằm trong bundle trình duyệt.
 
-## Chạy local
+## Chạy Local
 
 1. Cài Node.js.
 2. Cài dependency:
    `npm install`
-3. Tạo `.env.local` theo `.env.example` và đặt khóa Gemini:
-   `GEMINI_API_KEY=...`
-4. Chạy app:
+3. Tạo `.env.local` theo `.env.example`.
+4. Điền `GEMINI_API_KEY` và cấu hình Firebase nếu cần lưu cloud.
+5. Chạy app:
    `npm run dev`
 
-## Cấu hình model
+Nếu PowerShell chặn `npm`, dùng:
 
-Mặc định app dùng `gemini-2.5-flash`. Đây là lựa chọn cân bằng cho app viết truyện vì nhanh, context dài, chất lượng tốt hơn dòng Lite và có free tier giới hạn.
+```powershell
+npm.cmd run dev
+```
 
-- `GEMINI_MODEL`: dùng chung cho mọi tác vụ.
-- `GEMINI_PLAN_MODEL`: model lập lộ trình/kiểm tra logic.
+## Cấu Hình Gemini
+
+Mặc định app dùng `gemini-2.5-flash`, phù hợp hơn cho viết truyện vì cân bằng giữa tốc độ, chất lượng và context dài.
+
+- `GEMINI_API_KEY`: key chính.
+- `GEMINI_API_KEY_1` đến `GEMINI_API_KEY_5`: key phụ nếu muốn xoay khi quota/rate limit.
+- `GEMINI_MODEL`: model mặc định.
+- `GEMINI_PLAN_MODEL`: model lập lộ trình và kiểm tra logic.
 - `GEMINI_WRITE_MODEL`: model viết chương.
-- `GEMINI_FALLBACK_MODELS`: danh sách model dự phòng, cách nhau bằng dấu phẩy, để tự thử khi model chính quá tải 429/503.
-- `GEMINI_MAX_OUTPUT_TOKENS`: trần token đầu ra mỗi request. Mặc định 8192.
+- `GEMINI_FALLBACK_MODELS`: danh sách model dự phòng, cách nhau bằng dấu phẩy.
+- `GEMINI_MAX_OUTPUT_TOKENS`: trần token đầu ra mỗi request, mặc định `8192`.
 
-Nếu muốn tiết kiệm quota hơn, có thể đổi sang `gemini-2.5-flash-lite`, nhưng chất văn và khả năng giữ logic truyện thường yếu hơn `gemini-2.5-flash`.
+App tự đổi các tên model cũ như `gemini-1.5-flash` sang model còn hỗ trợ để tránh lỗi 404.
 
-## Deploy Vercel qua GitHub
+## Firebase
 
-1. Đẩy source code này lên một GitHub repository.
-2. Vào Vercel, chọn **Add New Project**, import repository đó và giữ build command `npm run build`, output directory `dist`.
-3. Trong **Vercel Project Settings > Environment Variables**, thêm các biến Gemini và Firebase đang dùng.
-4. Nếu muốn nút **Đồng bộ GitHub** hoạt động, tạo thêm một repo GitHub để lưu dữ liệu truyện, rồi thêm:
-   - `GITHUB_SYNC_TOKEN`: fine-grained GitHub token có quyền **Contents: Read and write** với repo lưu trữ.
-   - `GITHUB_SYNC_REPO`: dạng `owner/repository`, ví dụ `tenban/but-nghien-archive`.
-   - `GITHUB_SYNC_BRANCH`: mặc định `main`.
-   - `GITHUB_SYNC_PATH`: thư mục lưu trong repo, mặc định `but-nghien-sync`.
-
-Nên dùng một repo lưu trữ riêng cho dữ liệu truyện. Nếu đồng bộ vào chính repo source đang nối với Vercel, mỗi lần lưu truyện có thể kích hoạt redeploy mới.
-
-Mỗi lần bấm đồng bộ, Vercel API `/api/github-sync` sẽ tạo một commit gồm `index.json`, từng file dự án `.json`, và bản thảo `.txt` nếu tác phẩm đã có chương viết.
-
-## Lưu dữ liệu trên Firebase
-
-App dùng Firebase Auth ẩn danh và Cloud Firestore qua REST API, không cần thêm thư viện Firebase vào bundle.
+App dùng Firebase Authentication bằng Email/Password và Cloud Firestore qua REST API.
 
 Trong Firebase Console:
 
-1. Tạo Firebase project.
-2. Bật **Authentication > Sign-in method > Anonymous**.
-3. Tạo **Cloud Firestore** database.
-4. Thêm web app để lấy Firebase config.
-5. Thêm các biến này vào `.env.local` khi chạy máy cá nhân và vào Vercel Environment Variables khi deploy:
+1. Vào **Authentication > Sign-in method**.
+2. Bật **Email/Password**.
+3. Tắt **Anonymous** nếu không muốn người lạ tạo phiên ẩn danh.
+4. Vào tab **Users**, tạo tài khoản email/mật khẩu cho người được phép dùng app.
+5. Tạo **Cloud Firestore** database.
+6. Thêm Web App trong Firebase để lấy config.
+7. Đưa các biến này vào `.env.local` và Vercel Environment Variables:
 
 ```env
 FIREBASE_API_KEY=...
@@ -70,7 +64,7 @@ FIREBASE_APP_ID=...
 FIREBASE_DATABASE_ID=(default)
 ```
 
-Security Rules gợi ý:
+Security Rules khuyến nghị:
 
 ```txt
 rules_version = '2';
@@ -83,16 +77,21 @@ service cloud.firestore {
 }
 ```
 
-File [firestore.rules](./firestore.rules) trong repo đã có sẵn rule này để dễ copy vào Firebase Console.
+File `firestore.rules` trong repo đã có sẵn rule này.
 
-Firebase Web API key có thể nằm trong frontend, nhưng phải bật Security Rules đúng như trên và nên giới hạn key theo domain trong Google Cloud Console. Dữ liệu được lưu theo đường dẫn `users/{uid}/projects/{projectId}`, mỗi tác phẩm được chia chunk để tránh giới hạn 1 MiB của một Firestore document.
+## Deploy Vercel Qua GitHub
 
-## Bảo mật
+1. Push source code lên GitHub.
+2. Vào Vercel, chọn **Add New Project** và import repo.
+3. Giữ framework là Vite, build command `npm run build`, output directory `dist`.
+4. Trong **Settings > Environment Variables**, thêm Gemini và Firebase variables.
+5. Sau khi đổi Environment Variables, vào **Deployments** và redeploy bản mới nhất.
 
-Khi deploy trên Vercel, Gemini sẽ chạy qua API serverless `/api/gemini`, nên `GEMINI_API_KEY` nằm trong Vercel Environment Variables và không bị nhúng vào bundle trình duyệt. `GITHUB_SYNC_TOKEN` cũng chỉ dùng ở `/api/github-sync`, không đưa xuống frontend.
+App không còn chức năng đồng bộ trực tiếp lên GitHub trong giao diện. GitHub chỉ dùng để lưu source và kích hoạt deploy Vercel; dữ liệu truyện được lưu trên Firebase.
 
-Khi chạy local bằng `npm run dev`, app vẫn có thể dùng Gemini key từ `.env.local` để tiện thử nghiệm trên máy cá nhân. Nếu muốn local cũng đi qua proxy giống Vercel, chạy bằng `vercel dev` và đặt `GEMINI_SERVER_PROXY=true`.
+## Ghi Chú Vận Hành
 
-## Ghi chú
-
-Nếu chọn số chữ rất lớn cho mỗi chương, AI có thể cần nhiều lượt nối tiếp để tiến gần mục tiêu. Ứng dụng đã có cơ chế tự yêu cầu viết tiếp khi bản nháp quá ngắn.
+- Với truyện dài, hãy lập lộ trình Arc trước, sau đó vào từng Arc để sinh bản đồ chương và viết chương.
+- Không nên đặt số chữ mỗi chương quá lớn nếu key free tier yếu. App có cơ chế viết nối tiếp, nhưng 1500-3000 chữ/chương thường ổn định hơn.
+- Nếu Gemini báo 429/503, app sẽ thử key/model dự phòng. Nếu vẫn lỗi, chờ vài phút hoặc giảm số chữ/chương.
+- Firebase Web API key có thể nằm trong frontend, nhưng phải dùng Security Rules và nên giới hạn key theo domain trong Google Cloud Console.

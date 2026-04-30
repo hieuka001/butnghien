@@ -51,6 +51,13 @@ const DEFAULT_PARAMS: StoryParams = {
 };
 
 const sortChaptersByIndex = (chapters: Chapter[] = []) => [...chapters].sort((a, b) => a.index - b.index);
+const highestWrittenChapterIndex = (volumes: Volume[] = []) => Math.max(
+  0,
+  ...volumes
+    .flatMap(volume => volume.chapters || [])
+    .filter(chapter => chapter.content)
+    .map(chapter => chapter.index),
+);
 
 const normalizeProjectRecord = (project: StoryProject): StoryProject => ({
   ...project,
@@ -70,7 +77,7 @@ const normalizeProjectRecord = (project: StoryProject): StoryProject => ({
   })),
   createdAt: project.createdAt || Date.now(),
   updatedAt: project.updatedAt || Date.now(),
-  lastChapterWritten: project.lastChapterWritten || (project.volumes || []).flatMap(volume => volume.chapters || []).filter(chapter => chapter.content).length,
+  lastChapterWritten: Math.max(project.lastChapterWritten || 0, highestWrittenChapterIndex(project.volumes || [])),
 });
 
 const App: React.FC = () => {
@@ -736,7 +743,7 @@ const App: React.FC = () => {
 
       setVolumes(updatedVolumes);
       setProjects(prevProjects => prevProjects.map(p => p.id === activeProjectId
-        ? { ...p, volumes: updatedVolumes, progressionSummary: updates.updatedBible, lastChapterWritten: nextWrittenList.length, updatedAt: Date.now() }
+        ? { ...p, volumes: updatedVolumes, progressionSummary: updates.updatedBible, lastChapterWritten: Math.max(0, ...nextWrittenList.map(chapter => chapter.index)), updatedAt: Date.now() }
         : p
       ));
     } catch (e) { 
@@ -773,7 +780,7 @@ const App: React.FC = () => {
         setActiveProjectId(newId);
         setVolumes([shortVolume]);
         setWrittenChapters([shortChapter]);
-        setGeneralSummary(params.seed || '');
+        setGeneralSummary(workingParams.seed || '');
         setWorldBible('Truyện ngắn hoàn chỉnh.');
         setCurrentChapterIndex(1);
         setActiveArcIndex(1);
@@ -830,9 +837,14 @@ const App: React.FC = () => {
     setGenerationStatus('Đang lập Arc mở rộng dựa trên Đại cục và Thiên Cơ Lục...');
     try {
       const nextVol = await generateNextArc(params, worldBible, volumes, writtenChapters, generalSummary);
+      const expandedTotalChapters = Math.max(params.totalChapters, nextVol.chapterEnd || params.totalChapters);
+      const nextParams = expandedTotalChapters !== params.totalChapters
+        ? { ...params, totalChapters: expandedTotalChapters }
+        : params;
       const updatedVolumes = [...volumes, nextVol];
+      if (nextParams !== params) setParams(nextParams);
       setVolumes(updatedVolumes);
-      setProjects(prev => prev.map(p => p.id === activeProjectId ? { ...p, volumes: updatedVolumes, updatedAt: Date.now() } : p));
+      setProjects(prev => prev.map(p => p.id === activeProjectId ? { ...p, params: nextParams, volumes: updatedVolumes, updatedAt: Date.now() } : p));
     } catch (e) { console.error(e); alert(friendlyError(e)); }
     finally { setIsGeneratingOutline(false); setGenerationStatus(''); }
   };
@@ -911,8 +923,9 @@ const App: React.FC = () => {
   };
 
   const handleWriteNextChapter = async () => {
-    const nextIndex = Array.from({ length: Math.max(0, params.totalChapters) }, (_, index) => index + 1)
-      .find(index => index > currentChapterIndex && plannedChapterIndexes.has(index) && !writtenChapterIndexes.has(index));
+    const availableIndexes = Array.from({ length: Math.max(0, params.totalChapters) }, (_, index) => index + 1)
+      .filter(index => plannedChapterIndexes.has(index) && !writtenChapterIndexes.has(index));
+    const nextIndex = availableIndexes.find(index => index > currentChapterIndex) || availableIndexes[0];
     if (!nextIndex) {
       alert('Không còn chương chưa viết trong lộ trình hiện tại.');
       setView('outline');
@@ -958,7 +971,7 @@ const App: React.FC = () => {
       setWrittenChapters(nextWrittenList);
       setVolumes(updatedVolumes);
       setProjects(prevProjects => prevProjects.map(p => p.id === activeProjectId
-        ? { ...p, volumes: updatedVolumes, lastChapterWritten: nextWrittenList.length, updatedAt: Date.now() }
+        ? { ...p, volumes: updatedVolumes, lastChapterWritten: Math.max(0, ...nextWrittenList.map(chapter => chapter.index)), updatedAt: Date.now() }
         : p
       ));
     }

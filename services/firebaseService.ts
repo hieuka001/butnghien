@@ -225,6 +225,8 @@ export const saveProjectToFirebase = async (project: StoryProject): Promise<void
   const payload = JSON.stringify(project);
   const chunks = chunkText(payload);
   const updatedAt = Date.now();
+  const existingDoc = await firestoreFetch<FirestoreDocument>(basePath);
+  const previousChunkCount = readInteger(existingDoc, "chunkCount", 0);
 
   for (let index = 0; index < chunks.length; index++) {
     await firestoreFetch(`${basePath}/chunks/${String(index).padStart(4, "0")}`, {
@@ -236,6 +238,12 @@ export const saveProjectToFirebase = async (project: StoryProject): Promise<void
           updatedAt: timestampField(updatedAt),
         },
       }),
+    });
+  }
+
+  for (let index = chunks.length; index < previousChunkCount; index++) {
+    await firestoreFetch(`${basePath}/chunks/${String(index).padStart(4, "0")}`, {
+      method: "DELETE",
     });
   }
 
@@ -285,9 +293,16 @@ const loadProjectPayload = async (projectDoc: FirestoreDocument): Promise<StoryP
 export const loadProjectsFromFirebase = async (): Promise<StoryProject[]> => {
   if (!isFirebaseConfigured()) return [];
   const session = await getSession();
-  const url = `${collectionUrl(`users/${session.localId}/projects`)}?pageSize=100`;
-  const data = await firestoreFetch<{ documents?: FirestoreDocument[] }>(url);
-  const docs = data?.documents || [];
+  const docs: FirestoreDocument[] = [];
+  let pageToken = "";
+
+  do {
+    const url = `${collectionUrl(`users/${session.localId}/projects`)}?pageSize=100${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ""}`;
+    const data = await firestoreFetch<{ documents?: FirestoreDocument[]; nextPageToken?: string }>(url);
+    docs.push(...(data?.documents || []));
+    pageToken = data?.nextPageToken || "";
+  } while (pageToken);
+
   const projects: StoryProject[] = [];
 
   for (const doc of docs) {

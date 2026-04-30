@@ -730,7 +730,8 @@ export const generateNextArc = async (
   const maxPlannedChapter = Math.max(0, ...safeVolumes.map(volume => volume.chapterEnd || Math.max(0, ...(volume.chapters || []).map(chapter => chapter.index))));
   const start = maxPlannedChapter + 1;
   const remainingInsidePlan = Math.max(0, params.totalChapters - maxPlannedChapter);
-  const arcSize = remainingInsidePlan > 0 ? clamp(remainingInsidePlan, 1, 8) : 6;
+  const preferredArcSize = params.totalChapters >= 80 ? 40 : params.totalChapters >= 20 ? 12 : 6;
+  const arcSize = remainingInsidePlan > 0 ? clamp(remainingInsidePlan, 1, preferredArcSize) : preferredArcSize;
   const end = start + arcSize - 1;
   const history = [...writtenChapters]
     .sort((a, b) => a.index - b.index)
