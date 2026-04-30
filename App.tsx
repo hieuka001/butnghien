@@ -2,6 +2,7 @@
 import { 
   generateInitialRoadmap, 
   generateNextArc, 
+  generateChapterPlansForArc,
   generateChapterStream, 
   updateWorldBibleAndSummary, 
   generateShortStoryStream,
@@ -32,7 +33,7 @@ import { GENRES, TONES, MODES } from './constants';
 import { StoryParams, StoryProject, Genre, Chapter, Volume, StoryLogicReport } from './types';
 
 const MIN_TOTAL_CHAPTERS = 1;
-const MAX_TOTAL_CHAPTERS = 300;
+const MAX_TOTAL_CHAPTERS = 1000;
 const MIN_CHAPTER_WORDS = 300;
 const MAX_CHAPTER_WORDS = 20000;
 
@@ -269,7 +270,7 @@ const App: React.FC = () => {
     if (message.includes('503') || message.toLowerCase().includes('high demand')) return 'Gemini đang quá tải. Hệ thống đã thử model dự phòng nhưng vẫn chưa có lượt trống; hãy chờ vài phút rồi thử lại.';
     if (message.includes('400')) return 'Gemini từ chối request. Kiểm tra lại tên model, GEMINI_MAX_OUTPUT_TOKENS hoặc giảm độ dài chương.';
     if (message.includes('403') || message.includes('401')) return 'Gemini API key không hợp lệ hoặc chưa được cấp quyền dùng API.';
-    if (message.includes('JSON')) return 'AI trả về dữ liệu không đúng định dạng. Hãy thử lại hoặc giảm số chương để lộ trình gọn hơn.';
+    if (message.includes('JSON')) return 'AI trả về dữ liệu chưa đúng định dạng. Hãy thử lại; app hiện chỉ yêu cầu Arc ở bước đầu và sẽ sinh bản đồ chương theo từng Arc khi viết.';
     if (message.includes('Failed to fetch')) return 'Không kết nối được Gemini API. Kiểm tra mạng hoặc CORS/trình duyệt.';
     return message || 'Có lỗi không xác định.';
   };
@@ -358,6 +359,9 @@ const App: React.FC = () => {
     const chapterLines = draftVolumes
       .flatMap(volume => sortChapters(volume.chapters || []).map(chapter => `- C.${chapter.index}: ${chapter.title} | ${chapter.objective || chapter.summary}`))
       .join('\n');
+    const chapterPlanNotice = draftVolumes.some(volume => (volume.chapters || []).length > 0)
+      ? chapterLines
+      : '- Bản đồ chương chi tiết sẽ được sinh theo từng Arc khi bắt đầu viết Arc đó.';
 
     return [
       '# DIỄN TIẾN TRUYỆN',
@@ -386,7 +390,7 @@ const App: React.FC = () => {
       arcLines || 'Arc chưa có dữ liệu.',
       '',
       '# BẢN ĐỒ CHƯƠNG',
-      chapterLines || 'Chưa có bản đồ chương.',
+      chapterPlanNotice || 'Chưa có bản đồ chương.',
       '',
       '# MÂU THUẪN ĐANG MỞ',
       '- Mâu thuẫn khởi nguồn phải được đẩy qua từng chương, không giải quyết quá sớm.',
@@ -402,13 +406,48 @@ const App: React.FC = () => {
     ].join('\n');
   };
 
+  const getVolumeRange = (volume: Volume) => {
+    const chapterIndexes = (volume.chapters || []).map(chapter => chapter.index).filter(Number.isFinite);
+    const start = Number.isFinite(volume.chapterStart)
+      ? Number(volume.chapterStart)
+      : (chapterIndexes.length ? Math.min(...chapterIndexes) : undefined);
+    const end = Number.isFinite(volume.chapterEnd)
+      ? Number(volume.chapterEnd)
+      : (chapterIndexes.length ? Math.max(...chapterIndexes) : undefined);
+    return Number.isFinite(start) && Number.isFinite(end)
+      ? { start: start as number, end: end as number }
+      : null;
+  };
+
+  const hasCompleteArcChapterPlan = (volume: Volume) => {
+    const range = getVolumeRange(volume);
+    if (!range) return false;
+    const chapterIndexes = new Set((volume.chapters || []).map(chapter => chapter.index));
+    for (let index = range.start; index <= range.end; index++) {
+      if (!chapterIndexes.has(index)) return false;
+    }
+    return true;
+  };
+
   const getActiveArc = () => volumes.find(v => v.index === activeArcIndex);
   const getChapterPlan = (chapterIndex: number, arcIndex = activeArcIndex) =>
     volumes.find(v => v.index === arcIndex)?.chapters?.find(ch => ch.index === chapterIndex);
+  const getArcByChapterIndex = (chapterIndex: number) => volumes.find(volume => {
+    const range = getVolumeRange(volume);
+    return Boolean(range && chapterIndex >= range.start && chapterIndex <= range.end);
+  });
   const activeProject = projects.find(project => project.id === activeProjectId);
   const plannedChapters = sortChapters(volumes.flatMap(volume => volume.chapters || []));
-  const plannedChapterCount = plannedChapters.length;
-  const plannedChapterIndexes = new Set(plannedChapters.map(chapter => chapter.index));
+  const generatedChapterPlanCount = plannedChapters.length;
+  const plannedChapterIndexes = new Set<number>();
+  volumes.forEach(volume => {
+    const range = getVolumeRange(volume);
+    if (!range) return;
+    for (let index = Math.max(1, range.start); index <= Math.min(params.totalChapters, range.end); index++) {
+      plannedChapterIndexes.add(index);
+    }
+  });
+  const writtenChapterIndexes = new Set(writtenChapters.map(chapter => chapter.index));
   const missingChapterIndexes = params.projectType === 'Trường Thiên'
     ? Array.from({ length: Math.max(0, params.totalChapters) }, (_, index) => index + 1).filter(index => !plannedChapterIndexes.has(index))
     : [];
@@ -421,7 +460,12 @@ const App: React.FC = () => {
       ].filter(Boolean)
     : [];
   const hasRoadmapReady = params.projectType !== 'Trường Thiên' || roadmapIssues.length === 0;
-  const firstUnwrittenPlan = plannedChapters.find(chapter => !writtenChapters.some(written => written.index === chapter.index));
+  const firstUnwrittenChapterIndex = params.projectType === 'Trường Thiên'
+    ? Array.from({ length: Math.max(0, params.totalChapters) }, (_, index) => index + 1).find(index => plannedChapterIndexes.has(index) && !writtenChapterIndexes.has(index))
+    : undefined;
+  const firstUnwrittenPlan = firstUnwrittenChapterIndex
+    ? plannedChapters.find(chapter => chapter.index === firstUnwrittenChapterIndex)
+    : plannedChapters.find(chapter => !writtenChapterIndexes.has(chapter.index));
   const currentChapterPlan = getChapterPlan(currentChapterIndex);
   const planCompletenessPercent = params.projectType === 'Trường Thiên'
     ? Math.min(100, Math.round((plannedChapterIndexes.size / Math.max(1, params.totalChapters)) * 100))
@@ -435,7 +479,9 @@ const App: React.FC = () => {
     { label: 'Cấm phá logic', ok: /ĐIỀU CẤM PHÁ LOGIC|ĐỐI CHIẾU LOGIC/i.test(worldBible) },
   ];
   const canonReadyCount = canonChecklist.filter(item => item.ok).length;
-  const progressPercent = plannedChapterCount > 0 ? Math.round((writtenChapters.length / plannedChapterCount) * 100) : 0;
+  const progressPercent = params.projectType === 'Trường Thiên'
+    ? Math.round((writtenChapters.length / Math.max(1, params.totalChapters)) * 100)
+    : (plannedChapters.length > 0 ? Math.round((writtenChapters.length / plannedChapters.length) * 100) : 0);
   const workflowSteps = [
     { label: 'Hồ sơ', status: params.seed.trim() && params.character.name.trim() ? 'done' : 'active' },
     { label: 'Lộ trình', status: hasRoadmapReady ? 'done' : activeProjectId ? 'active' : 'locked' },
@@ -486,6 +532,41 @@ const App: React.FC = () => {
     downloadTextFile(`BanThao_${safeTitle}.txt`, buildManuscriptText(project));
   };
 
+  const mergeArcPlans = (currentArc: Volume, plannedArc: Volume): Volume => {
+    const existingByIndex = new Map((currentArc.chapters || []).map(chapter => [chapter.index, chapter]));
+    const plannedIndexes = new Set((plannedArc.chapters || []).map(chapter => chapter.index));
+    const mergedPlans = (plannedArc.chapters || []).map(plan => {
+      const existing = existingByIndex.get(plan.index);
+      return existing?.content
+        ? { ...plan, title: existing.title || plan.title, summary: existing.summary || plan.summary, content: existing.content, bibleSnapshot: existing.bibleSnapshot }
+        : { ...existing, ...plan };
+    });
+    const extraExisting = (currentArc.chapters || []).filter(chapter => !plannedIndexes.has(chapter.index));
+
+    return {
+      ...currentArc,
+      ...plannedArc,
+      chapters: sortChapters([...mergedPlans, ...extraExisting]),
+    };
+  };
+
+  const ensureArcChapterPlans = async (arcIndex: number): Promise<Volume> => {
+    const currentArc = volumes.find(volume => volume.index === arcIndex);
+    if (!currentArc) throw new Error('Không tìm thấy Arc trong lộ trình.');
+    if (hasCompleteArcChapterPlan(currentArc)) return currentArc;
+
+    setGenerationStatus(`Đang lập bản đồ chương cho ${currentArc.title}...`);
+    const plannedArc = await generateChapterPlansForArc(params, worldBible, generalSummary, currentArc, writtenChapters);
+    const mergedArc = mergeArcPlans(currentArc, plannedArc);
+    const updatedVolumes = volumes.map(volume => volume.index === arcIndex ? mergedArc : volume);
+    setVolumes(updatedVolumes);
+    setProjects(prevProjects => prevProjects.map(project => project.id === activeProjectId
+      ? { ...project, volumes: updatedVolumes, updatedAt: Date.now() }
+      : project
+    ));
+    return mergedArc;
+  };
+
   const handleWriteChapter = async () => {
     if (isGenerating) return;
     if (!activeProjectId) {
@@ -496,8 +577,9 @@ const App: React.FC = () => {
       alert(`Tác phẩm đã đạt lộ trình ${params.totalChapters} chương. Hãy tăng số chương hoặc tạo Arc mở rộng nếu muốn viết tiếp.`);
       return;
     }
-    if (params.projectType === 'Trường Thiên' && (!hasRoadmapReady || !getChapterPlan(currentChapterIndex))) {
-      alert('Chưa có đủ bố cục Arc, bản đồ chương và Thiên Cơ Lục. Hãy lập lộ trình trước khi chấp bút.');
+    const chapterArc = getArcByChapterIndex(currentChapterIndex) || getActiveArc();
+    if (params.projectType === 'Trường Thiên' && (!hasRoadmapReady || !chapterArc)) {
+      alert('Chưa có đủ bố cục Arc và Thiên Cơ Lục. Hãy lập lộ trình trước khi chấp bút.');
       setView('outline');
       return;
     }
@@ -511,7 +593,13 @@ const App: React.FC = () => {
     let finalContent = "";
 
     try {
-      const currentArc = getActiveArc() || { index: activeArcIndex, title: 'Tự do', summary: 'Không có lộ trình cụ thể.', chapters: [] };
+      let workingVolumes = volumes;
+      let currentArc = chapterArc || { index: activeArcIndex, title: 'Tự do', summary: 'Không có lộ trình cụ thể.', chapters: [] };
+      if (params.projectType === 'Trường Thiên' && !hasCompleteArcChapterPlan(currentArc as Volume)) {
+        currentArc = await ensureArcChapterPlans(currentArc.index);
+        workingVolumes = volumes.map(volume => volume.index === currentArc.index ? currentArc : volume);
+      }
+      setActiveArcIndex(currentArc.index);
       const chapterPlan = currentArc.chapters?.find(ch => ch.index === currentChapterIndex);
       const previousForValidation = writtenChapters.filter(ch => ch.index !== currentChapterIndex);
 
@@ -569,8 +657,8 @@ const App: React.FC = () => {
       setWorldBible(updates.updatedBible);
       setStory(actualText);
 
-      const updatedVolumes = volumes.map(v => {
-        if (v.index === activeArcIndex) {
+      const updatedVolumes = workingVolumes.map(v => {
+        if (v.index === currentArc.index) {
           const existingInVol = v.chapters || [];
           const isChapterInVol = existingInVol.some(c => c.index === newChapter.index);
           return {
@@ -632,9 +720,16 @@ const App: React.FC = () => {
         setGenerationStatus('Bước 2/3: Đang kiểm tra độ phủ chương và khóa sổ canon...');
         if (!result || !result.volumes?.length) throw new Error("Dữ liệu lộ trình không hợp lệ.");
         const initialVolumes = result.volumes;
-        const initialChapterCount = new Set(initialVolumes.flatMap((volume: Volume) => (volume.chapters || []).map(chapter => chapter.index))).size;
-        if (initialChapterCount < workingParams.totalChapters) {
-          throw new Error(`Lộ trình chưa đủ ${workingParams.totalChapters} chương. Hãy thử lại hoặc giảm số chương.`);
+        const coveredIndexes = new Set<number>();
+        initialVolumes.forEach((volume: Volume) => {
+          const range = getVolumeRange(volume);
+          if (!range) return;
+          for (let index = Math.max(1, range.start); index <= Math.min(workingParams.totalChapters, range.end); index++) {
+            coveredIndexes.add(index);
+          }
+        });
+        if (coveredIndexes.size < workingParams.totalChapters) {
+          throw new Error(`Lộ trình Arc chưa phủ đủ ${workingParams.totalChapters} chương. Hãy thử lại hoặc giảm số chương.`);
         }
         const initialSummary = result.generalSummary || workingParams.seed;
         const initialBible = buildOpeningWorldBible(result.worldBuilding || '', initialSummary, workingParams, initialVolumes);
@@ -696,43 +791,85 @@ const App: React.FC = () => {
     }
   };
 
-  const handlePrepareWriteChapter = (arcIndex: number) => {
+  const handlePrepareWriteChapter = async (arcIndex: number) => {
     if (!hasRoadmapReady) {
-      alert('Chưa có đủ bố cục Arc và Thiên Cơ Lục. Hãy lập bản đồ chương trước khi viết.');
+      alert('Chưa có đủ bố cục Arc và Thiên Cơ Lục. Hãy lập lộ trình trước khi viết.');
       setView('outline');
       return;
     }
+    if (isGeneratingOutline) return;
+    setIsGeneratingOutline(true);
     setActiveArcIndex(arcIndex);
-    const arc = volumes.find(v => v.index === arcIndex);
-    const firstUnwritten = sortChapters(arc?.chapters || []).find(ch => !writtenChapters.some(written => written.index === ch.index));
-    if (!firstUnwritten) {
-      alert('Arc này đã viết xong. Hãy chọn chương chưa viết ở Arc khác hoặc xem bản thảo.');
-      setView('outline');
-      return;
+    try {
+      const arc = await ensureArcChapterPlans(arcIndex);
+      const firstUnwritten = sortChapters(arc.chapters || []).find(ch => !writtenChapters.some(written => written.index === ch.index));
+      if (!firstUnwritten) {
+        alert('Arc này đã viết xong. Hãy chọn chương chưa viết ở Arc khác hoặc xem bản thảo.');
+        setView('outline');
+        return;
+      }
+      setCurrentChapterIndex(firstUnwritten.index);
+      setChapterIdea('');
+      setStory('');
+      setView('editor');
+    } catch (error) {
+      console.error(error);
+      alert(friendlyError(error));
+    } finally {
+      setIsGeneratingOutline(false);
+      setGenerationStatus('');
     }
-    const nextIdx = firstUnwritten.index;
-    if (!getChapterPlan(nextIdx, arcIndex)) {
-      alert('Arc này chưa có kế hoạch chương hợp lệ. Hãy lập lại lộ trình trước khi viết.');
-      setView('outline');
-      return;
-    }
-    setCurrentChapterIndex(nextIdx);
-    setChapterIdea(''); setStory(''); setView('editor');
   };
 
-  const openEditorWithGuard = () => {
+  const openEditorWithGuard = async () => {
     if (!hasRoadmapReady) {
-      alert('Chưa có đủ bố cục Arc, bản đồ chương và Thiên Cơ Lục. Hãy lập lộ trình trước khi chấp bút.');
+      alert('Chưa có đủ bố cục Arc và Thiên Cơ Lục. Hãy lập lộ trình trước khi chấp bút.');
       setView('outline');
       return;
     }
-    if (firstUnwrittenPlan) {
-      const nextArc = volumes.find(volume => (volume.chapters || []).some(chapter => chapter.index === firstUnwrittenPlan.index));
-      if (nextArc) setActiveArcIndex(nextArc.index);
-      setCurrentChapterIndex(firstUnwrittenPlan.index);
+    const nextIndex = firstUnwrittenChapterIndex || firstUnwrittenPlan?.index;
+    if (nextIndex) {
+      const nextArc = getArcByChapterIndex(nextIndex);
+      if (!nextArc) {
+        alert('Không tìm thấy Arc cho chương kế tiếp. Hãy lập lại lộ trình.');
+        setView('outline');
+        return;
+      }
+      if (!hasCompleteArcChapterPlan(nextArc)) {
+        await handlePrepareWriteChapter(nextArc.index);
+        return;
+      }
+      setActiveArcIndex(nextArc.index);
+      setCurrentChapterIndex(nextIndex);
       setChapterIdea('');
       setStory('');
     }
+    setView('editor');
+  };
+
+  const handleWriteNextChapter = async () => {
+    const nextIndex = Array.from({ length: Math.max(0, params.totalChapters) }, (_, index) => index + 1)
+      .find(index => index > currentChapterIndex && plannedChapterIndexes.has(index) && !writtenChapterIndexes.has(index));
+    if (!nextIndex) {
+      alert('Không còn chương chưa viết trong lộ trình hiện tại.');
+      setView('outline');
+      return;
+    }
+
+    const nextArc = getArcByChapterIndex(nextIndex);
+    if (!nextArc) {
+      alert('Không tìm thấy Arc cho chương kế tiếp.');
+      setView('outline');
+      return;
+    }
+    if (!hasCompleteArcChapterPlan(nextArc)) {
+      await handlePrepareWriteChapter(nextArc.index);
+      return;
+    }
+    setActiveArcIndex(nextArc.index);
+    setCurrentChapterIndex(nextIndex);
+    setChapterIdea('');
+    setStory('');
     setView('editor');
   };
 
@@ -1026,7 +1163,7 @@ const App: React.FC = () => {
             <textarea value={params.referenceStories} onChange={e => setParams({...params, referenceStories: e.target.value})} className="w-full h-20 p-3 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none resize-none font-medium focus:ring-1 focus:ring-indigo-300" placeholder="Ví dụ: nhịp chậm, ít giải thích, nhiều đối thoại, không copy tình tiết..." />
           </div>
           <button onClick={handleStartProject} disabled={isGeneratingOutline} className="w-full py-4 bg-indigo-900 text-white rounded-2xl font-black text-[10px] uppercase hover:bg-black transition-all shadow-lg">
-            {isGeneratingOutline ? 'Đang thấu thị...' : (params.projectType === 'Truyện Ngắn' ? 'Viết truyện ngắn' : 'Lập bản đồ chương')}
+            {isGeneratingOutline ? 'Đang thấu thị...' : (params.projectType === 'Truyện Ngắn' ? 'Viết truyện ngắn' : 'Lập lộ trình Arc')}
           </button>
         </div>
         <button onClick={() => setView('my-stories')} className="mt-auto py-3 px-4 bg-slate-50 rounded-xl text-[10px] font-black uppercase text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-all flex items-center justify-between">
@@ -1073,7 +1210,7 @@ const App: React.FC = () => {
                   <div className="space-y-3">
                     <span className="inline-flex px-3 py-1 bg-emerald-50 text-emerald-700 rounded-full text-[9px] font-black uppercase tracking-widest">Studio sáng tác</span>
                     <h2 className="text-4xl md:text-6xl font-black text-slate-900 italic story-font leading-tight">Bút Nghiên <span className="text-indigo-600 not-italic">Thiên Cơ</span></h2>
-                    <p className="text-lg md:text-xl text-slate-500 story-font leading-relaxed">Nhập hồ sơ ở cột trái, hệ thống sẽ lập Đại cục, Arc, Thiên Cơ Lục và bản đồ từng chương trước khi cho phép chấp bút.</p>
+                    <p className="text-lg md:text-xl text-slate-500 story-font leading-relaxed">Nhập hồ sơ ở cột trái, hệ thống sẽ lập Đại cục, Arc và Thiên Cơ Lục trước; bản đồ chương chi tiết sẽ sinh theo từng Arc khi bắt đầu viết.</p>
                   </div>
                   <div className="grid sm:grid-cols-3 gap-3">
                     <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
@@ -1161,12 +1298,12 @@ const App: React.FC = () => {
                     </h3>
                     <p className="text-sm text-slate-700 mt-1">
                       {hasRoadmapReady
-                        ? `Có ${plannedChapterIndexes.size} chương trong ${volumes.length} Arc. Chương kế tiếp nên viết: ${firstUnwrittenPlan ? `C.${firstUnwrittenPlan.index} - ${firstUnwrittenPlan.title}` : 'lộ trình đã hoàn tất'}.`
+                        ? `Có ${plannedChapterIndexes.size} chương trong ${volumes.length} Arc. Đã sinh bản đồ chi tiết ${generatedChapterPlanCount} chương. Chương kế tiếp nên viết: ${firstUnwrittenChapterIndex ? `C.${firstUnwrittenChapterIndex}${firstUnwrittenPlan ? ` - ${firstUnwrittenPlan.title}` : ''}` : 'lộ trình đã hoàn tất'}.`
                         : roadmapIssues.join(' ')}
                     </p>
                   </div>
-                  <button onClick={openEditorWithGuard} disabled={!hasRoadmapReady || !firstUnwrittenPlan} className="px-6 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-900 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
-                    {firstUnwrittenPlan ? 'Viết chương kế tiếp' : 'Đã đủ bản thảo'}
+                  <button onClick={openEditorWithGuard} disabled={!hasRoadmapReady || !firstUnwrittenChapterIndex} className="px-6 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-900 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
+                    {firstUnwrittenChapterIndex ? 'Viết chương kế tiếp' : 'Đã đủ bản thảo'}
                   </button>
                 </div>
               </section>
@@ -1184,7 +1321,7 @@ const App: React.FC = () => {
                     </span>
                   ))}
                 </div>
-                <p className="story-font text-base text-slate-700 leading-relaxed whitespace-pre-wrap line-clamp-4">{worldBible || 'Thiên Cơ Lục sẽ xuất hiện sau khi lập bản đồ chương.'}</p>
+                <p className="story-font text-base text-slate-700 leading-relaxed whitespace-pre-wrap line-clamp-4">{worldBible || 'Thiên Cơ Lục sẽ xuất hiện sau khi lập lộ trình Arc.'}</p>
               </section>
               <div className="grid grid-cols-1 gap-8">
                 {volumes && volumes.map((vol) => (
@@ -1228,7 +1365,7 @@ const App: React.FC = () => {
                                       </button>
                                     </>
                                   ) : (
-                                    <button onClick={() => { if (!hasRoadmapReady) { alert('Chưa có đủ Thiên Cơ Lục và bản đồ chương. Hãy lập lộ trình trước khi viết.'); return; } setActiveArcIndex(vol.index); setCurrentChapterIndex(chap.index); setChapterIdea(''); setStory(''); setView('editor'); }} className="flex-1 py-1.5 bg-indigo-900 text-white rounded-lg text-[9px] font-black uppercase hover:bg-black transition-all">Viết chương</button>
+                                    <button onClick={() => { if (!hasRoadmapReady) { alert('Chưa có đủ Thiên Cơ Lục và lộ trình Arc. Hãy lập lộ trình trước khi viết.'); return; } setActiveArcIndex(vol.index); setCurrentChapterIndex(chap.index); setChapterIdea(''); setStory(''); setView('editor'); }} className="flex-1 py-1.5 bg-indigo-900 text-white rounded-lg text-[9px] font-black uppercase hover:bg-black transition-all">Viết chương</button>
                                   )}
                                 </div>
                               </div>
@@ -1399,19 +1536,7 @@ const App: React.FC = () => {
                       </h2>
                     </div>
                     <div className="flex flex-wrap justify-center gap-4">
-                      <button onClick={() => { 
-                        const allPlans = sortChapters(volumes.flatMap(v => v.chapters || []));
-                        const nextPlan = allPlans.find(ch => ch.index > currentChapterIndex && !writtenChapters.some(w => w.index === ch.index));
-                        if (!nextPlan) {
-                          alert('Không còn chương chưa viết trong lộ trình hiện tại.');
-                          setView('outline');
-                          return;
-                        }
-                        setCurrentChapterIndex(nextPlan.index);
-                        const nextArc = nextPlan ? volumes.find(v => (v.chapters || []).some(ch => ch.index === nextPlan.index)) : undefined;
-                        if (nextArc) setActiveArcIndex(nextArc.index);
-                        setStory(''); 
-                      }} className="text-[10px] font-black uppercase text-indigo-600 bg-indigo-50 px-8 py-3 rounded-full hover:bg-indigo-100 transition-all shadow-sm">Viết Chương Tiếp Theo</button>
+                      <button onClick={handleWriteNextChapter} className="text-[10px] font-black uppercase text-indigo-600 bg-indigo-50 px-8 py-3 rounded-full hover:bg-indigo-100 transition-all shadow-sm">Viết Chương Tiếp Theo</button>
                       <button onClick={() => setView('outline')} className="text-[10px] font-black uppercase text-slate-400 border border-slate-200 px-8 py-3 rounded-full hover:bg-slate-50 transition-all">Về Lộ Trình</button>
                     </div>
                   </header>
