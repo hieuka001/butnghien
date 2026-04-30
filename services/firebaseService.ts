@@ -5,6 +5,12 @@ type FirebaseSession = {
   refreshToken: string;
   localId: string;
   expiresAt: number;
+  email?: string;
+};
+
+export type FirebaseAuthUser = {
+  uid: string;
+  email: string;
 };
 
 type FirestoreValue = {
@@ -56,6 +62,16 @@ const saveSession = (session: FirebaseSession) => {
   localStorage.setItem(sessionStorageKey(), JSON.stringify(session));
 };
 
+export const getStoredFirebaseUser = (): FirebaseAuthUser | null => {
+  const session = parseSession();
+  if (!session?.localId || !session.email) return null;
+  return { uid: session.localId, email: session.email };
+};
+
+export const signOutFromFirebase = () => {
+  localStorage.removeItem(sessionStorageKey());
+};
+
 const authPost = async <T,>(url: string, body: BodyInit, contentType = "application/json"): Promise<T> => {
   const response = await fetch(url, {
     method: "POST",
@@ -71,7 +87,7 @@ const authPost = async <T,>(url: string, body: BodyInit, contentType = "applicat
   return await response.json() as T;
 };
 
-const refreshSession = async (refreshToken: string): Promise<FirebaseSession> => {
+const refreshSession = async (refreshToken: string, email = ""): Promise<FirebaseSession> => {
   type RefreshResponse = {
     id_token: string;
     refresh_token: string;
@@ -92,47 +108,54 @@ const refreshSession = async (refreshToken: string): Promise<FirebaseSession> =>
     idToken: data.id_token,
     refreshToken: data.refresh_token,
     localId: data.user_id,
+    email,
     expiresAt: Date.now() + (Number(data.expires_in) || 3600) * 1000,
   };
   saveSession(session);
   return session;
 };
 
-const signInAnonymously = async (): Promise<FirebaseSession> => {
+export const signInToFirebase = async (email: string, password: string): Promise<FirebaseAuthUser> => {
+  requireFirebaseConfig();
   type SignInResponse = {
     idToken: string;
     refreshToken: string;
     localId: string;
     expiresIn: string;
+    email: string;
   };
 
   const data = await authPost<SignInResponse>(
-    `${AUTH_API}/accounts:signUp?key=${firebaseConfig.apiKey}`,
-    JSON.stringify({ returnSecureToken: true }),
+    `${AUTH_API}/accounts:signInWithPassword?key=${firebaseConfig.apiKey}`,
+    JSON.stringify({ email, password, returnSecureToken: true }),
   );
 
   const session = {
     idToken: data.idToken,
     refreshToken: data.refreshToken,
     localId: data.localId,
+    email: data.email || email,
     expiresAt: Date.now() + (Number(data.expiresIn) || 3600) * 1000,
   };
   saveSession(session);
-  return session;
+  return { uid: session.localId, email: session.email };
 };
 
 const getSession = async () => {
   requireFirebaseConfig();
   const existing = parseSession();
+  if (!existing?.email) {
+    throw new Error("Chưa đăng nhập Firebase.");
+  }
   if (existing?.idToken && existing.expiresAt > Date.now() + 90_000) return existing;
   if (existing?.refreshToken) {
     try {
-      return await refreshSession(existing.refreshToken);
+      return await refreshSession(existing.refreshToken, existing.email);
     } catch {
       localStorage.removeItem(sessionStorageKey());
     }
   }
-  return await signInAnonymously();
+  throw new Error("Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại.");
 };
 
 const databaseRoot = () =>

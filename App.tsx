@@ -17,11 +17,15 @@ import {
 } from './services/databaseService';
 import {
   deleteProjectFromFirebase,
+  type FirebaseAuthUser,
   getFirebaseProjectId,
+  getStoredFirebaseUser,
   isFirebaseConfigured,
   loadProjectsFromFirebase,
   saveProjectToFirebase,
   saveProjectsToFirebase,
+  signInToFirebase,
+  signOutFromFirebase,
 } from './services/firebaseService';
 import React, { useState, useEffect, useRef } from 'react';
 import { GENRES, TONES, MODES } from './constants';
@@ -89,6 +93,11 @@ const App: React.FC = () => {
   const [isHydrated, setIsHydrated] = useState<boolean>(false);
   const [storageStatus, setStorageStatus] = useState<string>('Đang mở database...');
   const [cloudStatus, setCloudStatus] = useState<string>(isFirebaseConfigured() ? 'Đang mở Firebase...' : 'Firebase chưa cấu hình');
+  const [authUser, setAuthUser] = useState<FirebaseAuthUser | null>(() => getStoredFirebaseUser());
+  const [loginEmail, setLoginEmail] = useState<string>('');
+  const [loginPassword, setLoginPassword] = useState<string>('');
+  const [authError, setAuthError] = useState<string>('');
+  const [isSigningIn, setIsSigningIn] = useState<boolean>(false);
   const [isCheckingLogic, setIsCheckingLogic] = useState<boolean>(false);
   const [logicReport, setLogicReport] = useState<StoryLogicReport | null>(null);
   const [view, setView] = useState<'editor' | 'outline' | 'manuscript' | 'setup' | 'my-stories' | 'bible'>('setup');
@@ -97,24 +106,36 @@ const App: React.FC = () => {
     let cancelled = false;
 
     const hydrate = async () => {
+      if (isFirebaseConfigured() && !authUser) {
+        setProjects([]);
+        setStorageStatus('Chưa mở dữ liệu');
+        setCloudStatus('Cần đăng nhập Firebase');
+        setIsHydrated(true);
+        return;
+      }
+
+      setIsHydrated(false);
       try {
         if (isFirebaseConfigured()) {
           try {
             const firebaseProjects = (await loadProjectsFromFirebase()).map(normalizeProjectRecord);
             if (cancelled) return;
 
-            if (firebaseProjects.length > 0) {
-              setProjects(firebaseProjects);
-              await replaceAllProjectsInDb(firebaseProjects);
-              setStorageStatus(`IndexedDB đã lưu cache ${firebaseProjects.length} tác phẩm`);
-              setCloudStatus(`Firebase đã tải ${firebaseProjects.length} tác phẩm từ ${getFirebaseProjectId()}`);
-              return;
-            }
-
-            setCloudStatus('Firebase trống, sẽ đồng bộ từ dữ liệu local nếu có');
+            setProjects(firebaseProjects);
+            await replaceAllProjectsInDb(firebaseProjects);
+            setStorageStatus(`IndexedDB đã lưu cache ${firebaseProjects.length} tác phẩm`);
+            setCloudStatus(firebaseProjects.length > 0
+              ? `Firebase đã tải ${firebaseProjects.length} tác phẩm từ ${getFirebaseProjectId()}`
+              : `Firebase sẵn sàng cho ${authUser?.email || 'tài khoản này'}`
+            );
+            return;
           } catch (firebaseError) {
             console.warn(firebaseError);
-            if (!cancelled) setCloudStatus('Firebase chưa sẵn sàng, đang dùng dữ liệu local');
+            if (!cancelled) {
+              setProjects([]);
+              setCloudStatus('Không tải được Firebase. Hãy kiểm tra đăng nhập/quyền truy cập.');
+              return;
+            }
           }
         }
 
@@ -155,7 +176,7 @@ const App: React.FC = () => {
 
     hydrate();
     return () => { cancelled = true; };
-  }, []);
+  }, [authUser?.uid]);
 
   useEffect(() => {
     if (!isHydrated) return;
@@ -175,6 +196,10 @@ const App: React.FC = () => {
       setCloudStatus('Firebase chưa cấu hình');
       return;
     }
+    if (!authUser) {
+      setCloudStatus('Cần đăng nhập Firebase để lưu dữ liệu');
+      return;
+    }
 
     setCloudStatus(projects.length > 0 ? 'Đang lưu Firebase...' : 'Firebase sẵn sàng');
     const timer = window.setTimeout(() => {
@@ -187,7 +212,7 @@ const App: React.FC = () => {
     }, 1200);
 
     return () => window.clearTimeout(timer);
-  }, [projects, isHydrated]);
+  }, [projects, isHydrated, authUser?.uid]);
 
   const toggleGenre = (genre: Genre) => {
     setParams(prev => ({
@@ -247,6 +272,65 @@ const App: React.FC = () => {
     if (message.includes('JSON')) return 'AI trả về dữ liệu không đúng định dạng. Hãy thử lại hoặc giảm số chương để lộ trình gọn hơn.';
     if (message.includes('Failed to fetch')) return 'Không kết nối được Gemini API. Kiểm tra mạng hoặc CORS/trình duyệt.';
     return message || 'Có lỗi không xác định.';
+  };
+
+  const friendlyAuthError = (error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error || '');
+    if (message.includes('EMAIL_NOT_FOUND') || message.includes('INVALID_LOGIN_CREDENTIALS')) return 'Email hoặc mật khẩu không đúng.';
+    if (message.includes('INVALID_PASSWORD')) return 'Mật khẩu không đúng.';
+    if (message.includes('USER_DISABLED')) return 'Tài khoản này đã bị tắt trong Firebase.';
+    if (message.includes('TOO_MANY_ATTEMPTS_TRY_LATER')) return 'Bạn thử sai quá nhiều lần. Hãy chờ một lúc rồi đăng nhập lại.';
+    if (message.includes('INVALID_EMAIL')) return 'Email không hợp lệ.';
+    if (message.includes('Firebase Auth')) return 'Không đăng nhập được Firebase. Kiểm tra cấu hình Authentication.';
+    return message || 'Không đăng nhập được.';
+  };
+
+  const resetWorkspace = () => {
+    setProjects([]);
+    setActiveProjectId(null);
+    setVolumes([]);
+    setWrittenChapters([]);
+    setGeneralSummary('');
+    setWorldBible('');
+    setStory('');
+    setChapterIdea('');
+    setLogicReport(null);
+    setCurrentChapterIndex(1);
+    setActiveArcIndex(1);
+    setView('setup');
+  };
+
+  const handleSignIn = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (isSigningIn) return;
+    if (!loginEmail.trim() || !loginPassword) {
+      setAuthError('Hãy nhập email và mật khẩu.');
+      return;
+    }
+
+    setIsSigningIn(true);
+    setAuthError('');
+    try {
+      const user = await signInToFirebase(loginEmail.trim(), loginPassword);
+      setAuthUser(user);
+      setLoginPassword('');
+      setCloudStatus(`Đã đăng nhập ${user.email}`);
+    } catch (error) {
+      setAuthError(friendlyAuthError(error));
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
+  const handleSignOut = () => {
+    signOutFromFirebase();
+    localStorage.removeItem('but-nghien-v19-store');
+    replaceAllProjectsInDb([]).catch(error => console.error('Không xóa được cache IndexedDB:', error));
+    resetWorkspace();
+    setAuthUser(null);
+    setIsHydrated(false);
+    setStorageStatus('Đã khóa dữ liệu trên thiết bị này');
+    setCloudStatus('Cần đăng nhập Firebase');
   };
 
   const sortChapters = sortChaptersByIndex;
@@ -753,6 +837,82 @@ const App: React.FC = () => {
     );
   };
 
+  if (isFirebaseConfigured() && !authUser) {
+    return (
+      <div className="min-h-screen bg-[#f8f5f2] text-slate-900 flex items-center justify-center p-6 bg-[url('https://www.transparenttextures.com/patterns/paper.png')]">
+        <section className="w-full max-w-5xl grid lg:grid-cols-[1fr_0.9fr] gap-6 items-stretch">
+          <div className="bg-white border border-slate-100 rounded-[2rem] p-8 md:p-12 shadow-xl flex flex-col justify-center">
+            <span className="inline-flex w-fit px-3 py-1 bg-indigo-50 text-indigo-700 rounded-full text-[9px] font-black uppercase tracking-widest mb-6">Không gian riêng</span>
+            <h1 className="story-font text-4xl md:text-6xl font-black italic leading-tight mb-4">
+              Bút Nghiên <span className="text-indigo-700 not-italic">Thiên Cơ</span>
+            </h1>
+            <p className="story-font text-lg text-slate-500 leading-relaxed">
+              Đăng nhập để mở Tàng Thư, dữ liệu Firebase và bàn viết của bạn.
+            </p>
+            <div className="grid sm:grid-cols-3 gap-3 mt-8">
+              <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl">
+                <span className="block text-[8px] font-black uppercase text-slate-400">Firebase</span>
+                <strong className="text-xs font-black text-slate-800">{getFirebaseProjectId()}</strong>
+              </div>
+              <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-2xl">
+                <span className="block text-[8px] font-black uppercase text-emerald-700">Bảo mật</span>
+                <strong className="text-xs font-black text-emerald-900">Email / mật khẩu</strong>
+              </div>
+              <div className="p-4 bg-indigo-50 border border-indigo-100 rounded-2xl">
+                <span className="block text-[8px] font-black uppercase text-indigo-600">Dữ liệu</span>
+                <strong className="text-xs font-black text-indigo-900">Theo tài khoản</strong>
+              </div>
+            </div>
+          </div>
+
+          <form onSubmit={handleSignIn} className="bg-slate-950 text-white rounded-[2rem] p-6 md:p-8 shadow-2xl flex flex-col justify-center gap-5">
+            <div>
+              <span className="text-[9px] font-black uppercase text-emerald-300 tracking-widest">Đăng nhập</span>
+              <h2 className="text-2xl font-black story-font mt-2">Chỉ tài khoản được cấp mới vào được app</h2>
+            </div>
+            <label className="space-y-2">
+              <span className="block text-[9px] font-black uppercase text-slate-400">Email</span>
+              <input
+                type="email"
+                value={loginEmail}
+                onChange={event => setLoginEmail(event.target.value)}
+                autoComplete="email"
+                className="w-full p-4 rounded-2xl bg-white/10 border border-white/10 text-white outline-none focus:ring-2 focus:ring-indigo-300"
+                placeholder="ban@example.com"
+              />
+            </label>
+            <label className="space-y-2">
+              <span className="block text-[9px] font-black uppercase text-slate-400">Mật khẩu</span>
+              <input
+                type="password"
+                value={loginPassword}
+                onChange={event => setLoginPassword(event.target.value)}
+                autoComplete="current-password"
+                className="w-full p-4 rounded-2xl bg-white/10 border border-white/10 text-white outline-none focus:ring-2 focus:ring-indigo-300"
+                placeholder="Mật khẩu Firebase"
+              />
+            </label>
+            {authError && (
+              <p className="p-3 rounded-2xl bg-red-500/15 border border-red-400/20 text-red-100 text-sm font-bold">
+                {authError}
+              </p>
+            )}
+            <button
+              type="submit"
+              disabled={isSigningIn}
+              className="w-full py-4 bg-indigo-300 text-indigo-950 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-white transition-all disabled:opacity-50"
+            >
+              {isSigningIn ? 'Đang kiểm tra...' : 'Mở Bút Nghiên'}
+            </button>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Tài khoản được tạo trong Firebase Console. Không có tài khoản thì không thể vào app.
+            </p>
+          </form>
+        </section>
+      </div>
+    );
+  };
+
   return (
     <div className="flex flex-col md:flex-row h-screen bg-[#f8f5f2] overflow-hidden text-slate-800 font-sans">
       <aside className="w-full md:w-80 max-h-[48vh] md:max-h-none bg-white border-b md:border-b-0 md:border-r border-slate-200 p-4 md:p-6 flex flex-col gap-4 md:gap-5 shrink-0 shadow-xl z-20 overflow-y-auto custom-scrollbar">
@@ -760,6 +920,17 @@ const App: React.FC = () => {
           <div className="w-10 h-10 bg-indigo-900 text-white rounded-xl flex items-center justify-center font-black italic">BN</div>
           <h1 onClick={() => setView('setup')} className="text-xl font-black text-indigo-900 cursor-pointer italic hover:text-indigo-600 transition-all">Bút Nghiên AI</h1>
         </div>
+        {isFirebaseConfigured() && authUser && (
+          <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <span className="block text-[8px] font-black uppercase text-emerald-700">Đã đăng nhập</span>
+              <span className="block text-[10px] font-bold text-emerald-950 truncate">{authUser.email}</span>
+            </div>
+            <button onClick={handleSignOut} className="px-3 py-2 bg-white text-emerald-800 rounded-lg text-[8px] font-black uppercase border border-emerald-100 hover:bg-emerald-700 hover:text-white transition-all shrink-0">
+              Đăng xuất
+            </button>
+          </div>
+        )}
         <div className="grid grid-cols-3 gap-2">
           <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
             <span className="block text-[8px] font-black uppercase text-slate-400">Gemini</span>
