@@ -1127,8 +1127,8 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col md:flex-row h-screen bg-[#f8f5f2] overflow-hidden text-slate-800 font-sans">
-      <aside className="w-full md:w-80 max-h-[48vh] md:max-h-none bg-white border-b md:border-b-0 md:border-r border-slate-200 p-4 md:p-6 flex flex-col gap-4 md:gap-5 shrink-0 shadow-xl z-20 overflow-y-auto custom-scrollbar">
+    <div className="app-shell flex flex-col md:flex-row h-screen overflow-hidden text-slate-800 font-sans">
+      <aside className="control-panel w-full md:w-[360px] max-h-[48vh] md:max-h-none border-b md:border-b-0 p-4 md:p-5 flex flex-col gap-4 shrink-0 z-20 overflow-y-auto custom-scrollbar">
         <div className="flex items-center gap-3 pb-4 border-b">
           <div className="w-10 h-10 bg-indigo-900 text-white rounded-xl flex items-center justify-center font-black italic">BN</div>
           <h1 onClick={() => setView('setup')} className="text-xl font-black text-indigo-900 cursor-pointer italic hover:text-indigo-600 transition-all">Bút Nghiên AI</h1>
@@ -1158,7 +1158,7 @@ const App: React.FC = () => {
             <span className="text-[9px] font-bold text-slate-500 line-clamp-2">{cloudStatus}</span>
           </div>
         </div>
-        <div className="p-4 bg-slate-950 text-white rounded-2xl shadow-xl space-y-3">
+        <div className="p-4 bg-slate-950 text-white rounded-lg shadow-sm space-y-3">
           <div className="flex items-center justify-between gap-3">
             <div>
               <span className="block text-[8px] font-black uppercase text-emerald-300 tracking-widest">Quy trình</span>
@@ -1238,16 +1238,16 @@ const App: React.FC = () => {
             <label className="text-[10px] font-black text-slate-400 uppercase">Truyện mẫu / lưu ý văn phong</label>
             <textarea value={params.referenceStories} onChange={e => setParams({...params, referenceStories: e.target.value})} className="w-full h-20 p-3 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none resize-none font-medium focus:ring-1 focus:ring-indigo-300" placeholder="Ví dụ: nhịp chậm, ít giải thích, nhiều đối thoại, không copy tình tiết..." />
           </div>
-          <button onClick={handleStartProject} disabled={isGeneratingOutline} className="w-full py-4 bg-indigo-900 text-white rounded-2xl font-black text-[10px] uppercase hover:bg-black transition-all shadow-lg">
+          <button onClick={handleStartProject} disabled={isGeneratingOutline} className="btn-primary w-full py-4 font-black text-[10px] uppercase disabled:opacity-50">
             {isGeneratingOutline ? 'Đang thấu thị...' : (params.projectType === 'Truyện Ngắn' ? 'Viết truyện ngắn' : 'Lập lộ trình Arc')}
           </button>
         </div>
-        <button onClick={() => setView('my-stories')} className="mt-auto py-3 px-4 bg-slate-50 rounded-xl text-[10px] font-black uppercase text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-all flex items-center justify-between">
+        <button onClick={() => setView('my-stories')} className="mt-auto py-3 px-4 bg-slate-50 rounded-lg border border-slate-200 text-[10px] font-black uppercase text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-all flex items-center justify-between">
           <span>Tàng thư ({projects.length})</span>
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
         </button>
         {activeProject && (
-          <div className="p-4 bg-indigo-950 text-white rounded-2xl shadow-xl space-y-3">
+          <div className="p-4 bg-indigo-950 text-white rounded-lg shadow-sm space-y-3">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <span className="block text-[8px] font-black uppercase text-indigo-200 tracking-widest">Đang mở</span>
@@ -1265,7 +1265,7 @@ const App: React.FC = () => {
         )}
       </aside>
 
-      <main className="flex-1 min-h-0 flex flex-col relative bg-[#fefcfb] overflow-hidden">
+      <main className="flex-1 min-h-0 flex flex-col relative bg-transparent overflow-hidden">
         {generalSummary && (
           <nav className="h-14 bg-white border-b flex items-center px-4 md:px-8 gap-5 md:gap-8 z-10 shadow-sm shrink-0 overflow-x-auto no-scrollbar">
             <button onClick={() => setView('outline')} className={`text-[10px] font-black uppercase tracking-widest h-full border-b-2 transition-all shrink-0 ${view === 'outline' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-300 hover:text-slate-500'}`}>Lộ trình Arc</button>
@@ -1278,51 +1278,99 @@ const App: React.FC = () => {
           </nav>
         )}
 
-        <div className="flex-1 overflow-y-auto p-4 md:p-12 custom-scrollbar bg-[url('https://www.transparenttextures.com/patterns/paper.png')]">
+        <div className="workbench-grid flex-1 overflow-y-auto p-4 md:p-8 xl:p-10 custom-scrollbar">
           {view === 'setup' && (
-            <div className="max-w-5xl mx-auto py-8 md:py-14 space-y-8 animate-in fade-in">
-              <section className="grid lg:grid-cols-[1.15fr_0.85fr] gap-6 items-stretch">
-                <div className="bg-white border border-slate-100 rounded-[2rem] p-8 md:p-10 shadow-sm space-y-6">
-                  <div className="space-y-3">
-                    <span className="inline-flex px-3 py-1 bg-emerald-50 text-emerald-700 rounded-full text-[9px] font-black uppercase tracking-widest">Studio sáng tác</span>
-                    <h2 className="text-4xl md:text-6xl font-black text-slate-900 italic story-font leading-tight">Bút Nghiên <span className="text-indigo-600 not-italic">Thiên Cơ</span></h2>
-                    <p className="text-lg md:text-xl text-slate-500 story-font leading-relaxed">Nhập hồ sơ ở cột trái, hệ thống sẽ lập Đại cục, Arc và Thiên Cơ Lục trước; bản đồ chương chi tiết sẽ sinh theo từng Arc khi bắt đầu viết.</p>
+            <div className="max-w-6xl mx-auto py-6 md:py-8 space-y-5 animate-in fade-in">
+              <section className="surface p-5 md:p-6">
+                <div className="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-5">
+                  <div className="max-w-3xl">
+                    <div className="flex items-center gap-3 mb-4">
+                      <span className="inline-flex px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-md text-[9px] font-black uppercase tracking-widest border border-emerald-100">Studio sáng tác</span>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Quy trình khóa logic</span>
+                    </div>
+                    <h2 className="text-3xl md:text-4xl font-black text-slate-950 story-font leading-tight">
+                      Bàn viết Bút Nghiên AI
+                    </h2>
+                    <p className="mt-3 text-sm md:text-base text-slate-600 leading-7">
+                      Nhập hồ sơ ở bảng điều khiển bên trái. Hệ thống sẽ khóa Đại cục, Arc và Thiên Cơ Lục trước khi mở bước chấp bút, giúp truyện dài không lệch số liệu, không vỡ tuyến và không lan man.
+                    </p>
                   </div>
-                  <div className="grid sm:grid-cols-3 gap-3">
-                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                      <span className="block text-[8px] font-black uppercase text-slate-400">Dự án</span>
-                      <strong className="text-sm font-black text-slate-900">{params.projectType}</strong>
-                    </div>
-                    <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100">
-                      <span className="block text-[8px] font-black uppercase text-amber-600">Lộ trình</span>
-                      <strong className="text-sm font-black text-amber-900">{params.projectType === 'Trường Thiên' ? `${params.totalChapters} chương` : 'Truyện đơn'}</strong>
-                    </div>
-                    <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
-                      <span className="block text-[8px] font-black uppercase text-indigo-500">Mục tiêu</span>
-                      <strong className="text-sm font-black text-indigo-900">{params.length} chữ</strong>
-                    </div>
-                  </div>
-                  <div className="flex flex-col sm:flex-row gap-3">
-                    <button onClick={handleStartProject} disabled={isGeneratingOutline} className="px-8 py-4 bg-indigo-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:bg-black transition-all disabled:opacity-50">
-                      {isGeneratingOutline ? 'Đang dựng dự án...' : (params.projectType === 'Truyện Ngắn' ? 'Viết truyện ngắn' : 'Lập lộ trình trước')}
+                  <div className="flex flex-col sm:flex-row gap-3 shrink-0">
+                    <button onClick={handleStartProject} disabled={isGeneratingOutline} className="btn-primary px-6 py-3 text-[10px] font-black uppercase tracking-widest disabled:opacity-50">
+                      {isGeneratingOutline ? 'Đang dựng dự án...' : (params.projectType === 'Truyện Ngắn' ? 'Viết truyện ngắn' : 'Lập lộ trình')}
                     </button>
-                    <button onClick={() => setView('my-stories')} className="px-8 py-4 bg-white border border-slate-200 text-slate-500 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all">
+                    <button onClick={() => setView('my-stories')} className="btn-secondary px-6 py-3 text-[10px] font-black uppercase tracking-widest">
                       Mở Tàng Thư
                     </button>
                   </div>
                 </div>
-                <div className="bg-slate-950 text-white rounded-[2rem] p-6 md:p-8 shadow-xl space-y-5">
+              </section>
+
+              <section className="grid lg:grid-cols-[1fr_380px] gap-5 items-start">
+                <div className="space-y-5">
+                  <div className="grid sm:grid-cols-3 gap-3">
+                    <div className="surface-muted p-4">
+                      <span className="block text-[8px] font-black uppercase text-slate-400 tracking-widest">Dự án</span>
+                      <strong className="block mt-2 text-lg font-black text-slate-950">{params.projectType}</strong>
+                    </div>
+                    <div className="surface-muted p-4 border-amber-200 bg-amber-50/80">
+                      <span className="block text-[8px] font-black uppercase text-amber-700 tracking-widest">Lộ trình</span>
+                      <strong className="block mt-2 text-lg font-black text-amber-950">{params.projectType === 'Trường Thiên' ? `${params.totalChapters} chương` : 'Truyện đơn'}</strong>
+                    </div>
+                    <div className="surface-muted p-4 border-indigo-200 bg-indigo-50/80">
+                      <span className="block text-[8px] font-black uppercase text-indigo-600 tracking-widest">Mục tiêu</span>
+                      <strong className="block mt-2 text-lg font-black text-indigo-950">{params.length} chữ</strong>
+                    </div>
+                  </div>
+
+                  <div className="surface p-5">
+                    <div className="flex items-center justify-between gap-4 mb-4">
+                      <div>
+                        <h3 className="text-xs font-black uppercase tracking-widest text-slate-900">Hồ sơ đầu vào</h3>
+                        <p className="text-xs text-slate-500 mt-1">Những khóa chính AI đang dùng để dựng truyện.</p>
+                      </div>
+                      <span className={`px-2.5 py-1 rounded-md text-[9px] font-black uppercase ${planCompletenessPercent > 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-slate-100 text-slate-500 border border-slate-200'}`}>
+                        {planCompletenessPercent}% sẵn sàng
+                      </span>
+                    </div>
+                    <div className="grid md:grid-cols-2 gap-3">
+                      <div className="surface-muted p-4">
+                        <span className="text-[8px] font-black uppercase tracking-widest text-slate-400">Nhân vật</span>
+                        <p className="mt-2 text-sm font-black text-slate-900">{params.character.name || 'Chưa đặt tên'}</p>
+                        <p className="mt-1 text-xs text-slate-500 line-clamp-2">{params.character.personality || 'Chưa có tính cách khóa.'}</p>
+                      </div>
+                      <div className="surface-muted p-4">
+                        <span className="text-[8px] font-black uppercase tracking-widest text-slate-400">Mục tiêu nhân vật</span>
+                        <p className="mt-2 text-xs text-slate-600 line-clamp-4">{params.character.goal || 'Chưa có mục tiêu hoặc vết thương lòng.'}</p>
+                      </div>
+                      <div className="surface-muted p-4">
+                        <span className="text-[8px] font-black uppercase tracking-widest text-slate-400">Thể loại</span>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {params.genres.slice(0, 6).map(genre => (
+                            <span key={genre} className="px-2 py-1 rounded-md bg-white border border-slate-200 text-[9px] font-bold text-slate-600">{genre}</span>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="surface-muted p-4">
+                        <span className="text-[8px] font-black uppercase tracking-widest text-slate-400">Văn phong</span>
+                        <p className="mt-2 text-xs text-slate-600 line-clamp-4">{params.referenceStories || params.tone}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-slate-950 text-white rounded-lg p-5 shadow-sm space-y-5">
                   <div>
                     <span className="text-[9px] font-black uppercase text-emerald-300 tracking-widest">Luồng bắt buộc</span>
-                    <h3 className="text-2xl font-black story-font mt-2">Không viết khi chưa có khung truyện</h3>
+                    <h3 className="text-xl font-black story-font mt-2">Không chấp bút khi chưa khóa khung truyện</h3>
                   </div>
                   <div className="space-y-3">
                     {workflowSteps.map((step, idx) => (
-                      <div key={step.label} className="flex items-center gap-3">
-                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-xs font-black ${step.status === 'done' ? 'bg-emerald-400 text-slate-950' : step.status === 'active' ? 'bg-amber-300 text-slate-950' : 'bg-white/10 text-slate-400'}`}>
+                      <div key={step.label} className="grid grid-cols-[36px_1fr] gap-3 items-start">
+                        <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-xs font-black ${step.status === 'done' ? 'bg-emerald-400 text-slate-950' : step.status === 'active' ? 'bg-amber-300 text-slate-950' : 'bg-white/10 text-slate-400'}`}>
                           {idx + 1}
                         </div>
-                        <div>
+                        <div className="pt-0.5">
                           <p className="text-sm font-black">{step.label}</p>
                           <p className="text-[10px] text-slate-400">{step.status === 'done' ? 'Đã sẵn sàng' : step.status === 'active' ? 'Đang cần hoàn thiện' : 'Chờ bước trước'}</p>
                         </div>
@@ -1330,7 +1378,7 @@ const App: React.FC = () => {
                     ))}
                   </div>
                   {roadmapIssues.length > 0 && (
-                    <div className="p-4 bg-amber-300/10 border border-amber-300/20 rounded-2xl">
+                    <div className="p-4 bg-amber-300/10 border border-amber-300/20 rounded-lg">
                       <p className="text-[10px] font-black uppercase text-amber-200 mb-2">Còn thiếu</p>
                       <p className="text-xs text-amber-50 leading-relaxed">{roadmapIssues.join(' ')}</p>
                     </div>
