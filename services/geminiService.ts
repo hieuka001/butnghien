@@ -71,6 +71,19 @@ class GeminiRequestError extends Error {
   }
 }
 
+class AIJsonParseError extends Error {
+  rawText: string;
+
+  constructor(rawText: string, cause?: unknown) {
+    super("Dữ liệu từ AI không đúng định dạng JSON.");
+    this.name = "AIJsonParseError";
+    this.rawText = rawText;
+    if (cause) {
+      console.error("Lỗi parse JSON:", cause, rawText);
+    }
+  }
+}
+
 let keyCursor = 0;
 const keyCooldownUntil = new Map<number, number>();
 
@@ -219,17 +232,69 @@ const cleanStoryText = (text: string): string => {
     .replace(/\*\*/g, "");
 };
 
-const parseAIResponse = (text: string) => {
-  try {
-    const withoutFence = text.replace(/```json|```/gi, "").trim();
-    const jsonMatch = withoutFence.match(/\{[\s\S]*\}/);
-    const cleanJson = (jsonMatch ? jsonMatch[0] : withoutFence)
-      .replace(/,\s*([}\]])/g, "$1");
-    return JSON.parse(cleanJson);
-  } catch (e) {
-    console.error("Lỗi parse JSON:", e, text);
-    throw new Error("Dữ liệu từ AI không đúng định dạng JSON.");
+const stripJsonFence = (text: string) => text
+  .replace(/^\uFEFF/, "")
+  .replace(/```(?:json|JSON)?/g, "")
+  .replace(/```/g, "")
+  .trim();
+
+const extractBalancedJson = (text: string) => {
+  const source = stripJsonFence(text);
+  const start = source.search(/[\[{]/);
+  if (start < 0) return source;
+
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+
+  for (let index = start; index < source.length; index++) {
+    const char = source[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (char === "\"") {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (char === "{" || char === "[") {
+      stack.push(char === "{" ? "}" : "]");
+    } else if (char === "}" || char === "]") {
+      if (stack.pop() !== char) break;
+      if (stack.length === 0) return source.slice(start, index + 1);
+    }
   }
+
+  const lastBrace = Math.max(source.lastIndexOf("}"), source.lastIndexOf("]"));
+  return lastBrace >= start ? source.slice(start, lastBrace + 1) : source.slice(start);
+};
+
+const parseAIResponse = (text: string) => {
+  const candidates = [
+    extractBalancedJson(text),
+    stripJsonFence(text),
+  ]
+    .map(candidate => candidate
+      .replace(/[“”]/g, "\"")
+      .replace(/[‘’]/g, "'")
+      .replace(/,\s*([}\]])/g, "$1")
+      .trim())
+    .filter(Boolean);
+
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // Thử ứng viên kế tiếp trước khi báo lỗi định dạng.
+    }
+  }
+
+  throw new AIJsonParseError(text);
 };
 
 const extractGeminiText = (data: AnyRecord) => (data?.candidates?.[0]?.content?.parts || [])
@@ -609,7 +674,9 @@ const normalizeChapter = (
 
 const normalizeVolumes = (raw: AnyRecord, params: StoryParams): Volume[] => {
   const totalChapters = clamp(Math.round(params.totalChapters || 1), 1, 1000);
-  const rawVolumes = Array.isArray(raw?.volumes)
+  const rawVolumes = Array.isArray(raw)
+    ? raw
+    : Array.isArray(raw?.volumes)
     ? raw.volumes
     : raw?.firstVolume
       ? [raw.firstVolume]
@@ -649,7 +716,11 @@ const normalizeChapterPlans = (
 ): Chapter[] => {
   const start = clamp(Math.round(Number(volume.chapterStart) || 1), 1, 1000);
   const end = clamp(Math.round(Number(volume.chapterEnd) || start), start, 1000);
-  const rawChapters = Array.isArray(raw?.chapters) ? raw.chapters : [];
+  const rawChapters = Array.isArray(raw)
+    ? raw
+    : Array.isArray(raw?.chapters)
+      ? raw.chapters
+      : [];
 
   return Array.from({ length: end - start + 1 }, (_, offset) => {
     const chapterIndex = start + offset;
@@ -671,6 +742,63 @@ const normalizeLogicReport = (raw: AnyRecord): StoryLogicReport => ({
     : [],
   suggestions: asStringArray(raw?.suggestions).slice(0, 8),
   nextChapterFocus: asText(raw?.nextChapterFocus, "Viết chương tiếp theo bám mục tiêu Arc và xử lý các mâu thuẫn đang mở."),
+});
+
+const isAIJsonFormatError = (error: unknown) =>
+  error instanceof AIJsonParseError || (error instanceof Error && error.message.includes("không đúng định dạng JSON"));
+
+const fallbackTitleFromParams = (params: StoryParams) => {
+  const title = (params.seed || `${params.character.name} truyện mới`).trim().replace(/\s+/g, " ");
+  return title.length > 42 ? `${title.slice(0, 42)}...` : title;
+};
+
+const buildFallbackWorldBuilding = (params: StoryParams, totalChapters: number) => [
+  "# TIMELINE",
+  "- Chương 1 là mốc mở màn. Mọi mốc thời gian phát sinh sau này phải được ghi lại theo thứ tự.",
+  "- Dữ kiện chưa chắc chắn phải ghi \"chưa khóa\".",
+  "",
+  "# SỐ LIỆU VÀ QUY TẮC",
+  `- Lộ trình khóa: ${totalChapters} chương, mục tiêu ${params.length} chữ/chương.`,
+  "- Không tự đổi số tuổi, tiền bạc, khoảng cách, cấp bậc, vật phẩm hoặc luật thế giới nếu chưa có nhân quả trong truyện.",
+  "",
+  "# NHÂN VẬT VÀ QUAN HỆ",
+  `- ${params.character.name || "Nhân vật chính"}: ${params.character.personality || "chưa khóa tính cách"}.`,
+  `- Mục tiêu: ${params.character.goal || "chưa khóa mục tiêu"}.`,
+  "",
+  "# ĐỊA DANH/VẬT PHẨM/HỆ THỐNG",
+  "- Chưa khóa. Mỗi yếu tố mới phải có chức năng trong Arc hiện tại.",
+  "",
+  "# MÂU THUẪN ĐANG MỞ",
+  `- Mâu thuẫn khởi nguồn: ${params.seed || "chưa khóa"}.`,
+  "",
+  "# ĐIỀU CẤM PHÁ LOGIC",
+  "- Không mở tuyến phụ không phục vụ mục tiêu chương hoặc Arc.",
+  "- Không kết thúc truyện khi chưa tới chương cuối.",
+].join("\n");
+
+const buildFallbackRoadmapData = (params: StoryParams) => {
+  const totalChapters = clamp(Math.round(params.totalChapters || 1), 1, 1000);
+  return {
+    title: fallbackTitleFromParams(params),
+    generalSummary: `Đại cục dự phòng: ${params.character.name || "nhân vật chính"} theo đuổi mục tiêu ${params.character.goal || "đã đặt"} qua ${totalChapters} chương, mỗi Arc đẩy một tầng nhân quả mới và giữ kết cục theo cấu trúc "${params.mode}".`,
+    worldBuilding: buildFallbackWorldBuilding(params, totalChapters),
+    volumes: [],
+  };
+};
+
+const buildFallbackNextArcData = (
+  params: StoryParams,
+  safeVolumes: Volume[],
+  start: number,
+  end: number,
+) => ({
+  index: safeVolumes.length + 1,
+  title: `Arc ${safeVolumes.length + 1}`,
+  summary: `Đẩy ${params.character.name || "nhân vật chính"} vào một tầng xung đột mới từ chương ${start}-${end}.`,
+  purpose: "Mở rộng nhân quả, tăng áp lực và chuẩn bị biến chuyển kế tiếp.",
+  chapterStart: start,
+  chapterEnd: end,
+  chapters: [],
 });
 
 export const generateInitialRoadmap = async (params: StoryParams) => {
@@ -707,7 +835,14 @@ JSON bắt buộc:
   ]
 }`;
   
-  const data = await chatJson(PLAN_MODEL, SYSTEM_INSTRUCTION_ROADMAP, prompt, 0.35, DEFAULT_MAX_OUTPUT_TOKENS);
+  let data: AnyRecord;
+  try {
+    data = await chatJson(PLAN_MODEL, SYSTEM_INSTRUCTION_ROADMAP, prompt, 0.35, DEFAULT_MAX_OUTPUT_TOKENS);
+  } catch (error) {
+    if (!isAIJsonFormatError(error)) throw error;
+    console.warn("AI trả lộ trình không đúng JSON, dùng lộ trình dự phòng:", error);
+    data = buildFallbackRoadmapData(params);
+  }
   const volumes = normalizeVolumes(data, params);
   return {
     ...data,
@@ -757,7 +892,14 @@ Ghi rõ dữ kiện canon cần giữ và hậu quả cuối Arc nối sang Arc 
 Không thêm nhân vật, vật phẩm, địa danh, cấp bậc hoặc số liệu mới nếu không ghi rõ chức năng trong Arc và không mâu thuẫn Thiên Cơ Lục.
 Trả về JSON của một Volume có index, title, summary, purpose, chapterStart, chapterEnd, chapters: [].`;
   
-  const data = await chatJson(PLAN_MODEL, SYSTEM_INSTRUCTION_NEXT_ARC, prompt, 0.35, DEFAULT_MAX_OUTPUT_TOKENS);
+  let data: AnyRecord;
+  try {
+    data = await chatJson(PLAN_MODEL, SYSTEM_INSTRUCTION_NEXT_ARC, prompt, 0.35, DEFAULT_MAX_OUTPUT_TOKENS);
+  } catch (error) {
+    if (!isAIJsonFormatError(error)) throw error;
+    console.warn("AI trả Arc mở rộng không đúng JSON, dùng Arc dự phòng:", error);
+    data = buildFallbackNextArcData(params, safeVolumes, start, end);
+  }
   return {
     index: safeVolumes.length + 1,
     title: asText(data?.title, `Arc ${safeVolumes.length + 1}`),
@@ -829,7 +971,14 @@ Trả về JSON:
   ]
 }`;
 
-  const data = await chatJson(PLAN_MODEL, SYSTEM_INSTRUCTION_CHAPTER_PLAN, prompt, 0.32, DEFAULT_MAX_OUTPUT_TOKENS);
+  let data: AnyRecord;
+  try {
+    data = await chatJson(PLAN_MODEL, SYSTEM_INSTRUCTION_CHAPTER_PLAN, prompt, 0.32, DEFAULT_MAX_OUTPUT_TOKENS);
+  } catch (error) {
+    if (!isAIJsonFormatError(error)) throw error;
+    console.warn("AI trả bản đồ chương không đúng JSON, dùng bản đồ chương dự phòng:", error);
+    data = { chapters: [] };
+  }
   return {
     ...currentArc,
     chapters: normalizeChapterPlans(data, params, currentArc),
@@ -1010,7 +1159,16 @@ CÂU HỎI KIỂM ĐỊNH:
 Chỉ chấp nhận nếu chương vừa đúng canon vừa tập trung vào mục tiêu chương. Nếu có lỗi canon hoặc lan man đáng kể, isValid=false.
 Trả về JSON: { "isValid": boolean, "reason": string, "canonIssues": string[], "ramblingIssues": string[], "fixPlan": string }.`;
 
-  return chatJson(PLAN_MODEL, EDITOR_SYSTEM_INSTRUCTION, prompt, 0.2, 2500);
+  try {
+    return await chatJson(PLAN_MODEL, EDITOR_SYSTEM_INSTRUCTION, prompt, 0.2, 2500);
+  } catch (error) {
+    if (!isAIJsonFormatError(error)) throw error;
+    console.warn("AI trả thẩm định không đúng JSON, không chặn lưu chương:", error);
+    return {
+      isValid: true,
+      reason: "Không đọc được JSON thẩm định, hệ thống cho lưu bản nháp để tránh kẹt luồng viết.",
+    };
+  }
 };
 
 export const reviewStoryLogic = async (
@@ -1074,8 +1232,20 @@ Trả về JSON:
   "nextChapterFocus": "trọng tâm chương tiếp theo"
 }`;
 
-  const data = await chatJson(PLAN_MODEL, EDITOR_SYSTEM_INSTRUCTION, prompt, 0.25, 6000);
-  return normalizeLogicReport(data);
+  try {
+    const data = await chatJson(PLAN_MODEL, EDITOR_SYSTEM_INSTRUCTION, prompt, 0.25, 6000);
+    return normalizeLogicReport(data);
+  } catch (error) {
+    if (!isAIJsonFormatError(error)) throw error;
+    console.warn("AI trả báo cáo logic không đúng JSON, dùng báo cáo dự phòng:", error);
+    return normalizeLogicReport({
+      score: 50,
+      summary: "AI trả báo cáo không đúng định dạng. Hãy kiểm tra thủ công các chương gần nhất và thử lại sau.",
+      issues: [],
+      suggestions: ["Đọc lại Thiên Cơ Lục trước khi viết chương kế tiếp.", "Giữ đúng mục tiêu chương và không mở tuyến phụ mới."],
+      nextChapterFocus: "Bám bản đồ chương hiện tại và cập nhật canon sau khi viết.",
+    });
+  }
 };
 
 export const updateWorldBibleAndSummary = async (
