@@ -1457,7 +1457,10 @@ const App: React.FC = () => {
                           <div className="flex items-center gap-2">
                             <h3 className="font-black text-indigo-900 story-font text-xl uppercase tracking-tight">{vol.title}</h3>
                             {vol.chapterStart && vol.chapterEnd && (
-                              <span className="px-2 py-1 bg-slate-100 text-slate-400 rounded-md text-[8px] font-black uppercase">C.{vol.chapterStart}-{vol.chapterEnd}</span>
+                              <>
+                                <span className="px-2 py-1 bg-slate-100 text-slate-400 rounded-md text-[8px] font-black uppercase">C.{vol.chapterStart}-{vol.chapterEnd}</span>
+                                <span className="px-2 py-1 bg-amber-50 text-amber-700 border border-amber-100 rounded-md text-[8px] font-black uppercase">{Math.max(1, vol.chapterEnd - vol.chapterStart + 1)} chương</span>
+                              </>
                             )}
                           </div>
                           <p className="text-sm text-slate-500 italic mt-1">{vol.summary}</p>

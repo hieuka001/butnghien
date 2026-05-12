@@ -584,20 +584,156 @@ const desiredVolumeCount = (totalChapters: number) => {
   return clamp(Math.ceil(totalChapters / 40), 8, 30);
 };
 
-const buildRanges = (volumeCount: number, totalChapters: number) => {
+const plainText = (value: unknown) => String(value || "")
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .toLowerCase();
+
+const curvePeak = (position: number, center: number, width: number) => {
+  const distance = (position - center) / Math.max(width, 0.01);
+  return Math.exp(-(distance * distance));
+};
+
+const arcNarrativeRole = (index: number, count: number) => {
+  if (count <= 1) return "mot arc khep tron: mo mau thuan, day bien co, tra gia va ket.";
+  if (index === 0) return "khai cuc ngan: loi hua the loai, vet thuong, bien co dau.";
+  if (index === count - 1) return "ket cuc: cao trao, tra gia, giai quyet va du am.";
+
+  const position = index / Math.max(1, count - 1);
+  if (position < 0.22) return "hoi nhap va khoa quy tac: nhan vat bi day vao he thong xung dot.";
+  if (position < 0.42) return "tich luy chung cu, dong minh, ke thu va loi hua phu.";
+  if (position < 0.62) return "trung doan rong: lat mat nguyen nhan, dao chieu muc tieu.";
+  if (position < 0.82) return "khung hoang va phan cong: hau qua cu quay lai ep nhan vat.";
+  return "tien cao trao: sieu ap luc, thu hep lua chon, chuan bi tra gia.";
+};
+
+const narrativeArcWeight = (index: number, count: number, params: StoryParams) => {
+  if (count <= 1) return 1;
+
+  const position = index / Math.max(1, count - 1);
+  const genreText = plainText((params.genres || []).join(" "));
+  const modeText = plainText(params.mode);
+  const seedComplexity = clamp(countWords(`${params.seed || ""} ${params.referenceStories || ""}`) / 180, 0, 1.4);
+  const sliders: StoryParams["sliders"] = {
+    romance: 0,
+    violence: 0,
+    philosophy: 0,
+    psychology: 0,
+    action: 0,
+    strategy: 0,
+    ...(params.sliders || {}),
+  };
+
+  let weight = 0.92;
+  weight += curvePeak(position, 0.5, 0.22) * 0.28;
+  weight += curvePeak(position, 0.76, 0.14) * 0.32;
+  weight += seedComplexity * curvePeak(position, 0.38, 0.24) * 0.16;
+
+  weight += (sliders.strategy / 100) * curvePeak(position, 0.56, 0.2) * 0.28;
+  weight += (sliders.psychology / 100) * curvePeak(position, 0.38, 0.22) * 0.22;
+  weight += (sliders.action / 100) * curvePeak(position, 0.78, 0.16) * 0.22;
+  weight += (sliders.romance / 100) * curvePeak(position, 0.48, 0.28) * 0.14;
+  weight += (sliders.philosophy / 100) * curvePeak(position, 0.62, 0.24) * 0.12;
+
+  if (/trinh|toi pham|kinh di|linh di|tham tu|huyen bi/.test(genreText)) {
+    weight += curvePeak(position, 0.34, 0.18) * 0.24;
+    weight += curvePeak(position, 0.67, 0.16) * 0.14;
+  }
+  if (/tu tien|tien hiep|huyen huyen|he thong|xay dung|vo dich|luyen dan/.test(genreText)) {
+    weight += curvePeak(position, 0.58, 0.24) * 0.26;
+  }
+  if (/ngon tinh|dam my|bach hop|tam ly|thanh xuan/.test(genreText)) {
+    weight += curvePeak(position, 0.42, 0.25) * 0.2;
+  }
+  if (/twist|bi kich/.test(modeText)) {
+    weight += curvePeak(position, 0.82, 0.12) * 0.18;
+  }
+
+  if (index === 0) weight *= 0.72;
+  if (index === count - 1) weight *= modeText.includes("mo de viet tiep") ? 0.78 : 0.9;
+  if (position < 0.16) weight *= 0.88;
+  if (position > 0.9) weight *= 0.92;
+
+  return clamp(weight, 0.46, 1.72);
+};
+
+const rawArcSizes = (rawVolumes: AnyRecord[], count: number) => {
+  if (rawVolumes.length < count) return null;
+  const sizes = rawVolumes.slice(0, count).map(volume => {
+    const start = Number(volume?.chapterStart);
+    const end = Number(volume?.chapterEnd);
+    return Number.isFinite(start) && Number.isFinite(end) && end >= start ? Math.round(end - start + 1) : 0;
+  });
+
+  return sizes.every(size => size > 0) ? sizes : null;
+};
+
+const isTooUniformArcSizes = (sizes: number[]) => {
+  if (sizes.length < 3) return false;
+  const average = sizes.reduce((sum, size) => sum + size, 0) / sizes.length;
+  const spread = Math.max(...sizes) - Math.min(...sizes);
+  return spread <= Math.max(1, Math.round(average * 0.12));
+};
+
+const allocateSizesFromWeights = (totalChapters: number, weights: number[]) => {
+  const safeWeights = weights.map(weight => Math.max(0.05, Number(weight) || 0.05));
+  const totalWeight = safeWeights.reduce((sum, weight) => sum + weight, 0) || 1;
+  const rawSizes = safeWeights.map(weight => (weight / totalWeight) * totalChapters);
+  const sizes = rawSizes.map(size => Math.max(1, Math.floor(size)));
+  let currentTotal = sizes.reduce((sum, size) => sum + size, 0);
+
+  while (currentTotal > totalChapters) {
+    let donor = -1;
+    for (let index = 0; index < sizes.length; index++) {
+      if (sizes[index] > 1 && (donor === -1 || sizes[index] > sizes[donor])) donor = index;
+    }
+    if (donor === -1) break;
+    sizes[donor]--;
+    currentTotal--;
+  }
+
+  const priority = rawSizes
+    .map((size, index) => ({ index, fraction: size - Math.floor(size) }))
+    .sort((a, b) => b.fraction - a.fraction);
+  let cursor = 0;
+  while (currentTotal < totalChapters) {
+    sizes[priority[cursor % priority.length]?.index || 0]++;
+    currentTotal++;
+    cursor++;
+  }
+
+  return sizes;
+};
+
+const buildRanges = (
+  volumeCount: number,
+  totalChapters: number,
+  params: StoryParams,
+  rawVolumes: AnyRecord[] = [],
+) => {
   const count = clamp(volumeCount, 1, Math.max(1, totalChapters));
-  const base = Math.floor(totalChapters / count);
-  const remainder = totalChapters % count;
+  const rawSizes = rawArcSizes(rawVolumes, count);
+  const weights = rawSizes && !isTooUniformArcSizes(rawSizes)
+    ? rawSizes
+    : Array.from({ length: count }, (_, index) => narrativeArcWeight(index, count, params));
+  const sizes = allocateSizesFromWeights(totalChapters, weights);
   let cursor = 1;
 
-  return Array.from({ length: count }, (_, index) => {
-    const size = base + (index < remainder ? 1 : 0);
+  return sizes.map((size) => {
     const start = cursor;
     const end = cursor + size - 1;
     cursor = end + 1;
     return { start, end };
   });
 };
+
+const buildArcBudgetGuide = (ranges: Array<{ start: number; end: number }>) =>
+  ranges
+    .map((range, index) => {
+      const size = range.end - range.start + 1;
+      return `- Arc ${index + 1}: chuong ${range.start}-${range.end} (${size} chuong) - ${arcNarrativeRole(index, ranges.length)}`;
+    })
+    .join("\n");
 
 const pacingForChapter = (index: number, total: number): Chapter["pacing"] => {
   if (index === total) return "Cao trào";
@@ -700,12 +836,20 @@ const normalizeVolumes = (raw: AnyRecord, params: StoryParams): Volume[] => {
       : [];
   const volumeTarget = desiredVolumeCount(totalChapters);
   const volumeCount = clamp(Math.max(rawVolumes.length, volumeTarget), 1, Math.min(totalChapters, 30));
-  const ranges = buildRanges(volumeCount, totalChapters);
+  const ranges = buildRanges(volumeCount, totalChapters, params, rawVolumes);
 
   return ranges.map((range, volumeOffset) => {
     const rawVolume = rawVolumes[volumeOffset] || {};
     const index = volumeOffset + 1;
     const title = asText(rawVolume.title, index === 1 ? "Khai cục" : `Arc ${index}`);
+    const arcSize = range.end - range.start + 1;
+    const averageArcSize = totalChapters / Math.max(1, ranges.length);
+    const lengthShape = arcSize >= averageArcSize * 1.28
+      ? "Arc trọng tâm dài"
+      : arcSize <= averageArcSize * 0.78
+        ? "Arc cầu nối ngắn"
+        : "Arc nhịp vừa";
+    const arcRole = arcNarrativeRole(volumeOffset, ranges.length);
     const rawChapters = Array.isArray(rawVolume.chapters) ? rawVolume.chapters : [];
     const chapters = rawChapters
       .filter((chapter: AnyRecord) => {
@@ -717,8 +861,8 @@ const normalizeVolumes = (raw: AnyRecord, params: StoryParams): Volume[] => {
     return {
       index,
       title,
-      summary: asText(rawVolume.summary, `Arc ${index} phụ trách các chương ${range.start}-${range.end}.`),
-      purpose: asText(rawVolume.purpose, "Đẩy nhân vật chính qua một tầng xung đột mới trong đại cục."),
+      summary: asText(rawVolume.summary, `Arc ${index} phụ trách chương ${range.start}-${range.end}: ${arcRole}`),
+      purpose: asText(rawVolume.purpose, `${lengthShape}: dùng ${arcSize} chương để ${arcRole}`),
       chapterStart: range.start,
       chapterEnd: range.end,
       chapters,
@@ -858,12 +1002,18 @@ const buildFallbackNextArcData = (
 export const generateInitialRoadmap = async (params: StoryParams) => {
   const totalChapters = clamp(Math.round(params.totalChapters || 1), 1, 1000);
   const volumeCount = desiredVolumeCount(totalChapters);
+  const recommendedRanges = buildRanges(volumeCount, totalChapters, params);
+  const arcBudgetGuide = buildArcBudgetGuide(recommendedRanges);
   const prompt = `${buildProjectBrief(params)}
 
 YÊU CẦU LẬP LỘ TRÌNH:
 - Chỉ tạo Đại cục và khoảng ${volumeCount} Arc, phủ đủ chương 1-${totalChapters}. Chưa viết bản đồ từng chương ở bước này.
 - Mỗi Arc phải có chapterStart/chapterEnd rõ ràng, nối tiếp nhau, không trùng, không bỏ sót, không vượt quá ${totalChapters}.
-- Nếu tổng số chương rất dài, chia Arc theo cụm 25-50 chương để sau này sinh bản đồ chương theo từng Arc.
+- Khong chia deu may moc. Do dai Arc phai theo trong luong tinh tiet: Arc cau noi ngan hon, Arc dieu tra/tich luy/khung hoang/cao trao dai hon, Arc ket chi dai neu can tra gia va du am.
+- Khung goi y bat doi xung de can ngan:
+${arcBudgetGuide}
+- Co the dieu chinh tung moc neu noi dung can, nhung tong van phai dung ${totalChapters} chuong va purpose cua moi Arc phai noi ro ly do Arc do dai/ngan.
+- Nếu tổng số chương rất dài, chia Arc theo cụm 25-60 chương để sau này sinh bản đồ chương theo từng Arc; không bắt buộc Arc nào cũng bằng nhau.
 - Mỗi Arc phải nêu: chức năng trong toàn truyện, xung đột chính, biến chuyển cuối Arc, dữ kiện canon cần giữ.
 - General summary nêu rõ mở đầu, trung đoạn, cao trào, kết cục theo mode "${params.mode}" trong tối đa 120 từ.
 - World building phải là Thiên Cơ Lục khởi tạo dạng Markdown, tối đa 260 từ, có đủ mục: # TIMELINE, # SỐ LIỆU VÀ QUY TẮC, # NHÂN VẬT VÀ QUAN HỆ, # ĐỊA DANH/VẬT PHẨM/HỆ THỐNG, # MÂU THUẪN ĐANG MỞ, # ĐIỀU CẤM PHÁ LOGIC.
@@ -881,7 +1031,7 @@ JSON bắt buộc:
       "index": 1,
       "title": "tên Arc",
       "summary": "tóm tắt Arc",
-      "purpose": "chức năng của Arc trong toàn truyện",
+      "purpose": "chức năng của Arc trong toàn truyện, kèm lý do Arc này cần dài/ngắn",
       "chapterStart": 1,
       "chapterEnd": 40,
       "chapters": []
@@ -921,8 +1071,14 @@ export const generateNextArc = async (
   const maxPlannedChapter = Math.max(0, ...safeVolumes.map(volume => volume.chapterEnd || Math.max(0, ...(volume.chapters || []).map(chapter => chapter.index))));
   const start = maxPlannedChapter + 1;
   const remainingInsidePlan = Math.max(0, params.totalChapters - maxPlannedChapter);
-  const preferredArcSize = params.totalChapters >= 80 ? 40 : params.totalChapters >= 20 ? 12 : 6;
-  const arcSize = remainingInsidePlan > 0 ? clamp(remainingInsidePlan, 1, preferredArcSize) : preferredArcSize;
+  const fallbackArcSize = params.totalChapters >= 80 ? 40 : params.totalChapters >= 20 ? 12 : 6;
+  const profileTotal = remainingInsidePlan > 0 ? params.totalChapters : params.totalChapters + fallbackArcSize;
+  const profileCount = Math.max(desiredVolumeCount(profileTotal), safeVolumes.length + 1);
+  const profileRange = buildRanges(profileCount, profileTotal, params)[safeVolumes.length];
+  const profileArcSize = profileRange ? profileRange.end - profileRange.start + 1 : fallbackArcSize;
+  const arcSize = remainingInsidePlan > 0
+    ? clamp(profileArcSize, 1, remainingInsidePlan)
+    : clamp(profileArcSize, 3, params.totalChapters >= 80 ? 70 : 18);
   const end = start + arcSize - 1;
   const history = [...writtenChapters]
     .sort((a, b) => a.index - b.index)
