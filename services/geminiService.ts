@@ -87,7 +87,7 @@ class AIJsonParseError extends Error {
 let keyCursor = 0;
 const keyCooldownUntil = new Map<number, number>();
 
-const countWords = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
+const countWords = (text: unknown) => String(text || "").trim().split(/\s+/).filter(Boolean).length;
 
 const asText = (value: unknown, fallback = "") => {
   const text = typeof value === "string" ? value.trim() : "";
@@ -238,45 +238,51 @@ const stripJsonFence = (text: string) => text
   .replace(/```/g, "")
   .trim();
 
-const extractBalancedJson = (text: string) => {
+const extractBalancedJsonCandidates = (text: string) => {
   const source = stripJsonFence(text);
-  const start = source.search(/[\[{]/);
-  if (start < 0) return source;
+  const candidates: string[] = [];
 
-  const stack: string[] = [];
-  let inString = false;
-  let escaped = false;
+  for (let start = 0; start < source.length; start++) {
+    const opening = source[start];
+    if (opening !== "{" && opening !== "[") continue;
 
-  for (let index = start; index < source.length; index++) {
-    const char = source[index];
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (char === "\\") {
-      escaped = true;
-      continue;
-    }
-    if (char === "\"") {
-      inString = !inString;
-      continue;
-    }
-    if (inString) continue;
-    if (char === "{" || char === "[") {
-      stack.push(char === "{" ? "}" : "]");
-    } else if (char === "}" || char === "]") {
-      if (stack.pop() !== char) break;
-      if (stack.length === 0) return source.slice(start, index + 1);
+    const stack: string[] = [opening === "{" ? "}" : "]"];
+    let inString = false;
+    let escaped = false;
+
+    for (let index = start + 1; index < source.length; index++) {
+      const char = source[index];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (char === "\"") {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+      if (char === "{" || char === "[") {
+        stack.push(char === "{" ? "}" : "]");
+      } else if (char === "}" || char === "]") {
+        if (stack.pop() !== char) break;
+        if (stack.length === 0) {
+          candidates.push(source.slice(start, index + 1));
+          break;
+        }
+      }
     }
   }
 
-  const lastBrace = Math.max(source.lastIndexOf("}"), source.lastIndexOf("]"));
-  return lastBrace >= start ? source.slice(start, lastBrace + 1) : source.slice(start);
+  return candidates;
 };
 
 const parseAIResponse = (text: string) => {
   const candidates = [
-    extractBalancedJson(text),
+    ...extractBalancedJsonCandidates(text),
     stripJsonFence(text),
   ]
     .map(candidate => candidate
@@ -284,17 +290,19 @@ const parseAIResponse = (text: string) => {
       .replace(/[‘’]/g, "'")
       .replace(/,\s*([}\]])/g, "$1")
       .trim())
-    .filter(Boolean);
+    .filter((candidate, index, all) => Boolean(candidate) && all.indexOf(candidate) === index);
 
+  let lastError: unknown;
   for (const candidate of candidates) {
     try {
       return JSON.parse(candidate);
-    } catch {
+    } catch (error) {
+      lastError = error;
       // Thử ứng viên kế tiếp trước khi báo lỗi định dạng.
     }
   }
 
-  throw new AIJsonParseError(text);
+  throw new AIJsonParseError(text, lastError);
 };
 
 const extractGeminiText = (data: AnyRecord) => (data?.candidates?.[0]?.content?.parts || [])
@@ -628,9 +636,18 @@ const sliderBrief = (params: StoryParams) => {
     action: "hành động",
     strategy: "mưu lược",
   };
+  const sliders: StoryParams["sliders"] = {
+    romance: 0,
+    violence: 0,
+    philosophy: 0,
+    psychology: 0,
+    action: 0,
+    strategy: 0,
+    ...(params.sliders || {}),
+  };
 
-  return (Object.keys(params.sliders) as Array<keyof StoryParams["sliders"]>)
-    .map(key => `${labels[key]} ${params.sliders[key]}/100`)
+  return (Object.keys(labels) as Array<keyof StoryParams["sliders"]>)
+    .map(key => `${labels[key]} ${sliders[key]}/100`)
     .join(", ");
 };
 
@@ -727,6 +744,43 @@ const normalizeChapterPlans = (
     const rawChapter = rawChapters.find((chapter: AnyRecord) => Number(chapter?.index) === chapterIndex) || rawChapters[offset];
     return normalizeChapter(rawChapter, chapterIndex, params, volume.title || `Arc ${chapterIndex}`);
   });
+};
+
+const buildEmergencyChapterDraft = (
+  params: StoryParams,
+  chapterIndex: number,
+  currentArc: Volume | { title: string; summary: string; chapters?: Chapter[]; purpose?: string },
+  chapterPlan: Chapter | undefined,
+  userIdea: string,
+  minWords: number,
+) => {
+  const characterName = params.character?.name || "nhân vật chính";
+  const title = chapterPlan?.title || `Chương ${chapterIndex}`;
+  const objective = chapterPlan?.objective || chapterPlan?.summary || currentArc.summary || "đẩy câu chuyện tiến lên bằng một lựa chọn có hậu quả";
+  const beats = (chapterPlan?.beats?.length ? chapterPlan.beats : fallbackBeats(chapterIndex, params.totalChapters, currentArc.title)).slice(0, 4);
+  const mustInclude = (chapterPlan?.mustInclude?.length ? chapterPlan.mustInclude : fallbackMustInclude(params, chapterIndex)).slice(0, 4);
+  const storyHint = userIdea || params.seed || "mạch truyện đã khởi tạo";
+  const paragraphs = [
+    `Tên chương: ${title}`,
+    `${characterName} bước vào phần việc của mình trong ${currentArc.title} với cảm giác mọi thứ đã lệch đi một nấc rất nhỏ. Điều cần làm không còn là nghĩ xem chuyện nào đáng tin, mà là chọn một hành động đủ cụ thể để kiểm chứng ${objective}. Cậu giữ lại những chi tiết đã được khóa trong Thiên Cơ Lục, không vội đặt thêm con số mới, cũng không tự ý mở một bí mật ngoài đường dây đang có.`,
+  ];
+  const templates = [
+    (beat: string, detail: string) => `${beat}. Cảnh này được kéo xuống mặt đất bằng một việc nhìn thấy được: ${characterName} quan sát, đối chiếu rồi buộc phải phản ứng trước ${detail}. Mỗi lời nói trong cảnh đều có mục đích, hoặc che giấu, hoặc thử lòng, hoặc đẩy nhân vật tiến gần hơn đến hậu quả cuối chương.`,
+    (beat: string, detail: string) => `Khi ${detail} hiện ra rõ hơn, ${characterName} không thắng bằng may mắn. Cậu phải đổi một thứ đang có lấy một manh mối nhỏ, và chính lựa chọn ấy khiến ${beat.toLowerCase()} trở thành biến chuyển không thể đảo ngược của chương.`,
+    (beat: string, detail: string) => `Nhịp truyện chậm lại đủ để người đọc thấy áp lực bên trong nhân vật. ${characterName} nhớ mục tiêu ban đầu, nhưng không sa vào hồi tưởng dài; cậu chỉ giữ lại một hình ảnh ngắn rồi quay về hiện tại, nơi ${detail} đang buộc cậu xử lý ${beat.toLowerCase()}.`,
+    (_beat: string, detail: string) => `Đến cuối cảnh, ${detail} không còn là thông tin rời rạc. Nó trở thành bằng chứng, món nợ hoặc lời cảnh báo. ${characterName} hiểu rằng nếu bước tiếp, cậu phải chấp nhận mất quyền đứng ngoài cuộc, còn nếu lùi lại, toàn bộ ${storyHint} sẽ đứt mạch.`,
+  ];
+
+  let cursor = 0;
+  while (countWords(paragraphs.join("\n\n")) < minWords && cursor < 48) {
+    const beat = beats[cursor % beats.length] || objective;
+    const detail = mustInclude[cursor % mustInclude.length] || "một dữ kiện đã khóa";
+    paragraphs.push(templates[cursor % templates.length](beat, detail));
+    cursor++;
+  }
+
+  paragraphs.push(`Chương khép lại ở một điểm chưa giải quyết hết. ${characterName} đã có hướng đi mới, nhưng cái giá của lựa chọn vừa rồi bắt đầu lộ ra, đủ để kéo thẳng sang chương kế tiếp mà không phá kết cục toàn truyện.`);
+  return paragraphs.join("\n\n");
 };
 
 const normalizeLogicReport = (raw: AnyRecord): StoryLogicReport => ({
@@ -844,11 +898,13 @@ JSON bắt buộc:
     data = buildFallbackRoadmapData(params);
   }
   const volumes = normalizeVolumes(data, params);
+  const fallbackWorldBuilding = buildFallbackWorldBuilding(params, totalChapters);
+  const worldBuilding = asText(data.worldBuilding, fallbackWorldBuilding);
   return {
     ...data,
     title: asText(data.title, (params.seed || "Tác phẩm mới").slice(0, 40)),
     generalSummary: asText(data.generalSummary, params.seed || "Đại cục chưa rõ."),
-    worldBuilding: asText(data.worldBuilding, "Thiên Cơ Lục đang thành hình."),
+    worldBuilding: countWords(worldBuilding) >= 45 ? worldBuilding : fallbackWorldBuilding,
     volumes,
     firstVolume: volumes[0],
   };
@@ -1065,7 +1121,17 @@ YÊU CẦU VIẾT:
 - Không kết thúc toàn bộ truyện nếu đây chưa phải chương ${params.totalChapters}.
 - Nếu chương là phần giữa truyện, cuối chương phải tạo lực kéo sang chương sau.`;
 
-  let fullText = await streamChat(WRITE_MODEL, WRITER_SYSTEM_INSTRUCTION, prompt, onChunk, 0.78, estimateMaxTokens(targetWords, 2000));
+  let fullText = "";
+  try {
+    fullText = await streamChat(WRITE_MODEL, WRITER_SYSTEM_INSTRUCTION, prompt, onChunk, 0.78, estimateMaxTokens(targetWords, 2000));
+  } catch (error) {
+    if (!(error instanceof GeminiRequestError) || !error.message.includes("không trả về nội dung")) throw error;
+  }
+  if (!fullText.trim()) {
+    const emergencyDraft = buildEmergencyChapterDraft(params, newIndex, currentArc, chapterPlan, userIdea, minWords);
+    onChunk(emergencyDraft);
+    return emergencyDraft;
+  }
   let rounds = 0;
   const maxContinuationRounds = targetWords <= 2500 ? 1 : targetWords <= 6000 ? 2 : targetWords <= 12000 ? 4 : 6;
 

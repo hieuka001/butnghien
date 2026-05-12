@@ -957,7 +957,7 @@ const App: React.FC = () => {
     setCurrentChapterIndex(chapter.index); setActiveArcIndex(arcIndex); setChapterIdea(''); setStory(''); setView('editor');
   };
 
-  const handleDeleteChapter = (chapterIndex: number, arcIndex: number, e: React.MouseEvent) => {
+  const handleDeleteChapter = (chapterIndex: number, _arcIndex: number, e: React.MouseEvent) => {
     e.stopPropagation();
     if (confirm(`⚠️ Xóa vĩnh viễn nội dung chương ${chapterIndex}?`)) {
       const nextWrittenList = writtenChapters.filter(c => c.index !== chapterIndex);
