@@ -881,6 +881,11 @@ const App: React.FC = () => {
         if (!fullText.trim()) throw new Error('Gemini chưa trả về nội dung truyện. Hãy thử lại với mục tiêu chữ thấp hơn hoặc bấm viết lại.');
 
         const extracted = extractGeneratedTitle(fullText, writtenChapters[0]?.title || 'Toàn văn');
+        const shortStoryWords = countDraftWords(extracted.body);
+        const shortStoryMinimum = Math.max(700, Math.floor(params.length * 0.88));
+        if (shortStoryWords < shortStoryMinimum || draftLooksCutOff(extracted.body)) {
+          throw new Error(`Bản truyện đang bị thiếu phần cuối hoặc chưa đủ chữ: hiện khoảng ${shortStoryWords}/${params.length} chữ. Hãy bấm viết lại để app nối tiếp bản đầy đủ hơn.`);
+        }
         const shortChapter: Chapter = {
           ...(writtenChapters[0] || {}),
           index: 1,
@@ -984,6 +989,11 @@ const App: React.FC = () => {
         finalContent = bestCandidate;
         setStory(finalContent);
       }
+      const finalWords = countDraftWords(finalContent);
+      const hardMinimumWords = Math.max(650, Math.floor(targetWords * 0.9));
+      if (finalWords < hardMinimumWords || draftLooksCutOff(finalContent)) {
+        throw new Error(`Chương đang bị thiếu phần cuối hoặc chưa đủ chữ: hiện khoảng ${finalWords}/${targetWords} chữ. App chưa lưu bản này để tránh mất nội dung. Hãy bấm viết lại, hoặc giảm mục tiêu chữ nếu Gemini đang bị giới hạn.`);
+      }
 
       setGenerationStatus('Đang cập nhật Thiên Cơ Lục và khóa dữ kiện mới...');
       let updates: { chapterTitle?: string; chapterSummary?: string; updatedBible: string };
@@ -1057,6 +1067,11 @@ const App: React.FC = () => {
         setStory('');
         const fullText = await generateShortStoryStream(workingParams, (chunk) => setStory(prev => prev + chunk));
         const extracted = extractGeneratedTitle(fullText, 'Toàn văn');
+        const shortStoryWords = countDraftWords(extracted.body);
+        const shortStoryMinimum = Math.max(700, Math.floor(workingParams.length * 0.88));
+        if (shortStoryWords < shortStoryMinimum || draftLooksCutOff(extracted.body)) {
+          throw new Error(`Bản truyện đang bị thiếu phần cuối hoặc chưa đủ chữ: hiện khoảng ${shortStoryWords}/${workingParams.length} chữ. Hãy bấm viết lại để app nối tiếp bản đầy đủ hơn.`);
+        }
         const newId = Date.now().toString();
         const shortChapter: Chapter = { index: 1, title: extracted.title, content: extracted.body, summary: workingParams.seed || '', targetWords: workingParams.length };
         const shortVolume: Volume = { index: 1, title: 'Truyện ngắn', summary: 'Nội dung truyện ngắn hoàn chỉnh', chapterStart: 1, chapterEnd: 1, chapters: [shortChapter] };
