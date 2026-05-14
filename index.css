@@ -14,6 +14,36 @@
   font-family: 'Crimson Pro', serif;
 }
 
+.manuscript-reader {
+  line-height: 1.92;
+  max-width: 48rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.manuscript-paragraph {
+  margin: 0;
+}
+
+.manuscript-paragraph + .manuscript-paragraph {
+  margin-top: 1.35em;
+}
+
+.manuscript-line + .manuscript-line {
+  margin-top: 0.45em;
+}
+
+.manuscript-beat {
+  margin-top: 1.65em;
+  margin-bottom: 1.65em;
+  color: #111827;
+  font-weight: 700;
+}
+
+.manuscript-dialogue {
+  color: #1f2937;
+}
+
 .app-shell {
   background:
     linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);

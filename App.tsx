@@ -626,6 +626,41 @@ const App: React.FC = () => {
     return words + completenessBonus - distancePenalty;
   };
 
+  const renderStoryParagraphs = (text: string) => {
+    const blocks = text
+      .replace(/\r\n/g, '\n')
+      .split(/\n{2,}/)
+      .map(block => block.trim())
+      .filter(Boolean);
+
+    return blocks.map((block, blockIndex) => {
+      const lines = block.split('\n').map(line => line.trim()).filter(Boolean);
+      const isShortBeat = lines.length === 1 && lines[0].length <= 120 && /[.!?…)"'\]]$/.test(lines[0]);
+      const isDialogue = lines.length === 1 && /^(?:[-–—"“']|\w.+:)/.test(lines[0]);
+
+      if (lines.length > 1) {
+        return (
+          <div key={`block-${blockIndex}`} className="manuscript-paragraph space-y-3">
+            {lines.map((line, lineIndex) => (
+              <p key={`line-${blockIndex}-${lineIndex}`} className="manuscript-line">
+                {line}
+              </p>
+            ))}
+          </div>
+        );
+      }
+
+      return (
+        <p
+          key={`block-${blockIndex}`}
+          className={`manuscript-paragraph ${isShortBeat ? 'manuscript-beat' : ''} ${isDialogue ? 'manuscript-dialogue' : ''}`}
+        >
+          {block}
+        </p>
+      );
+    });
+  };
+
   const buildOpeningWorldBible = (
     rawWorldBuilding: string,
     summary: string,
@@ -2115,8 +2150,8 @@ const App: React.FC = () => {
                       <button onClick={() => setView('outline')} className="text-[10px] font-black uppercase text-slate-400 border border-slate-200 px-8 py-3 rounded-full hover:bg-slate-50 transition-all">Về Lộ Trình</button>
                     </div>
                   </header>
-                  <article className="story-font text-lg md:text-2xl leading-relaxed text-slate-800 whitespace-pre-wrap text-left md:text-justify shadow-2xl p-6 md:p-20 bg-white/95 rounded-[2rem] md:rounded-[3rem] border border-slate-50 relative">
-                    {story}
+                  <article className="manuscript-reader story-font text-lg md:text-2xl text-slate-800 text-left shadow-2xl p-6 md:p-20 bg-white/95 rounded-[2rem] md:rounded-[3rem] border border-slate-50 relative">
+                    {renderStoryParagraphs(story)}
                   </article>
                 </div>
               )}
