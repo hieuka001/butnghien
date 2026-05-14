@@ -55,9 +55,12 @@ type StoryDirectionChoice = {
   id: string;
   title: string;
   badge: string;
+  engine: string;
+  bestFor: string;
   premise: string;
   logic: string;
   arcBias: string;
+  payoff: string;
   risk: string;
   lock: string;
 };
@@ -124,6 +127,17 @@ const App: React.FC = () => {
   const [pendingDirectionParams, setPendingDirectionParams] = useState<StoryParams | null>(null);
   const [selectedDirectionId, setSelectedDirectionId] = useState<string>('');
   const [view, setView] = useState<'editor' | 'outline' | 'manuscript' | 'setup' | 'directions' | 'my-stories' | 'bible'>('setup');
+
+  const updateDraftParams = (updater: (previous: StoryParams) => StoryParams) => {
+    setDirectionChoices([]);
+    setPendingDirectionParams(null);
+    setSelectedDirectionId('');
+    setLogicReport(null);
+    setParams(previous => ({
+      ...updater(previous),
+      directionLock: '',
+    }));
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -238,14 +252,14 @@ const App: React.FC = () => {
   }, [projects, isHydrated, authUser?.uid]);
 
   const toggleGenre = (genre: Genre) => {
-    setParams(prev => ({
+    updateDraftParams(prev => ({
       ...prev,
       genres: prev.genres.includes(genre) ? prev.genres.filter(g => g !== genre) : [...prev.genres, genre]
     }));
   };
 
   const handleProjectTypeChange = (projectType: StoryParams['projectType']) => {
-    setParams(prev => ({
+    updateDraftParams(prev => ({
       ...prev,
       projectType,
       totalChapters: projectType === 'Truyện Ngắn' ? 1 : Math.max(2, prev.totalChapters || 5),
@@ -313,6 +327,69 @@ const App: React.FC = () => {
     const hero = draft.character.name || 'nhân vật chính';
     const goal = draft.character.goal || 'mục tiêu còn bỏ ngỏ';
     const seed = draft.seed || 'ý tưởng khởi nguồn';
+    const directionDetails: Record<string, { engine: string; bestFor: string; payoff: string }> = {
+      'causal-debt': {
+        engine: 'Nợ cũ tạo lựa chọn mới, lựa chọn mới sinh hậu quả lớn hơn.',
+        bestFor: 'Truyện cần chiều sâu nhân quả, trả giá rõ và cao trào có sức nặng.',
+        payoff: 'Cao trào là lúc nhân vật tự chọn trả món nợ lớn nhất thay vì thắng dễ.',
+      },
+      'investigation-layers': {
+        engine: 'Manh mối, phủ nhận, kiểm chứng và cú lật được cài bằng chứng từ sớm.',
+        bestFor: 'Trinh thám, linh dị, huyền nghi hoặc truyện có bí mật trung tâm.',
+        payoff: 'Sự thật cuối cùng nối toàn bộ chứng cứ, không phải twist rơi từ trên xuống.',
+      },
+      'power-builder': {
+        engine: 'Tài nguyên, quan hệ và luật chơi tăng dần bằng giao dịch có giá.',
+        bestFor: 'Tu tiên, xây dựng thế lực, đô thị, quan trường, hệ thống hoặc thành trì.',
+        payoff: 'Thế lực thắng bằng cấu trúc đã xây, nhưng phải mất một phần nền móng.',
+      },
+      'identity-reversal': {
+        engine: 'Nhận thức sai về bản thân bị phá từng lớp bằng chứng hợp timeline.',
+        bestFor: 'Truyện thân phận, trọng sinh, gia đấu, huyền huyễn có bí mật quá khứ.',
+        payoff: 'Sự thật đổi mục tiêu hành động, không chỉ đổi nhãn thân phận.',
+      },
+      'survival-countdown': {
+        engine: 'Hạn chót và tài nguyên cạn dần ép nhân vật chọn ngay trong cảnh.',
+        bestFor: 'Sinh tồn, mạt thế, vô hạn lưu, kinh dị hoặc truyện cần nhịp căng.',
+        payoff: 'Nhân vật sống sót nhờ hiểu luật, không nhờ may mắn hay cứu viện vô cớ.',
+      },
+      'moral-corruption': {
+        engine: 'Mỗi chiến thắng đẩy nhân vật qua một ranh giới đạo đức mới.',
+        bestFor: 'Dark fantasy, quyền lực, trả thù, phản anh hùng hoặc hiện thực gai góc.',
+        payoff: 'Cao trào buộc nhân vật chọn giữa mục tiêu và phần người còn lại.',
+      },
+      'healing-bond': {
+        engine: 'Xung đột ngoài truyện phản chiếu một vết thương nội tâm đang mở.',
+        bestFor: 'Chữa lành, tâm lý, thanh xuân, đời thường hoặc lãng mạn trưởng thành.',
+        payoff: 'Kết truyện thắng bằng thay đổi hành vi, không bằng một bài độc thoại.',
+      },
+      'romance-conflict': {
+        engine: 'Quan hệ then chốt trực tiếp làm cốt truyện khó hơn sau mỗi bước tiến.',
+        bestFor: 'Ngôn tình, đam mỹ, bách hợp, gia đấu hoặc truyện có tuyến quan hệ mạnh.',
+        payoff: 'Cao trào tình cảm cũng là cao trào đại cục, hai tuyến không tách rời.',
+      },
+      'strategic-war': {
+        engine: 'Mỗi Arc là một nước cờ có thông tin thiếu, phản đòn và cái giá.',
+        bestFor: 'Đấu trí, quân sự, cung đấu, thương chiến, tu tiên phe phái.',
+        payoff: 'Kế hoạch thắng không hoàn hảo; đối thủ cũng để lại vết cắt thật.',
+      },
+      'folk-horror': {
+        engine: 'Lời đồn, nghi lễ và cấm kỵ được kiểm chứng bằng sự kiện có quy tắc.',
+        bestFor: 'Linh dị dân gian, kinh dị tâm lý, quỷ dị hoặc truyện làng xã.',
+        payoff: 'Bí mật cổ được giải bằng luật đã cài, không bằng hù dọa rời rạc.',
+      },
+      'adventure-world': {
+        engine: 'Mỗi vùng đất mở một luật chơi, một phe lợi ích và một mảnh đáp án.',
+        bestFor: 'Phiêu lưu, kỳ ảo, Tây huyễn, đa vũ trụ hoặc thám hiểm.',
+        payoff: 'Thế giới không chỉ đẹp; nó ép nhân vật đổi cách sống và cách chọn.',
+      },
+      'tragedy-domino': {
+        engine: 'Một lựa chọn hợp lý nhưng thiếu thông tin kéo theo chuỗi không thu hồi.',
+        bestFor: 'Bi kịch, ngược luyến, hiện thực gai góc hoặc truyện trả giá nặng.',
+        payoff: 'Kết cục đau nhưng công bằng về nhân quả, không bi kịch vì xui rủi.',
+      },
+    };
+
     const makeChoice = (
       id: string,
       title: string,
@@ -321,23 +398,35 @@ const App: React.FC = () => {
       logic: string,
       arcBias: string,
       risk: string,
-    ): StoryDirectionChoice => ({
-      id,
-      title,
-      badge,
-      premise,
-      logic,
-      arcBias,
-      risk,
-      lock: [
-        `HƯỚNG TRUYỆN ĐÃ CHỌN: ${title}`,
-        `Tiền đề: ${premise}`,
-        `Logic cốt truyện: ${logic}`,
-        `Nhịp Arc: ${arcBias}`,
-        `Điều cần tránh: ${risk}`,
-        `Bắt buộc khi lập lộ trình: mọi Arc phải phục vụ hướng này, có nguyên nhân - lựa chọn - hậu quả rõ, không mở tuyến phụ nếu không làm ${hero} tiến gần hoặc xa hơn khỏi mục tiêu "${goal}".`,
-      ].join('\n'),
-    });
+    ): StoryDirectionChoice => {
+      const details = directionDetails[id] || {
+        engine: 'Mọi biến cố phải có nguyên nhân, lựa chọn và hậu quả rõ.',
+        bestFor: 'Truyện cần khung phát triển nhất quán.',
+        payoff: 'Cao trào trả lời đúng lời hứa đã đặt ở đầu truyện.',
+      };
+
+      return {
+        id,
+        title,
+        badge,
+        ...details,
+        premise,
+        logic,
+        arcBias,
+        risk,
+        lock: [
+          `HƯỚNG TRUYỆN ĐÃ CHỌN: ${title}`,
+          `Tiền đề: ${premise}`,
+          `Động cơ truyện: ${details.engine}`,
+          `Phù hợp khi: ${details.bestFor}`,
+          `Logic cốt truyện: ${logic}`,
+          `Nhịp Arc: ${arcBias}`,
+          `Dư âm/cao trào: ${details.payoff}`,
+          `Điều cần tránh: ${risk}`,
+          `Bắt buộc khi lập lộ trình: mọi Arc phải phục vụ hướng này, có nguyên nhân - lựa chọn - hậu quả rõ, không mở tuyến phụ nếu không làm ${hero} tiến gần hoặc xa hơn khỏi mục tiêu "${goal}".`,
+        ].join('\n'),
+      };
+    };
 
     return [
       makeChoice(
@@ -668,6 +757,7 @@ const App: React.FC = () => {
   const visibleDirectionChoices = directionChoices.length > 0
     ? directionChoices
     : buildStoryDirectionChoices(pendingDirectionParams || params);
+  const selectedDirection = visibleDirectionChoices.find(choice => choice.id === selectedDirectionId) || visibleDirectionChoices[0];
   const isStoryProject = (value: unknown): value is StoryProject => {
     const project = value as Partial<StoryProject>;
     return Boolean(project?.id && project?.params && Array.isArray(project?.volumes));
@@ -1306,7 +1396,7 @@ const App: React.FC = () => {
               />
             </label>
             {authError && (
-              <p className="p-3 rounded-2xl bg-red-500/15 border border-red-400/20 text-red-100 text-sm font-bold">
+              <p className="p-3 rounded-2xl bg-red-500/10 border border-red-400/20 text-red-100 text-sm font-bold">
                 {authError}
               </p>
             )}
@@ -1368,12 +1458,12 @@ const App: React.FC = () => {
           </div>
           <div className="grid grid-cols-5 gap-1.5">
             {workflowSteps.map(step => (
-              <div key={step.label} className={`h-1.5 rounded-full ${step.status === 'done' ? 'bg-emerald-400' : step.status === 'active' ? 'bg-amber-300' : 'bg-white/15'}`} title={step.label} />
+              <div key={step.label} className={`h-1.5 rounded-full ${step.status === 'done' ? 'bg-emerald-400' : step.status === 'active' ? 'bg-amber-300' : 'bg-white/10'}`} title={step.label} />
             ))}
           </div>
           <div className="grid grid-cols-2 gap-2">
             {workflowSteps.map(step => (
-              <div key={step.label} className={`px-2 py-1.5 rounded-lg text-[8px] font-black uppercase ${step.status === 'done' ? 'bg-emerald-400/15 text-emerald-200' : step.status === 'active' ? 'bg-amber-300/15 text-amber-100' : 'bg-white/5 text-slate-500'}`}>
+              <div key={step.label} className={`px-2 py-1.5 rounded-lg text-[8px] font-black uppercase ${step.status === 'done' ? 'bg-emerald-400/20 text-emerald-200' : step.status === 'active' ? 'bg-amber-300/20 text-amber-100' : 'bg-white/5 text-slate-500'}`}>
                 {step.label}
               </div>
             ))}
@@ -1389,13 +1479,13 @@ const App: React.FC = () => {
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <label className="text-[9px] font-black text-slate-400 uppercase">Giọng văn</label>
-              <select value={params.tone} onChange={e => setParams({...params, tone: e.target.value as StoryParams['tone']})} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-bold outline-none">
+              <select value={params.tone} onChange={e => updateDraftParams(prev => ({...prev, tone: e.target.value as StoryParams['tone']}))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-bold outline-none">
                 {TONES.map(tone => <option key={tone} value={tone}>{tone}</option>)}
               </select>
             </div>
             <div className="space-y-1">
               <label className="text-[9px] font-black text-slate-400 uppercase">Kết cấu</label>
-              <select value={params.mode} onChange={e => setParams({...params, mode: e.target.value as StoryParams['mode']})} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-bold outline-none">
+              <select value={params.mode} onChange={e => updateDraftParams(prev => ({...prev, mode: e.target.value as StoryParams['mode']}))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-bold outline-none">
                 {MODES.map(mode => <option key={mode} value={mode}>{mode}</option>)}
               </select>
             </div>
@@ -1405,20 +1495,20 @@ const App: React.FC = () => {
             {params.projectType === 'Trường Thiên' && (
               <div className="space-y-1">
                 <label className="text-[9px] font-black text-slate-400 uppercase">Số chương</label>
-                <input type="number" min={MIN_TOTAL_CHAPTERS} max={MAX_TOTAL_CHAPTERS} value={params.totalChapters} onChange={e => setParams({...params, totalChapters: parseInt(e.target.value) || 1})} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold focus:ring-1 focus:ring-indigo-300 outline-none" />
+                <input type="number" min={MIN_TOTAL_CHAPTERS} max={MAX_TOTAL_CHAPTERS} value={params.totalChapters} onChange={e => updateDraftParams(prev => ({...prev, totalChapters: parseInt(e.target.value) || 1}))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold focus:ring-1 focus:ring-indigo-300 outline-none" />
               </div>
             )}
             <div className="space-y-1">
               <label className="text-[9px] font-black text-slate-400 uppercase">{params.projectType === 'Trường Thiên' ? 'Số chữ/Chương' : 'Số chữ truyện'}</label>
-              <input type="number" min={MIN_CHAPTER_WORDS} max={MAX_CHAPTER_WORDS} step={100} value={params.length} onChange={e => setParams({...params, length: parseInt(e.target.value) || 500})} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold focus:ring-1 focus:ring-indigo-300 outline-none" />
+              <input type="number" min={MIN_CHAPTER_WORDS} max={MAX_CHAPTER_WORDS} step={100} value={params.length} onChange={e => updateDraftParams(prev => ({...prev, length: parseInt(e.target.value) || 500}))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold focus:ring-1 focus:ring-indigo-300 outline-none" />
             </div>
           </div>
 
           <div className="space-y-2">
             <label className="text-[9px] font-black text-slate-400 uppercase">Nhân vật chính</label>
-            <input type="text" value={params.character.name} onChange={e => setParams({...params, character: {...params.character, name: e.target.value}})} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold" placeholder="Tên..." />
-            <textarea value={params.character.personality} onChange={e => setParams({...params, character: {...params.character, personality: e.target.value}})} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-[10px] h-16" placeholder="Tính cách..." />
-            <textarea value={params.character.goal} onChange={e => setParams({...params, character: {...params.character, goal: e.target.value}})} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-[10px] h-14" placeholder="Mục tiêu, nỗi sợ, vết thương lòng..." />
+            <input type="text" value={params.character.name} onChange={e => updateDraftParams(prev => ({...prev, character: {...prev.character, name: e.target.value}}))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold" placeholder="Tên..." />
+            <textarea value={params.character.personality} onChange={e => updateDraftParams(prev => ({...prev, character: {...prev.character, personality: e.target.value}}))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-[10px] h-16" placeholder="Tính cách..." />
+            <textarea value={params.character.goal} onChange={e => updateDraftParams(prev => ({...prev, character: {...prev.character, goal: e.target.value}}))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-[10px] h-14" placeholder="Mục tiêu, nỗi sợ, vết thương lòng..." />
           </div>
 
           <div className="space-y-1">
@@ -1432,11 +1522,11 @@ const App: React.FC = () => {
 
           <div className="space-y-1">
             <label className="text-[10px] font-black text-slate-400 uppercase">Ý tưởng khởi nguồn</label>
-            <textarea value={params.seed} onChange={e => setParams({...params, seed: e.target.value})} className="w-full h-24 p-3 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none resize-none font-medium focus:ring-1 focus:ring-indigo-300" placeholder="Nhập khởi nguồn..." />
+            <textarea value={params.seed} onChange={e => updateDraftParams(prev => ({...prev, seed: e.target.value}))} className="w-full h-24 p-3 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none resize-none font-medium focus:ring-1 focus:ring-indigo-300" placeholder="Nhập khởi nguồn..." />
           </div>
           <div className="space-y-1">
             <label className="text-[10px] font-black text-slate-400 uppercase">Truyện mẫu / lưu ý văn phong</label>
-            <textarea value={params.referenceStories} onChange={e => setParams({...params, referenceStories: e.target.value})} className="w-full h-20 p-3 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none resize-none font-medium focus:ring-1 focus:ring-indigo-300" placeholder="Ví dụ: nhịp chậm, ít giải thích, nhiều đối thoại, không copy tình tiết..." />
+            <textarea value={params.referenceStories} onChange={e => updateDraftParams(prev => ({...prev, referenceStories: e.target.value}))} className="w-full h-20 p-3 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none resize-none font-medium focus:ring-1 focus:ring-indigo-300" placeholder="Ví dụ: nhịp chậm, ít giải thích, nhiều đối thoại, không copy tình tiết..." />
           </div>
           <button onClick={handleStartProject} disabled={isGeneratingOutline} className="btn-primary w-full py-4 font-black text-[10px] uppercase disabled:opacity-50">
             {isGeneratingOutline ? 'Đang xử lý...' : (params.projectType === 'Truyện Ngắn' ? 'Viết truyện ngắn' : 'Chọn hướng truyện')}
@@ -1455,7 +1545,7 @@ const App: React.FC = () => {
               </div>
               <span className="text-[10px] font-black">{progressPercent}%</span>
             </div>
-            <div className="h-2 bg-white/15 rounded-full overflow-hidden">
+            <div className="h-2 bg-white/10 rounded-full overflow-hidden">
               <div className="h-full bg-indigo-300 rounded-full transition-all" style={{ width: `${Math.min(100, progressPercent)}%` }} />
             </div>
             <button onClick={(e) => handleExportManuscript(activeProject, e)} className="w-full py-2 bg-white/10 hover:bg-white/20 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all">
@@ -1591,22 +1681,56 @@ const App: React.FC = () => {
           {view === 'directions' && (
             <div className="max-w-7xl mx-auto py-6 md:py-8 space-y-5 animate-in fade-in">
               <section className="surface p-5 md:p-6">
-                <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-5">
+                <div className="grid lg:grid-cols-[1fr_360px] gap-5 items-stretch">
                   <div className="max-w-3xl">
                     <div className="flex flex-wrap items-center gap-2 mb-4">
-                      <span className="inline-flex px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-md text-[9px] font-black uppercase tracking-widest border border-indigo-100">Bước chiến lược</span>
+                      <span className="inline-flex px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-md text-[9px] font-black uppercase tracking-widest border border-indigo-100">Bàn biên tập chiến lược</span>
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{visibleDirectionChoices.length} hướng phát triển</span>
                     </div>
-                    <h2 className="text-3xl md:text-4xl font-black text-slate-950 story-font leading-tight">
-                      Chọn trục truyện trước khi lập Arc
+                    <h2 className="text-3xl md:text-4xl font-black text-slate-950 leading-tight">
+                      Chọn hướng đi trước khi khóa lộ trình Arc
                     </h2>
                     <p className="mt-3 text-sm md:text-base text-slate-600 leading-7">
-                      Mỗi lựa chọn bên dưới là một cách tổ chức nhân quả khác nhau. Khi chọn một hướng, app sẽ khóa nó vào hồ sơ và lập lộ trình Arc theo đúng logic đó.
+                      App không chia đều chương một cách máy móc. Mỗi lựa chọn là một chiến lược nhân quả riêng: động cơ truyện, nhịp Arc, kiểu cao trào và lỗi logic cần chặn. Chọn một hướng để khóa nó vào hồ sơ trước khi AI dựng Đại cục.
                     </p>
+                    <div className="mt-5 grid sm:grid-cols-3 gap-3">
+                      <div className="surface-muted p-3 bg-white">
+                        <span className="block text-[8px] font-black uppercase tracking-widest text-slate-400">Tư duy Arc</span>
+                        <p className="mt-1 text-xs font-bold text-slate-700">Dài/ngắn theo trọng lượng tình tiết.</p>
+                      </div>
+                      <div className="surface-muted p-3 bg-white">
+                        <span className="block text-[8px] font-black uppercase tracking-widest text-slate-400">Khóa canon</span>
+                        <p className="mt-1 text-xs font-bold text-slate-700">Mỗi lựa chọn sinh Thiên Cơ Lục riêng.</p>
+                      </div>
+                      <div className="surface-muted p-3 bg-white">
+                        <span className="block text-[8px] font-black uppercase tracking-widest text-slate-400">Văn phong</span>
+                        <p className="mt-1 text-xs font-bold text-slate-700">Hiện đại, gọn, rõ cảnh, ít sáo ngữ.</p>
+                      </div>
+                    </div>
                   </div>
-                  <button onClick={() => setView('setup')} className="btn-secondary px-5 py-3 text-[10px] font-black uppercase tracking-widest">
-                    Sửa hồ sơ
-                  </button>
+                  <div className="bg-slate-950 text-white rounded-lg p-5 flex flex-col justify-between gap-5">
+                    <div>
+                      <span className="inline-flex px-2 py-1 bg-white/10 text-indigo-100 rounded-md text-[8px] font-black uppercase tracking-widest">Đang xem</span>
+                      <h3 className="mt-3 text-xl font-black leading-tight">{selectedDirection?.title || 'Chưa chọn hướng'}</h3>
+                      <p className="mt-3 text-xs leading-6 text-slate-300">{selectedDirection?.engine || 'Di chuột hoặc chạm vào một thẻ để xem động cơ truyện.'}</p>
+                    </div>
+                    <div className="space-y-3">
+                      <div className="p-3 bg-white/10 border border-white/10 rounded-lg">
+                        <p className="text-[8px] font-black uppercase tracking-widest text-emerald-200">Phù hợp</p>
+                        <p className="mt-1 text-xs leading-5 text-slate-200">{selectedDirection?.bestFor || 'Chọn hướng để xem gợi ý.'}</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => setView('setup')} className="flex-1 px-4 py-3 bg-white/10 hover:bg-white/20 rounded-lg text-[9px] font-black uppercase tracking-widest">
+                          Sửa hồ sơ
+                        </button>
+                        {selectedDirection && (
+                          <button onClick={() => handleChooseDirection(selectedDirection)} disabled={isGeneratingOutline} className="flex-1 px-4 py-3 bg-indigo-500 hover:bg-indigo-400 text-white rounded-lg text-[9px] font-black uppercase tracking-widest disabled:opacity-60">
+                            Khóa hướng
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </section>
 
@@ -1631,6 +1755,10 @@ const App: React.FC = () => {
                     </div>
                     <div className="mt-4 space-y-3">
                       <div>
+                        <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">Động cơ truyện</p>
+                        <p className="mt-1 text-xs leading-5 text-slate-700">{choice.engine}</p>
+                      </div>
+                      <div>
                         <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">Tiền đề</p>
                         <p className="mt-1 text-sm leading-6 text-slate-700">{choice.premise}</p>
                       </div>
@@ -1646,6 +1774,10 @@ const App: React.FC = () => {
                         <div className="p-3 bg-amber-50 border border-amber-100 rounded-md">
                           <p className="text-[8px] font-black uppercase tracking-widest text-amber-700">Chặn lỗi logic</p>
                           <p className="mt-1 text-[11px] leading-5 text-amber-900">{choice.risk}</p>
+                        </div>
+                        <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-md">
+                          <p className="text-[8px] font-black uppercase tracking-widest text-emerald-700">Cao trào phù hợp</p>
+                          <p className="mt-1 text-[11px] leading-5 text-emerald-900">{choice.payoff}</p>
                         </div>
                       </div>
                     </div>

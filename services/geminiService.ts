@@ -45,15 +45,16 @@ Nhiệm vụ:
 4. Không viết văn xuôi truyện ở bước này. Chỉ trả về JSON hợp lệ.`;
 
 const WRITER_SYSTEM_INSTRUCTION = `Bạn là tiểu thuyết gia tiếng Việt hiện đại, có tư duy biên kịch chặt chẽ và gu văn chuyên nghiệp.
-Văn phong ưu tiên: rõ cảnh, ít sáo ngữ, câu văn linh hoạt, hình ảnh chính xác, thoại có hàm ý, nhịp đoạn kiểm soát tốt. Viết đẹp nhưng không phô, giàu cảm xúc nhưng không ủy mị.
-Luôn viết thành văn xuôi hoàn chỉnh, dùng cảnh và hành động để bộc lộ tâm lý nhân vật; không tóm tắt thay cho cảnh.
+Văn phong ưu tiên: giàu cảnh, ít sáo ngữ, câu văn linh hoạt, hình ảnh chính xác, thoại có hàm ý, nhịp đoạn kiểm soát tốt. Viết có chất văn nhưng không phô diễn; cảm xúc sâu nhưng không ủy mị; hiện đại nhưng không cộc.
+Luôn viết thành văn xuôi hoàn chỉnh, đặt nhân vật vào cảnh cụ thể rồi để hành động, lựa chọn, chi tiết vật lý và đối thoại bộc lộ tâm lý; không tóm tắt thay cho cảnh.
 Bạn phải bám lộ trình chương, giữ đúng tính cách và mục tiêu nhân vật, không nhảy cóc, không dùng markdown, không gạch đầu dòng.
 Khóa canon tuyệt đối:
 - Mọi tên riêng, số liệu, mốc thời gian, cấp bậc, quan hệ, vật phẩm và luật thế giới phải lấy từ Thiên Cơ Lục, Đại cục, Arc và kế hoạch chương.
 - Không tự ý đổi tuổi, số lượng, thời hạn, khoảng cách, tài nguyên, cảnh giới, chức vụ hoặc quan hệ nếu chưa có nguyên nhân và hậu quả trong cảnh.
 - Nếu cần thêm dữ kiện mới, phải đưa vào bằng hành động/đối thoại cụ thể và không mâu thuẫn dữ kiện cũ.
 - Không lan man: mỗi đoạn phải phục vụ ít nhất một việc: đẩy mục tiêu chương, bộc lộ nhân vật, tạo hậu quả, hoặc chuẩn bị xung đột kế tiếp.
-- Tránh lối văn cũ kỹ như liên tục than thở, giải thích đạo lý, dùng thành ngữ rỗng, miêu tả dài mà không làm tình thế thay đổi.`;
+- Tránh lối văn cũ kỹ như liên tục than thở, giải thích đạo lý, dùng thành ngữ rỗng, câu cảm thán dày đặc, miêu tả dài mà không làm tình thế thay đổi.
+- Ưu tiên nhịp văn chuyên nghiệp: câu ngắn dùng để tạo lực, câu dài dùng để mở cảm giác; đoạn 3-5 câu là chính, chuyển cảnh rõ, không nhồi thông tin vào một đoạn quá dài.`;
 
 const EDITOR_SYSTEM_INSTRUCTION = `Bạn là biên tập viên tuyến truyện khó tính.
 Chỉ chấp nhận chương nếu nó bám đúng đại cục, đúng Arc, đúng mục tiêu chương, không phá logic nhân vật, không lặp chương cũ và không kết thúc sớm khi chưa tới chương cuối.
@@ -591,22 +592,30 @@ const plainText = (value: unknown) => String(value || "")
   .replace(/[\u0300-\u036f]/g, "")
   .toLowerCase();
 
+const directionTitleFromLock = (params: StoryParams) => {
+  const match = String(params.directionLock || "").match(/HƯỚNG TRUYỆN ĐÃ CHỌN:\s*(.+)/i);
+  return match?.[1]?.trim() || "";
+};
+
+const directionTextFromParams = (params: StoryParams) =>
+  plainText(`${directionTitleFromLock(params)} ${params.directionLock || ""}`);
+
 const curvePeak = (position: number, center: number, width: number) => {
   const distance = (position - center) / Math.max(width, 0.01);
   return Math.exp(-(distance * distance));
 };
 
 const arcNarrativeRole = (index: number, count: number) => {
-  if (count <= 1) return "mot arc khep tron: mo mau thuan, day bien co, tra gia va ket.";
-  if (index === 0) return "khai cuc ngan: loi hua the loai, vet thuong, bien co dau.";
-  if (index === count - 1) return "ket cuc: cao trao, tra gia, giai quyet va du am.";
+  if (count <= 1) return "một Arc khép kín: mở mâu thuẫn, đẩy biến cố, trả giá và kết.";
+  if (index === 0) return "khai cục ngắn: lời hứa thể loại, vết thương, biến cố đầu.";
+  if (index === count - 1) return "kết cục: cao trào, trả giá, giải quyết và dư âm.";
 
   const position = index / Math.max(1, count - 1);
-  if (position < 0.22) return "hoi nhap va khoa quy tac: nhan vat bi day vao he thong xung dot.";
-  if (position < 0.42) return "tich luy chung cu, dong minh, ke thu va loi hua phu.";
-  if (position < 0.62) return "trung doan rong: lat mat nguyen nhan, dao chieu muc tieu.";
-  if (position < 0.82) return "khung hoang va phan cong: hau qua cu quay lai ep nhan vat.";
-  return "tien cao trao: sieu ap luc, thu hep lua chon, chuan bi tra gia.";
+  if (position < 0.22) return "hội nhập và khóa quy tắc: nhân vật bị đẩy vào hệ thống xung đột.";
+  if (position < 0.42) return "tích lũy chứng cứ, đồng minh, kẻ thù và lời hứa phụ.";
+  if (position < 0.62) return "trung đoạn rộng: lật mặt nguyên nhân, đảo chiều mục tiêu.";
+  if (position < 0.82) return "khủng hoảng và phản công: hậu quả cũ quay lại ép nhân vật.";
+  return "tiền cao trào: siêu áp lực, thu hẹp lựa chọn, chuẩn bị trả giá.";
 };
 
 const narrativeArcWeight = (index: number, count: number, params: StoryParams) => {
@@ -615,6 +624,7 @@ const narrativeArcWeight = (index: number, count: number, params: StoryParams) =
   const position = index / Math.max(1, count - 1);
   const genreText = plainText((params.genres || []).join(" "));
   const modeText = plainText(params.mode);
+  const directionText = directionTextFromParams(params);
   const seedComplexity = clamp(countWords(`${params.seed || ""} ${params.referenceStories || ""}`) / 180, 0, 1.4);
   const sliders: StoryParams["sliders"] = {
     romance: 0,
@@ -649,6 +659,37 @@ const narrativeArcWeight = (index: number, count: number, params: StoryParams) =
   }
   if (/twist|bi kich/.test(modeText)) {
     weight += curvePeak(position, 0.82, 0.12) * 0.18;
+  }
+  if (/dieu tra|huyen nghi|than phan|lat mat/.test(directionText)) {
+    weight += curvePeak(position, 0.34, 0.18) * 0.28;
+    weight += curvePeak(position, 0.68, 0.18) * 0.16;
+  }
+  if (/the luc|xay|tai nguyen|danh phan/.test(directionText)) {
+    weight += curvePeak(position, 0.55, 0.25) * 0.32;
+    weight += curvePeak(position, 0.75, 0.18) * 0.14;
+  }
+  if (/sinh ton|han gio|ap luc|tai nguyen can/.test(directionText)) {
+    weight += curvePeak(position, 0.22, 0.12) * 0.18;
+    weight += curvePeak(position, 0.82, 0.14) * 0.3;
+  }
+  if (/phan anh hung|dao duc|truot doc|bi kich|domino/.test(directionText)) {
+    weight += curvePeak(position, 0.46, 0.23) * 0.18;
+    weight += curvePeak(position, 0.78, 0.16) * 0.26;
+  }
+  if (/chua lanh|noi tam|tinh cam|quan he/.test(directionText)) {
+    weight += curvePeak(position, 0.4, 0.28) * 0.24;
+    weight += curvePeak(position, 0.62, 0.24) * 0.12;
+  }
+  if (/dau tri|muu luoc|ban co|phe phai/.test(directionText)) {
+    weight += curvePeak(position, 0.58, 0.22) * 0.3;
+    weight += curvePeak(position, 0.74, 0.16) * 0.2;
+  }
+  if (/dan gian|linh di|quy su|cam ky|nghi le/.test(directionText)) {
+    weight += curvePeak(position, 0.3, 0.2) * 0.2;
+    weight += curvePeak(position, 0.66, 0.17) * 0.22;
+  }
+  if (/phieu luu|kham pha|the gioi|dia diem/.test(directionText)) {
+    weight += curvePeak(position, 0.5, 0.3) * 0.22;
   }
 
   if (index === 0) weight *= 0.72;
@@ -733,7 +774,7 @@ const buildArcBudgetGuide = (ranges: Array<{ start: number; end: number }>) =>
   ranges
     .map((range, index) => {
       const size = range.end - range.start + 1;
-      return `- Arc ${index + 1}: chuong ${range.start}-${range.end} (${size} chuong) - ${arcNarrativeRole(index, ranges.length)}`;
+      return `- Arc ${index + 1}: chương ${range.start}-${range.end} (${size} chương) - ${arcNarrativeRole(index, ranges.length)}`;
     })
     .join("\n");
 
@@ -840,6 +881,7 @@ const normalizeVolumes = (raw: AnyRecord, params: StoryParams): Volume[] => {
   const volumeTarget = desiredVolumeCount(totalChapters);
   const volumeCount = clamp(Math.max(rawVolumes.length, volumeTarget), 1, Math.min(totalChapters, 30));
   const ranges = buildRanges(volumeCount, totalChapters, params, rawVolumes);
+  const directionTitle = directionTitleFromLock(params);
 
   return ranges.map((range, volumeOffset) => {
     const rawVolume = rawVolumes[volumeOffset] || {};
@@ -865,7 +907,7 @@ const normalizeVolumes = (raw: AnyRecord, params: StoryParams): Volume[] => {
       index,
       title,
       summary: asText(rawVolume.summary, `Arc ${index} phụ trách chương ${range.start}-${range.end}: ${arcRole}`),
-      purpose: asText(rawVolume.purpose, `${lengthShape}: dùng ${arcSize} chương để ${arcRole}`),
+      purpose: asText(rawVolume.purpose, `${lengthShape}: dùng ${arcSize} chương để ${arcRole}${directionTitle ? `, phục vụ hướng "${directionTitle}"` : ""}.`),
       chapterStart: range.start,
       chapterEnd: range.end,
       chapters,
@@ -979,9 +1021,10 @@ const buildFallbackWorldBuilding = (params: StoryParams, totalChapters: number) 
 
 const buildFallbackRoadmapData = (params: StoryParams) => {
   const totalChapters = clamp(Math.round(params.totalChapters || 1), 1, 1000);
+  const directionTitle = directionTitleFromLock(params);
   return {
     title: fallbackTitleFromParams(params),
-    generalSummary: `Đại cục dự phòng: ${params.character.name || "nhân vật chính"} theo đuổi mục tiêu ${params.character.goal || "đã đặt"} qua ${totalChapters} chương, mỗi Arc đẩy một tầng nhân quả mới và giữ kết cục theo cấu trúc "${params.mode}".`,
+    generalSummary: `Đại cục dự phòng: ${params.character.name || "nhân vật chính"} theo đuổi mục tiêu ${params.character.goal || "đã đặt"} qua ${totalChapters} chương${directionTitle ? ` theo hướng "${directionTitle}"` : ""}; mỗi Arc đẩy một tầng nhân quả mới và giữ kết cục theo cấu trúc "${params.mode}".`,
     worldBuilding: buildFallbackWorldBuilding(params, totalChapters),
     volumes: [],
   };
@@ -1012,11 +1055,12 @@ export const generateInitialRoadmap = async (params: StoryParams) => {
 YÊU CẦU LẬP LỘ TRÌNH:
 - Chỉ tạo Đại cục và khoảng ${volumeCount} Arc, phủ đủ chương 1-${totalChapters}. Chưa viết bản đồ từng chương ở bước này.
 - Mỗi Arc phải có chapterStart/chapterEnd rõ ràng, nối tiếp nhau, không trùng, không bỏ sót, không vượt quá ${totalChapters}.
-- Khong chia deu may moc. Do dai Arc phai theo trong luong tinh tiet: Arc cau noi ngan hon, Arc dieu tra/tich luy/khung hoang/cao trao dai hon, Arc ket chi dai neu can tra gia va du am.
-- Khung goi y bat doi xung de can ngan:
+- Không chia đều máy móc. Độ dài Arc phải theo trọng lượng tình tiết: Arc cầu nối ngắn hơn, Arc điều tra/tích lũy/khủng hoảng/cao trào dài hơn, Arc kết chỉ dài nếu cần trả giá và dư âm.
+- Khung gợi ý bất đối xứng để cân nhắc:
 ${arcBudgetGuide}
-- Co the dieu chinh tung moc neu noi dung can, nhung tong van phai dung ${totalChapters} chuong va purpose cua moi Arc phai noi ro ly do Arc do dai/ngan.
+- Có thể điều chỉnh từng mốc nếu nội dung cần, nhưng tổng vẫn phải đúng ${totalChapters} chương và purpose của mỗi Arc phải nói rõ lý do Arc đó dài/ngắn.
 - Nếu "Hướng truyện đã khóa" có nội dung, phải ưu tiên tuyệt đối hướng đó khi đặt Đại cục, nguyên nhân, phản diện, twist và biến chuyển từng Arc.
+- Mỗi Arc phải trả lời được: nhân vật muốn gì, lực cản là gì, lựa chọn nào tạo hậu quả, dữ kiện canon nào được khóa thêm.
 - Nếu tổng số chương rất dài, chia Arc theo cụm 25-60 chương để sau này sinh bản đồ chương theo từng Arc; không bắt buộc Arc nào cũng bằng nhau.
 - Mỗi Arc phải nêu: chức năng trong toàn truyện, xung đột chính, biến chuyển cuối Arc, dữ kiện canon cần giữ.
 - General summary nêu rõ mở đầu, trung đoạn, cao trào, kết cục theo mode "${params.mode}" trong tối đa 120 từ.
@@ -1273,7 +1317,7 @@ YÊU CẦU VIẾT:
 - Sau dòng tên chương, viết văn xuôi liền mạch bằng tiếng Việt.
 - Mỗi beat phải được viết thành cảnh có hành động, cảm giác, đối thoại hoặc quyết định cụ thể; không tóm tắt thay cho cảnh.
 - Văn phong hiện đại và chuyên nghiệp: gọn, sắc, có nhạc tính vừa đủ, không lạm dụng mỹ từ, không giảng đạo, không dùng câu sáo.
-- Ưu tiên văn hay: hình ảnh chính xác, nhịp câu biến hóa, đối thoại có hàm ý, ít giải thích trực tiếp.
+- Ưu tiên văn hay: hình ảnh chính xác, nhịp câu biến hóa, đối thoại có hàm ý, ít giải thích trực tiếp; mỗi đoạn nên có một chuyển động cảm xúc hoặc thông tin mới.
 - Nhân vật chính phải chủ động lựa chọn, sai lầm hoặc trả giá trong chương.
 - Mỗi cảnh phải làm rõ mục tiêu, trở ngại, lựa chọn hoặc hậu quả. Không kéo dài hồi tưởng/miêu tả nếu không đổi trạng thái truyện.
 - Không mở bí mật, nhiệm vụ, nhân vật, tổ chức hoặc vật phẩm mới nếu nó không phục vụ mục tiêu chương hoặc Arc hiện tại.
@@ -1546,7 +1590,7 @@ Yêu cầu:
 - Có mở truyện, phát triển xung đột, bước ngoặt, cao trào và dư âm.
 - Nhân vật chính phải hành động theo tính cách và mục tiêu đã nhập.
 - Bám thể loại, tông giọng và mode kết truyện.
-- Văn phong hiện đại, chuyên nghiệp: cảnh rõ, thoại tự nhiên, câu văn có lực, hạn chế sáo ngữ và giải thích trực tiếp.
+- Văn phong hiện đại, chuyên nghiệp: cảnh rõ, thoại tự nhiên, câu văn có lực, nhịp đoạn sạch, hạn chế sáo ngữ và giải thích trực tiếp.
 - Không lan man: mỗi cảnh phải phục vụ xung đột chính, tính cách nhân vật hoặc hậu quả cao trào.
 - Giữ nhất quán tên riêng, số liệu, mốc thời gian và luật thế giới đã tự thiết lập trong truyện ngắn.
 - Bắt đầu bằng "Tên truyện: [tên]".
