@@ -78,6 +78,7 @@ export interface StoryParams {
   mode: StoryMode;
   seed?: string;
   referenceStories?: string;
+  directionLock?: string;
 }
 
 export interface StoryProject {

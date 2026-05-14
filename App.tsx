@@ -47,7 +47,19 @@ const DEFAULT_PARAMS: StoryParams = {
   sliders: { romance: 0, violence: 0, philosophy: 0, psychology: 0, action: 0, strategy: 0 },
   mode: 'Truyện hoàn chỉnh',
   seed: '',
-  referenceStories: ''
+  referenceStories: '',
+  directionLock: ''
+};
+
+type StoryDirectionChoice = {
+  id: string;
+  title: string;
+  badge: string;
+  premise: string;
+  logic: string;
+  arcBias: string;
+  risk: string;
+  lock: string;
 };
 
 const sortChaptersByIndex = (chapters: Chapter[] = []) => [...chapters].sort((a, b) => a.index - b.index);
@@ -108,7 +120,10 @@ const App: React.FC = () => {
   const [isSigningIn, setIsSigningIn] = useState<boolean>(false);
   const [isCheckingLogic, setIsCheckingLogic] = useState<boolean>(false);
   const [logicReport, setLogicReport] = useState<StoryLogicReport | null>(null);
-  const [view, setView] = useState<'editor' | 'outline' | 'manuscript' | 'setup' | 'my-stories' | 'bible'>('setup');
+  const [directionChoices, setDirectionChoices] = useState<StoryDirectionChoice[]>([]);
+  const [pendingDirectionParams, setPendingDirectionParams] = useState<StoryParams | null>(null);
+  const [selectedDirectionId, setSelectedDirectionId] = useState<string>('');
+  const [view, setView] = useState<'editor' | 'outline' | 'manuscript' | 'setup' | 'directions' | 'my-stories' | 'bible'>('setup');
 
   useEffect(() => {
     let cancelled = false;
@@ -250,6 +265,7 @@ const App: React.FC = () => {
       genres: draft.genres.length > 0 ? draft.genres : ['Kỳ ảo'],
       seed: draft.seed?.trim() || '',
       referenceStories: draft.referenceStories?.trim() || '',
+      directionLock: draft.directionLock?.trim() || '',
       character: {
         ...draft.character,
         name: (draft.character.name || '').trim(),
@@ -293,6 +309,153 @@ const App: React.FC = () => {
     return message || 'Không đăng nhập được.';
   };
 
+  const buildStoryDirectionChoices = (draft: StoryParams): StoryDirectionChoice[] => {
+    const hero = draft.character.name || 'nhân vật chính';
+    const goal = draft.character.goal || 'mục tiêu còn bỏ ngỏ';
+    const seed = draft.seed || 'ý tưởng khởi nguồn';
+    const makeChoice = (
+      id: string,
+      title: string,
+      badge: string,
+      premise: string,
+      logic: string,
+      arcBias: string,
+      risk: string,
+    ): StoryDirectionChoice => ({
+      id,
+      title,
+      badge,
+      premise,
+      logic,
+      arcBias,
+      risk,
+      lock: [
+        `HƯỚNG TRUYỆN ĐÃ CHỌN: ${title}`,
+        `Tiền đề: ${premise}`,
+        `Logic cốt truyện: ${logic}`,
+        `Nhịp Arc: ${arcBias}`,
+        `Điều cần tránh: ${risk}`,
+        `Bắt buộc khi lập lộ trình: mọi Arc phải phục vụ hướng này, có nguyên nhân - lựa chọn - hậu quả rõ, không mở tuyến phụ nếu không làm ${hero} tiến gần hoặc xa hơn khỏi mục tiêu "${goal}".`,
+      ].join('\n'),
+    });
+
+    return [
+      makeChoice(
+        'causal-debt',
+        'Nợ nhân quả mở rộng',
+        'Nhân quả',
+        `${hero} tưởng chỉ đang theo đuổi "${goal}", nhưng mỗi lựa chọn đúng lại lộ thêm một món nợ cũ trong ${seed}.`,
+        'Mỗi Arc giải một hậu quả, đồng thời tạo một hậu quả lớn hơn; chiến thắng không miễn phí.',
+        'Khai cuộc ngắn, trung đoạn nhiều Arc dài để truy dấu nguyên nhân, cuối truyện dồn vào trả giá.',
+        'Không để nhân vật thắng nhờ may mắn hoặc thông tin tự rơi xuống.',
+      ),
+      makeChoice(
+        'investigation-layers',
+        'Điều tra nhiều tầng',
+        'Huyền nghi',
+        `${hero} bắt đầu từ một dấu hiệu nhỏ, càng kiểm chứng càng phát hiện sự thật ban đầu chỉ là lớp vỏ.`,
+        'Manh mối phải có nguồn, người che giấu, lý do che giấu và cách kiểm chứng trong cảnh.',
+        'Arc đầu đặt câu hỏi, các Arc giữa bóc lớp sai lệch, Arc cuối nối tất cả chứng cứ.',
+        'Không tung twist không có phục bút hoặc đổi hung thủ/phản diện vô căn cứ.',
+      ),
+      makeChoice(
+        'power-builder',
+        'Xây thế lực từng bước',
+        'Thế lực',
+        `${hero} không thể một mình đạt "${goal}", buộc phải gom người, tài nguyên, luật chơi và danh phận.`,
+        'Mỗi tài nguyên mới phải có chi phí, người phản đối và hậu quả chính trị hoặc tình cảm.',
+        'Arc xây nền ngắn, Arc tranh tài nguyên dài, Arc mất mát và tái cấu trúc ở gần cao trào.',
+        'Không tăng sức mạnh/tài sản/đồng minh mà không có giao dịch hoặc đánh đổi.',
+      ),
+      makeChoice(
+        'identity-reversal',
+        'Lật mặt thân phận',
+        'Thân phận',
+        `${hero} có một nhận thức sai về bản thân hoặc quá khứ; lộ trình dùng các Arc để phá dần nhận thức đó.`,
+        'Mỗi Arc đưa một bằng chứng mâu thuẫn, nhưng bằng chứng phải hợp timeline và có người hưởng lợi khi giấu nó.',
+        'Arc đầu cài nghi vấn, trung đoạn kéo căng phủ nhận, cuối đoạn trước cao trào buộc nhân vật nhận sự thật.',
+        'Không tiết lộ thân phận chỉ để gây sốc; sự thật phải đổi mục tiêu hành động.',
+      ),
+      makeChoice(
+        'survival-countdown',
+        'Sinh tồn có hạn giờ',
+        'Áp lực',
+        `${seed} được khóa bằng một hạn chót, tài nguyên cạn dần hoặc luật sinh tồn khiến ${hero} không thể đứng yên.`,
+        'Mỗi Arc làm một nguồn lực giảm, một lựa chọn đạo đức khó hơn và một luật sinh tồn rõ hơn.',
+        'Arc ngắn dồn nhịp ở đầu/cuối, Arc giữa dài để nhân vật học luật và trả giá.',
+        'Không kéo dài bằng việc nhân vật quên dùng giải pháp đã biết.',
+      ),
+      makeChoice(
+        'moral-corruption',
+        'Phản anh hùng trượt dốc',
+        'Đạo đức',
+        `${hero} càng tiến gần "${goal}" càng phải dùng cách trái với tính cách ban đầu.`,
+        'Mỗi Arc có một ranh giới đạo đức; vượt ranh giới phải để lại vết nứt trong quan hệ và tự nhận thức.',
+        'Arc đầu giữ thiện ý, trung đoạn xám hóa dài, tiền cao trào buộc chọn mất gì để thắng.',
+        'Không biến nhân vật ác đột ngột; mọi thay đổi phải có sức ép cụ thể.',
+      ),
+      makeChoice(
+        'healing-bond',
+        'Cứu rỗi và chữa lành',
+        'Nội tâm',
+        `${hero} không chỉ cần đạt "${goal}", mà còn phải chữa một vết thương khiến nhân vật luôn chọn sai.`,
+        'Xung đột ngoài truyện phản chiếu vết thương trong lòng; mỗi Arc phá một cơ chế phòng vệ.',
+        'Nhịp chậm hơn ở đầu và giữa, cao trào không chỉ thắng thua mà là dám thay đổi.',
+        'Không biến chữa lành thành độc thoại; phải thể hiện bằng hành động và quan hệ.',
+      ),
+      makeChoice(
+        'romance-conflict',
+        'Tình cảm kéo cốt truyện',
+        'Quan hệ',
+        `Một quan hệ then chốt trở thành lực đẩy chính khiến ${hero} chọn khác đi trước ${seed}.`,
+        'Mỗi bước tiến tình cảm phải làm tình thế truyện khó hơn, không chỉ là cảnh ngọt riêng lẻ.',
+        'Arc quan hệ phát triển xen với Arc xung đột chính; giữa truyện có đổ vỡ hoặc hiểu lầm có nguyên nhân.',
+        'Không để tình cảm đứng ngoài đại cục hoặc giải quyết xung đột bằng lời tỏ tình.',
+      ),
+      makeChoice(
+        'strategic-war',
+        'Đấu trí và thế cờ',
+        'Mưu lược',
+        `${hero} bước vào một bàn cờ có phe phái, luật ngầm và đối thủ biết phản công.`,
+        'Mỗi Arc là một nước cờ có mục tiêu, thông tin thiếu, phản đòn và cái giá sau khi thắng.',
+        'Arc giữa và tiền cao trào dài hơn để chứa bẫy, phản bẫy, đồng minh hai mặt.',
+        'Không cho kế hoạch hoàn hảo; phải có sai số, mất mát hoặc đối thủ đọc được một phần ý đồ.',
+      ),
+      makeChoice(
+        'folk-horror',
+        'Dân gian quỷ sự',
+        'Linh dị',
+        `${seed} được diễn giải qua lời đồn, nghi lễ, cấm kỵ và ký ức tập thể của một cộng đồng.`,
+        'Mỗi Arc xác minh một lời đồn bằng sự kiện thật; quy tắc siêu nhiên phải nhất quán.',
+        'Arc đầu chậm và ám, Arc giữa điều tra nghi lễ, Arc cuối phá hoặc trả giá cho cấm kỵ.',
+        'Không dùng hù dọa rời rạc; mọi hiện tượng phải gắn với luật và tội cũ.',
+      ),
+      makeChoice(
+        'adventure-world',
+        'Khám phá thế giới',
+        'Phiêu lưu',
+        `${hero} phải đi qua nhiều địa điểm/quy tắc để hiểu bản chất của ${seed}.`,
+        'Mỗi địa điểm mở một luật mới, một phe lợi ích mới và một mảnh đáp án cho mục tiêu chính.',
+        'Arc được phân theo vùng/luật chơi, có Arc dài cho vùng trung tâm và Arc ngắn cho cầu nối.',
+        'Không du lịch cảnh đẹp lan man; địa điểm phải đổi lựa chọn của nhân vật.',
+      ),
+      makeChoice(
+        'tragedy-domino',
+        'Bi kịch domino',
+        'Bi kịch',
+        `Một quyết định tưởng nhỏ của ${hero} hoặc người thân làm chuỗi hậu quả không thể thu hồi.`,
+        'Mỗi Arc cho nhân vật cơ hội sửa sai nhưng cách sửa lại đẩy bi kịch sang tầng mới.',
+        'Arc đầu ngắn để gây lỗi, Arc giữa dài để chống đỡ, Arc cuối tập trung trả giá.',
+        'Không bi kịch vì xui rủi; bi kịch phải đến từ lựa chọn hợp lý nhưng thiếu thông tin.',
+      ),
+    ];
+  };
+
+  const lockDirectionIntoParams = (draft: StoryParams, choice: StoryDirectionChoice) => normalizeParams({
+    ...draft,
+    directionLock: choice.lock,
+  });
+
   const resetWorkspace = () => {
     setProjects([]);
     setActiveProjectId(null);
@@ -305,6 +468,9 @@ const App: React.FC = () => {
     setLogicReport(null);
     setCurrentChapterIndex(1);
     setActiveArcIndex(1);
+    setDirectionChoices([]);
+    setPendingDirectionParams(null);
+    setSelectedDirectionId('');
     setView('setup');
   };
 
@@ -395,6 +561,9 @@ const App: React.FC = () => {
       '',
       '# LỘ TRÌNH ARC',
       arcLines || 'Arc chưa có dữ liệu.',
+      '',
+      '# HƯỚNG TRUYỆN ĐÃ KHÓA',
+      draft.directionLock || 'Chưa khóa hướng riêng; đi theo Đại cục và hồ sơ đầu vào.',
       '',
       '# BẢN ĐỒ CHƯƠNG',
       chapterPlanNotice || 'Chưa có bản đồ chương.',
@@ -491,10 +660,14 @@ const App: React.FC = () => {
     : (plannedChapters.length > 0 ? Math.round((writtenChapters.length / plannedChapters.length) * 100) : 0);
   const workflowSteps = [
     { label: 'Hồ sơ', status: params.seed.trim() && params.character.name.trim() ? 'done' : 'active' },
+    { label: 'Hướng truyện', status: params.directionLock ? 'done' : view === 'directions' ? 'active' : 'locked' },
     { label: 'Lộ trình', status: hasRoadmapReady ? 'done' : activeProjectId ? 'active' : 'locked' },
     { label: 'Chấp bút', status: writtenChapters.length > 0 ? 'done' : hasRoadmapReady ? 'active' : 'locked' },
     { label: 'Biên tập', status: logicReport ? 'done' : writtenChapters.length > 0 ? 'active' : 'locked' },
   ];
+  const visibleDirectionChoices = directionChoices.length > 0
+    ? directionChoices
+    : buildStoryDirectionChoices(pendingDirectionParams || params);
   const isStoryProject = (value: unknown): value is StoryProject => {
     const project = value as Partial<StoryProject>;
     return Boolean(project?.id && project?.params && Array.isArray(project?.volumes));
@@ -753,14 +926,10 @@ const App: React.FC = () => {
     finally { setIsGenerating(false); setGenerationStatus(''); }
   };
 
-  const handleStartProject = async () => {
-    const validationError = validateSetupParams(params);
-    if (validationError) return alert(validationError);
-
-    const workingParams = normalizeParams(params);
+  const generateProjectFromParams = async (workingParams: StoryParams) => {
     setParams(workingParams);
     setIsGeneratingOutline(true);
-    setGenerationStatus(workingParams.projectType === 'Truyện Ngắn' ? 'Đang viết truyện ngắn hoàn chỉnh...' : 'Bước 1/3: Đang dựng Đại cục và chia Arc...');
+    setGenerationStatus(workingParams.projectType === 'Truyện Ngắn' ? 'Đang viết truyện ngắn hoàn chỉnh...' : 'Bước 1/3: Đang lập Đại cục và phân bổ Arc...');
     setLogicReport(null);
     try {
       if (workingParams.projectType === 'Truyện Ngắn') {
@@ -828,6 +997,37 @@ const App: React.FC = () => {
       }
     } catch (e) { console.error(e); alert(friendlyError(e)); }
     finally { setIsGeneratingOutline(false); setGenerationStatus(''); }
+  };
+
+  const handleStartProject = async () => {
+    const validationError = validateSetupParams(params);
+    if (validationError) return alert(validationError);
+
+    const workingParams = normalizeParams(params);
+    setParams(workingParams);
+    setLogicReport(null);
+
+    if (workingParams.projectType === 'Truyện Ngắn' || workingParams.directionLock) {
+      await generateProjectFromParams(workingParams);
+      return;
+    }
+
+    const choices = buildStoryDirectionChoices(workingParams);
+    setPendingDirectionParams(workingParams);
+    setDirectionChoices(choices);
+    setSelectedDirectionId(choices[0]?.id || '');
+    setGenerationStatus('');
+    setView('directions');
+  };
+
+  const handleChooseDirection = async (choice: StoryDirectionChoice) => {
+    if (isGeneratingOutline) return;
+    const baseParams = pendingDirectionParams || normalizeParams(params);
+    const lockedParams = lockDirectionIntoParams(baseParams, choice);
+    setSelectedDirectionId(choice.id);
+    setPendingDirectionParams(null);
+    setDirectionChoices([]);
+    await generateProjectFromParams(lockedParams);
   };
 
   const handleAddNextArc = async () => {
@@ -1166,7 +1366,7 @@ const App: React.FC = () => {
             </div>
             <span className="text-[10px] font-black text-slate-300">{planCompletenessPercent}%</span>
           </div>
-          <div className="grid grid-cols-4 gap-1.5">
+          <div className="grid grid-cols-5 gap-1.5">
             {workflowSteps.map(step => (
               <div key={step.label} className={`h-1.5 rounded-full ${step.status === 'done' ? 'bg-emerald-400' : step.status === 'active' ? 'bg-amber-300' : 'bg-white/15'}`} title={step.label} />
             ))}
@@ -1239,7 +1439,7 @@ const App: React.FC = () => {
             <textarea value={params.referenceStories} onChange={e => setParams({...params, referenceStories: e.target.value})} className="w-full h-20 p-3 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none resize-none font-medium focus:ring-1 focus:ring-indigo-300" placeholder="Ví dụ: nhịp chậm, ít giải thích, nhiều đối thoại, không copy tình tiết..." />
           </div>
           <button onClick={handleStartProject} disabled={isGeneratingOutline} className="btn-primary w-full py-4 font-black text-[10px] uppercase disabled:opacity-50">
-            {isGeneratingOutline ? 'Đang thấu thị...' : (params.projectType === 'Truyện Ngắn' ? 'Viết truyện ngắn' : 'Lập lộ trình Arc')}
+            {isGeneratingOutline ? 'Đang xử lý...' : (params.projectType === 'Truyện Ngắn' ? 'Viết truyện ngắn' : 'Chọn hướng truyện')}
           </button>
         </div>
         <button onClick={() => setView('my-stories')} className="mt-auto py-3 px-4 bg-slate-50 rounded-lg border border-slate-200 text-[10px] font-black uppercase text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-all flex items-center justify-between">
@@ -1289,15 +1489,15 @@ const App: React.FC = () => {
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Quy trình khóa logic</span>
                     </div>
                     <h2 className="text-3xl md:text-4xl font-black text-slate-950 story-font leading-tight">
-                      Bàn viết Bút Nghiên AI
+                      Xưởng dựng truyện Bút Nghiên AI
                     </h2>
                     <p className="mt-3 text-sm md:text-base text-slate-600 leading-7">
-                      Nhập hồ sơ ở bảng điều khiển bên trái. Hệ thống sẽ khóa Đại cục, Arc và Thiên Cơ Lục trước khi mở bước chấp bút, giúp truyện dài không lệch số liệu, không vỡ tuyến và không lan man.
+                      Nhập hồ sơ ở bảng điều khiển bên trái. Hệ thống sẽ đề xuất nhiều chiến lược phát triển truyện, sau đó khóa Đại cục, Arc và Thiên Cơ Lục trước khi mở bước viết chương.
                     </p>
                   </div>
                   <div className="flex flex-col sm:flex-row gap-3 shrink-0">
                     <button onClick={handleStartProject} disabled={isGeneratingOutline} className="btn-primary px-6 py-3 text-[10px] font-black uppercase tracking-widest disabled:opacity-50">
-                      {isGeneratingOutline ? 'Đang dựng dự án...' : (params.projectType === 'Truyện Ngắn' ? 'Viết truyện ngắn' : 'Lập lộ trình')}
+                      {isGeneratingOutline ? 'Đang dựng dự án...' : (params.projectType === 'Truyện Ngắn' ? 'Viết truyện ngắn' : 'Chọn hướng truyện')}
                     </button>
                     <button onClick={() => setView('my-stories')} className="btn-secondary px-6 py-3 text-[10px] font-black uppercase tracking-widest">
                       Mở Tàng Thư
@@ -1384,6 +1584,77 @@ const App: React.FC = () => {
                     </div>
                   )}
                 </div>
+              </section>
+            </div>
+          )}
+
+          {view === 'directions' && (
+            <div className="max-w-7xl mx-auto py-6 md:py-8 space-y-5 animate-in fade-in">
+              <section className="surface p-5 md:p-6">
+                <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-5">
+                  <div className="max-w-3xl">
+                    <div className="flex flex-wrap items-center gap-2 mb-4">
+                      <span className="inline-flex px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-md text-[9px] font-black uppercase tracking-widest border border-indigo-100">Bước chiến lược</span>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{visibleDirectionChoices.length} hướng phát triển</span>
+                    </div>
+                    <h2 className="text-3xl md:text-4xl font-black text-slate-950 story-font leading-tight">
+                      Chọn trục truyện trước khi lập Arc
+                    </h2>
+                    <p className="mt-3 text-sm md:text-base text-slate-600 leading-7">
+                      Mỗi lựa chọn bên dưới là một cách tổ chức nhân quả khác nhau. Khi chọn một hướng, app sẽ khóa nó vào hồ sơ và lập lộ trình Arc theo đúng logic đó.
+                    </p>
+                  </div>
+                  <button onClick={() => setView('setup')} className="btn-secondary px-5 py-3 text-[10px] font-black uppercase tracking-widest">
+                    Sửa hồ sơ
+                  </button>
+                </div>
+              </section>
+
+              <section className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {visibleDirectionChoices.map(choice => (
+                  <button
+                    key={choice.id}
+                    onMouseEnter={() => setSelectedDirectionId(choice.id)}
+                    onFocus={() => setSelectedDirectionId(choice.id)}
+                    onClick={() => handleChooseDirection(choice)}
+                    disabled={isGeneratingOutline}
+                    className={`surface text-left p-5 transition-all hover:-translate-y-0.5 hover:border-indigo-200 disabled:opacity-60 ${selectedDirectionId === choice.id ? 'ring-2 ring-indigo-200 border-indigo-200 bg-indigo-50/40' : ''}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <span className="inline-flex px-2 py-1 bg-white border border-slate-200 rounded-md text-[8px] font-black uppercase tracking-widest text-slate-500">{choice.badge}</span>
+                        <h3 className="mt-3 text-lg font-black text-slate-950">{choice.title}</h3>
+                      </div>
+                      <span className="w-8 h-8 rounded-lg bg-slate-950 text-white flex items-center justify-center text-xs font-black shrink-0">
+                        {selectedDirectionId === choice.id ? '✓' : '→'}
+                      </span>
+                    </div>
+                    <div className="mt-4 space-y-3">
+                      <div>
+                        <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">Tiền đề</p>
+                        <p className="mt-1 text-sm leading-6 text-slate-700">{choice.premise}</p>
+                      </div>
+                      <div>
+                        <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">Logic cốt truyện</p>
+                        <p className="mt-1 text-xs leading-5 text-slate-600">{choice.logic}</p>
+                      </div>
+                      <div className="grid grid-cols-1 gap-2">
+                        <div className="p-3 bg-slate-50 border border-slate-100 rounded-md">
+                          <p className="text-[8px] font-black uppercase tracking-widest text-indigo-500">Nhịp Arc</p>
+                          <p className="mt-1 text-[11px] leading-5 text-slate-600">{choice.arcBias}</p>
+                        </div>
+                        <div className="p-3 bg-amber-50 border border-amber-100 rounded-md">
+                          <p className="text-[8px] font-black uppercase tracking-widest text-amber-700">Chặn lỗi logic</p>
+                          <p className="mt-1 text-[11px] leading-5 text-amber-900">{choice.risk}</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-4">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-indigo-700">Khóa hướng này</span>
+                      <span className="text-[10px] font-black uppercase text-slate-400">Lập Arc</span>
+                    </div>
+                  </button>
+                ))}
               </section>
             </div>
           )}

@@ -44,14 +44,16 @@ Nhiệm vụ:
 3. Bám Thiên Cơ Lục tuyệt đối: không đổi tên riêng, số liệu, timeline, quan hệ, cấp bậc, vật phẩm hoặc luật thế giới.
 4. Không viết văn xuôi truyện ở bước này. Chỉ trả về JSON hợp lệ.`;
 
-const WRITER_SYSTEM_INSTRUCTION = `Bạn là tiểu thuyết gia tiếng Việt có tư duy biên kịch chặt chẽ.
-Luôn viết thành văn xuôi hoàn chỉnh, giàu cảnh, giàu hành động cụ thể, giàu tâm lý nhân vật.
-Bạn phải bám lộ trình chương, giữ đúng tính cách và mục tiêu nhân vật, không nhảy cóc, không tóm tắt thay cho cảnh, không dùng markdown, không gạch đầu dòng.
+const WRITER_SYSTEM_INSTRUCTION = `Bạn là tiểu thuyết gia tiếng Việt hiện đại, có tư duy biên kịch chặt chẽ và gu văn chuyên nghiệp.
+Văn phong ưu tiên: rõ cảnh, ít sáo ngữ, câu văn linh hoạt, hình ảnh chính xác, thoại có hàm ý, nhịp đoạn kiểm soát tốt. Viết đẹp nhưng không phô, giàu cảm xúc nhưng không ủy mị.
+Luôn viết thành văn xuôi hoàn chỉnh, dùng cảnh và hành động để bộc lộ tâm lý nhân vật; không tóm tắt thay cho cảnh.
+Bạn phải bám lộ trình chương, giữ đúng tính cách và mục tiêu nhân vật, không nhảy cóc, không dùng markdown, không gạch đầu dòng.
 Khóa canon tuyệt đối:
 - Mọi tên riêng, số liệu, mốc thời gian, cấp bậc, quan hệ, vật phẩm và luật thế giới phải lấy từ Thiên Cơ Lục, Đại cục, Arc và kế hoạch chương.
 - Không tự ý đổi tuổi, số lượng, thời hạn, khoảng cách, tài nguyên, cảnh giới, chức vụ hoặc quan hệ nếu chưa có nguyên nhân và hậu quả trong cảnh.
 - Nếu cần thêm dữ kiện mới, phải đưa vào bằng hành động/đối thoại cụ thể và không mâu thuẫn dữ kiện cũ.
-- Không lan man: mỗi đoạn phải phục vụ ít nhất một việc: đẩy mục tiêu chương, bộc lộ nhân vật, tạo hậu quả, hoặc chuẩn bị xung đột kế tiếp.`;
+- Không lan man: mỗi đoạn phải phục vụ ít nhất một việc: đẩy mục tiêu chương, bộc lộ nhân vật, tạo hậu quả, hoặc chuẩn bị xung đột kế tiếp.
+- Tránh lối văn cũ kỹ như liên tục than thở, giải thích đạo lý, dùng thành ngữ rỗng, miêu tả dài mà không làm tình thế thay đổi.`;
 
 const EDITOR_SYSTEM_INSTRUCTION = `Bạn là biên tập viên tuyến truyện khó tính.
 Chỉ chấp nhận chương nếu nó bám đúng đại cục, đúng Arc, đúng mục tiêu chương, không phá logic nhân vật, không lặp chương cũ và không kết thúc sớm khi chưa tới chương cuối.
@@ -800,6 +802,7 @@ const buildProjectBrief = (params: StoryParams) => `HỒ SƠ ĐẦU VÀO
 - Mục tiêu nhân vật: ${params.character.goal || "Chưa mô tả"}
 - Tỷ trọng nội dung: ${sliderBrief(params)}
 - Ý tưởng khởi nguồn: ${params.seed || "Chưa có"}
+- Hướng truyện đã khóa: ${params.directionLock || "Chưa chọn. AI phải tự đề xuất hướng hợp logic nhất từ hồ sơ."}
 - Truyện mẫu/lưu ý tham chiếu: ${params.referenceStories || "Không có. Không sao chép tác phẩm có sẵn."}`;
 
 const normalizeChapter = (
@@ -1013,6 +1016,7 @@ YÊU CẦU LẬP LỘ TRÌNH:
 - Khung goi y bat doi xung de can ngan:
 ${arcBudgetGuide}
 - Co the dieu chinh tung moc neu noi dung can, nhung tong van phai dung ${totalChapters} chuong va purpose cua moi Arc phai noi ro ly do Arc do dai/ngan.
+- Nếu "Hướng truyện đã khóa" có nội dung, phải ưu tiên tuyệt đối hướng đó khi đặt Đại cục, nguyên nhân, phản diện, twist và biến chuyển từng Arc.
 - Nếu tổng số chương rất dài, chia Arc theo cụm 25-60 chương để sau này sinh bản đồ chương theo từng Arc; không bắt buộc Arc nào cũng bằng nhau.
 - Mỗi Arc phải nêu: chức năng trong toàn truyện, xung đột chính, biến chuyển cuối Arc, dữ kiện canon cần giữ.
 - General summary nêu rõ mở đầu, trung đoạn, cao trào, kết cục theo mode "${params.mode}" trong tối đa 120 từ.
@@ -1268,6 +1272,7 @@ YÊU CẦU VIẾT:
 - Bắt đầu bằng đúng mẫu: "Tên chương: [tên chương]".
 - Sau dòng tên chương, viết văn xuôi liền mạch bằng tiếng Việt.
 - Mỗi beat phải được viết thành cảnh có hành động, cảm giác, đối thoại hoặc quyết định cụ thể; không tóm tắt thay cho cảnh.
+- Văn phong hiện đại và chuyên nghiệp: gọn, sắc, có nhạc tính vừa đủ, không lạm dụng mỹ từ, không giảng đạo, không dùng câu sáo.
 - Ưu tiên văn hay: hình ảnh chính xác, nhịp câu biến hóa, đối thoại có hàm ý, ít giải thích trực tiếp.
 - Nhân vật chính phải chủ động lựa chọn, sai lầm hoặc trả giá trong chương.
 - Mỗi cảnh phải làm rõ mục tiêu, trở ngại, lựa chọn hoặc hậu quả. Không kéo dài hồi tưởng/miêu tả nếu không đổi trạng thái truyện.
@@ -1541,6 +1546,7 @@ Yêu cầu:
 - Có mở truyện, phát triển xung đột, bước ngoặt, cao trào và dư âm.
 - Nhân vật chính phải hành động theo tính cách và mục tiêu đã nhập.
 - Bám thể loại, tông giọng và mode kết truyện.
+- Văn phong hiện đại, chuyên nghiệp: cảnh rõ, thoại tự nhiên, câu văn có lực, hạn chế sáo ngữ và giải thích trực tiếp.
 - Không lan man: mỗi cảnh phải phục vụ xung đột chính, tính cách nhân vật hoặc hậu quả cao trào.
 - Giữ nhất quán tên riêng, số liệu, mốc thời gian và luật thế giới đã tự thiết lập trong truyện ngắn.
 - Bắt đầu bằng "Tên truyện: [tên]".
