@@ -235,6 +235,29 @@ const cleanStoryText = (text: string): string => {
     .replace(/\*\*/g, "");
 };
 
+const terminalPunctuationPattern = /[.!?…。！？)"'”’\]]$/;
+const danglingEndingPattern = /(?:,\s*|;\s*|:\s*|-+\s*|—\s*|và|hoặc|nhưng|rằng|vì|nên|khi|nếu|để|của|với|trong|từ|bằng|như|là|mà)$/i;
+
+const isLikelyCutOffText = (text: string) => {
+  const normalized = cleanStoryText(text).trim();
+  if (!normalized) return true;
+  const tail = normalized.replace(/\s+/g, " ").slice(-220).trim();
+  if (!tail) return true;
+  if (terminalPunctuationPattern.test(tail)) return false;
+  if (danglingEndingPattern.test(tail)) return true;
+
+  const lastSentenceBreak = Math.max(
+    tail.lastIndexOf("."),
+    tail.lastIndexOf("!"),
+    tail.lastIndexOf("?"),
+    tail.lastIndexOf("…"),
+  );
+  return lastSentenceBreak < 0 || tail.slice(lastSentenceBreak + 1).trim().split(/\s+/).length > 10;
+};
+
+const chapterNeedsContinuation = (text: string, minWords: number) =>
+  countWords(text) < minWords || isLikelyCutOffText(text);
+
 const stripJsonFence = (text: string) => text
   .replace(/^\uFEFF/, "")
   .replace(/```(?:json|JSON)?/g, "")
@@ -1338,13 +1361,16 @@ YÊU CẦU VIẾT:
     return emergencyDraft;
   }
   let rounds = 0;
-  const maxContinuationRounds = targetWords <= 2500 ? 1 : targetWords <= 6000 ? 2 : targetWords <= 12000 ? 4 : 6;
+  const maxContinuationRounds = targetWords <= 2500 ? 3 : targetWords <= 6000 ? 4 : targetWords <= 12000 ? 6 : 8;
 
-  while (countWords(fullText) < minWords && rounds < maxContinuationRounds) {
+  while (chapterNeedsContinuation(fullText, minWords) && rounds < maxContinuationRounds) {
     rounds++;
+    const currentWords = countWords(fullText);
+    const remainingWords = Math.max(350, Math.min(1200, targetWords - currentWords));
     const continuationPrompt = `Chương ${newIndex} hiện mới khoảng ${countWords(fullText)} chữ, thấp hơn mục tiêu ${targetWords}.
-Hãy VIẾT TIẾP ngay từ đoạn cuối, không lặp lại dòng "Tên chương", không tóm tắt, không viết lại từ đầu.
-Ưu tiên hoàn tất các beat còn thiếu và làm sâu tâm lý/xung đột.
+Hãy VIẾT TIẾP ngay từ đoạn cuối khoảng ${remainingWords} chữ, không lặp lại dòng "Tên chương", không tóm tắt, không viết lại từ đầu.
+Nếu đoạn cuối đang dở câu hoặc dở cảnh, nối tiếp trực tiếp để hoàn tất câu/cảnh đó trước.
+Ưu tiên hoàn tất các beat còn thiếu, làm sâu tâm lý/xung đột, và kết chương bằng một câu hoàn chỉnh có hậu quả hoặc móc nối.
 Không mở tuyến phụ mới, không đổi số liệu/timeline, không thêm dữ kiện canon nếu không cần cho beat còn thiếu.
 
 [KẾ HOẠCH CHƯƠNG]
@@ -1357,6 +1383,18 @@ ${fullText.slice(-3500)}`;
     onChunk("\n\n");
     fullText += "\n\n";
     fullText += await streamChat(WRITE_MODEL, WRITER_SYSTEM_INSTRUCTION, continuationPrompt, onChunk, 0.72, estimateMaxTokens(Math.max(800, targetWords - countWords(fullText)), 1200));
+  }
+
+  if (isLikelyCutOffText(fullText)) {
+    const closingPrompt = `Đoạn cuối chương ${newIndex} đang bị cụt hoặc chưa khép câu.
+Hãy viết tiếp 180-320 chữ ngay từ đoạn cuối bên dưới để khép cảnh bằng câu hoàn chỉnh.
+Không lặp lại tiêu đề, không tóm tắt, không mở tuyến mới, không đổi dữ kiện canon.
+
+[ĐOẠN CUỐI ĐỂ NỐI MẠCH]
+${fullText.slice(-2200)}`;
+    onChunk("\n\n");
+    fullText += "\n\n";
+    fullText += await streamChat(WRITE_MODEL, WRITER_SYSTEM_INSTRUCTION, closingPrompt, onChunk, 0.68, estimateMaxTokens(420, 800));
   }
 
   return fullText;
@@ -1601,18 +1639,33 @@ ${userIdea || "Không có bổ sung."}`;
 
   let fullText = await streamChat(WRITE_MODEL, WRITER_SYSTEM_INSTRUCTION, prompt, onChunk, 0.82, estimateMaxTokens(targetWords, 2000));
   let rounds = 0;
-  const maxContinuationRounds = targetWords <= 2500 ? 1 : targetWords <= 6000 ? 2 : targetWords <= 12000 ? 4 : 6;
+  const maxContinuationRounds = targetWords <= 2500 ? 3 : targetWords <= 6000 ? 4 : targetWords <= 12000 ? 6 : 8;
 
-  while (countWords(fullText) < minWords && rounds < maxContinuationRounds) {
+  while (chapterNeedsContinuation(fullText, minWords) && rounds < maxContinuationRounds) {
     rounds++;
-    const continuationPrompt = `Truyện ngắn hiện mới khoảng ${countWords(fullText)} chữ, thấp hơn mục tiêu ${targetWords}.
-Hãy viết tiếp ngay từ đoạn cuối để hoàn chỉnh xung đột và dư âm, không lặp lại tiêu đề, không tóm tắt.
+    const currentWords = countWords(fullText);
+    const remainingWords = Math.max(350, Math.min(1200, targetWords - currentWords));
+    const continuationPrompt = `Truyện ngắn hiện mới khoảng ${currentWords} chữ, thấp hơn mục tiêu ${targetWords}.
+Hãy viết tiếp ngay từ đoạn cuối khoảng ${remainingWords} chữ để hoàn chỉnh xung đột và dư âm, không lặp lại tiêu đề, không tóm tắt.
+Nếu đoạn cuối đang dở câu hoặc dở cảnh, nối tiếp trực tiếp để hoàn tất câu/cảnh đó trước.
 
 [ĐOẠN CUỐI ĐỂ NỐI MẠCH]
 ${fullText.slice(-3500)}`;
     onChunk("\n\n");
     fullText += "\n\n";
     fullText += await streamChat(WRITE_MODEL, WRITER_SYSTEM_INSTRUCTION, continuationPrompt, onChunk, 0.76, estimateMaxTokens(Math.max(800, targetWords - countWords(fullText)), 1200));
+  }
+
+  if (isLikelyCutOffText(fullText)) {
+    const closingPrompt = `Đoạn cuối truyện đang bị cụt hoặc chưa khép câu.
+Hãy viết tiếp 180-320 chữ ngay từ đoạn cuối bên dưới để khép cảnh bằng câu hoàn chỉnh.
+Không lặp lại tiêu đề, không tóm tắt, không mở tuyến mới.
+
+[ĐOẠN CUỐI ĐỂ NỐI MẠCH]
+${fullText.slice(-2200)}`;
+    onChunk("\n\n");
+    fullText += "\n\n";
+    fullText += await streamChat(WRITE_MODEL, WRITER_SYSTEM_INSTRUCTION, closingPrompt, onChunk, 0.7, estimateMaxTokens(420, 800));
   }
 
   return fullText;

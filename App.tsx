@@ -609,6 +609,23 @@ const App: React.FC = () => {
     return { title: titleMatch[1].trim() || fallback, body };
   };
 
+  const countDraftWords = (text: string) => text ? text.trim().split(/\s+/).filter(Boolean).length : 0;
+  const draftLooksCutOff = (text: string) => {
+    const tail = text.trim().replace(/\s+/g, ' ').slice(-220);
+    if (!tail) return true;
+    if (/[.!?…。！？)"'”’\]]$/.test(tail)) return false;
+    if (/(?:,\s*|;\s*|:\s*|-+\s*|—\s*|và|hoặc|nhưng|rằng|vì|nên|khi|nếu|để|của|với|trong|từ|bằng|như|là|mà)$/i.test(tail)) return true;
+    const lastBreak = Math.max(tail.lastIndexOf('.'), tail.lastIndexOf('!'), tail.lastIndexOf('?'), tail.lastIndexOf('…'));
+    return lastBreak < 0 || tail.slice(lastBreak + 1).trim().split(/\s+/).length > 10;
+  };
+
+  const chapterCandidateScore = (text: string, targetWords: number) => {
+    const words = countDraftWords(text);
+    const distancePenalty = Math.abs(words - targetWords) * 0.18;
+    const completenessBonus = draftLooksCutOff(text) ? -900 : 500;
+    return words + completenessBonus - distancePenalty;
+  };
+
   const buildOpeningWorldBible = (
     rawWorldBuilding: string,
     summary: string,
@@ -912,6 +929,8 @@ const App: React.FC = () => {
     const maxAttempts = 2;
     let isValid = false;
     let finalContent = "";
+    let bestCandidate = "";
+    let bestCandidateScore = Number.NEGATIVE_INFINITY;
 
     try {
       let workingVolumes = volumes;
@@ -922,6 +941,7 @@ const App: React.FC = () => {
       }
       setActiveArcIndex(currentArc.index);
       const chapterPlan = currentArc.chapters?.find(ch => ch.index === currentChapterIndex);
+      const targetWords = chapterPlan?.targetWords || params.length;
       const previousForValidation = writtenChapters.filter(ch => ch.index !== currentChapterIndex);
 
       while (attempts < maxAttempts && !isValid) {
@@ -936,12 +956,18 @@ const App: React.FC = () => {
         );
         setStory(finalContent);
         if (!finalContent.trim()) throw new Error('Gemini chưa trả về nội dung chương. Hãy thử lại hoặc giảm mục tiêu số chữ.');
+        const candidateScore = chapterCandidateScore(finalContent, targetWords);
+        if (candidateScore > bestCandidateScore) {
+          bestCandidateScore = candidateScore;
+          bestCandidate = finalContent;
+        }
 
         setGenerationStatus('Đang thẩm định số chữ, canon, logic và độ tập trung...');
         const validation = await validateChapterLogic(finalContent, previousForValidation, worldBible, currentArc, generalSummary, params, currentChapterIndex);
         
         if (validation.isValid) {
           isValid = true;
+          bestCandidate = finalContent;
         } else {
           console.warn("Lệch lộ trình:", validation.reason);
           if (attempts < maxAttempts) {
@@ -953,6 +979,10 @@ const App: React.FC = () => {
 
       if (!isValid) {
         console.warn("Chương cần biên tập thêm, nhưng vẫn lưu bản tốt nhất đã viết.");
+      }
+      if (bestCandidate && bestCandidate !== finalContent) {
+        finalContent = bestCandidate;
+        setStory(finalContent);
       }
 
       setGenerationStatus('Đang cập nhật Thiên Cơ Lục và khóa dữ kiện mới...');
