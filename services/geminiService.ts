@@ -29,8 +29,9 @@ Nhiệm vụ bắt buộc:
 2. Lập lộ trình đủ từ chương 1 đến chương cuối, chia thành các Arc hợp lý.
 3. Ở bước lộ trình đầu tiên chỉ cần Đại cục, Thiên Cơ Lục và Arc; bản đồ chương chi tiết sẽ lập riêng cho từng Arc khi bắt đầu viết.
 4. Dựng Thiên Cơ Lục như sổ canon: timeline, số liệu, quan hệ, vật phẩm, luật thế giới, mâu thuẫn mở và điều cấm phá logic.
-5. Mọi dữ kiện chưa chắc phải ghi "chưa khóa"; không bịa số liệu mơ hồ để lấp chỗ trống.
-6. Không viết văn xuôi truyện ở bước này. Chỉ trả về JSON hợp lệ.`;
+5. Khóa rõ logic điểm nhìn: nhân vật được gọi bằng tên gì ở từng giai đoạn, ai biết thông tin nào, ai đặt tên, khi nào nhân vật đủ nhận thức để biết/muốn/hành động.
+6. Mọi dữ kiện chưa chắc phải ghi "chưa khóa"; không bịa số liệu mơ hồ để lấp chỗ trống.
+7. Không viết văn xuôi truyện ở bước này. Chỉ trả về JSON hợp lệ.`;
 
 const SYSTEM_INSTRUCTION_NEXT_ARC = `Bạn là biên kịch trưởng đang mở rộng một truyện dài đã có hồ sơ.
 Dựa vào Thiên Cơ Lục, đại cục và lịch sử chương, hãy tạo Arc kế tiếp sao cho không phá logic cũ, không lặp tình tiết và vẫn đẩy tác phẩm tới kết cục đã chọn.
@@ -42,7 +43,8 @@ Nhiệm vụ:
 1. Chia đúng phạm vi chương được giao thành các kế hoạch chương liên tục, không thiếu, không trùng.
 2. Mỗi chương phải có mục tiêu, chức năng trong Arc, 3 beat dạng cảnh, 2 chi tiết bắt buộc, nhịp độ và móc nối.
 3. Bám Thiên Cơ Lục tuyệt đối: không đổi tên riêng, số liệu, timeline, quan hệ, cấp bậc, vật phẩm hoặc luật thế giới.
-4. Không viết văn xuôi truyện ở bước này. Chỉ trả về JSON hợp lệ.`;
+4. Mỗi kế hoạch chương phải đúng điểm nhìn và trạng thái nhân vật tại thời điểm đó: tên gọi, tuổi/nhận thức, điều biết/chưa biết, năng lực hành động, lời nói hợp tuổi và quan hệ.
+5. Không viết văn xuôi truyện ở bước này. Chỉ trả về JSON hợp lệ.`;
 
 const WRITER_SYSTEM_INSTRUCTION = `Bạn là tiểu thuyết gia tiếng Việt hiện đại, có tư duy biên kịch chặt chẽ và gu văn chuyên nghiệp.
 Văn phong ưu tiên: giàu cảnh, ít sáo ngữ, câu văn linh hoạt, hình ảnh chính xác, thoại có hàm ý, nhịp đoạn kiểm soát tốt. Viết có chất văn nhưng không phô diễn; cảm xúc sâu nhưng không ủy mị; hiện đại nhưng không cộc.
@@ -70,15 +72,26 @@ const SCENE_LOGIC_RULES = `Luật logic cảnh bắt buộc:
 - Mỗi dữ kiện mới phải để lại dấu vết cho chương sau: một mối quan hệ đổi trạng thái, một manh mối, một cấm kỵ, một món nợ, một vết thương, hoặc một quyết định khó rút lại.
 - Khi cần giải thích, hãy để giải thích nằm trong hành động, đối thoại, vật chứng hoặc sai lầm của nhân vật.`;
 
+const IMMERSIVE_LOGIC_RULES = `Luật nhập vai và điểm nhìn bắt buộc:
+- Trước mỗi cảnh, tự xác định trạng thái hiện tại của nhân vật: tuổi/tầm nhận thức, tên đang được gọi trong cảnh, nơi ở, người đang có mặt, điều đã biết, điều chưa thể biết, năng lực thể chất, quyền lựa chọn và mục tiêu tức thời.
+- Tên nhân vật trong hồ sơ chỉ là dữ liệu quản trị. Trong văn bản truyện, chỉ dùng tên đó sau khi có người đặt tên, gọi tên, hoặc nhân vật đủ điều kiện biết tên mình. Nếu mở đầu là trẻ sơ sinh bị bỏ rơi, chưa ai đặt tên thì chỉ được gọi bằng "đứa bé", "nó", "đứa trẻ", dấu hiệu nhận dạng, hoặc cách gọi của người nhặt được.
+- Không để nhân vật biết thông tin mà họ chưa từng nghe, thấy, đọc, suy luận hợp lý hoặc được người khác nói. Người kể chuyện cũng không được vô tình tiết lộ thông tin làm hỏng điểm nhìn nếu cảnh đang bám sát nhân vật.
+- Lời nói phải đúng tuổi, địa vị, quan hệ và mức hiểu biết. Trẻ sơ sinh không có độc thoại trưởng thành; trẻ nhỏ không nói như người lớn; người xa lạ không gọi thân mật nếu chưa có quan hệ.
+- Hành động phải đúng cơ thể và hoàn cảnh. Nhân vật bị thương, mới sinh, bị trói, đói, mất trí nhớ, nghèo khó hoặc bị bỏ rơi không thể hành động như người khỏe mạnh/đủ quyền lực nếu chưa có nguyên nhân.
+- Khi chuyển thời gian, đổi tên gọi, đổi người chăm sóc, đổi mục tiêu hoặc đổi quan hệ, phải có cảnh hoặc câu nối rõ nguyên nhân. Không nhảy từ "bị bỏ rơi" sang "đã có tên và ký ức đầy đủ" nếu chưa viết quá trình được nhặt, nhận nuôi, đặt tên và lớn lên.
+- Ưu tiên đặt người đọc vào vị trí nhân vật: cảm giác trước, suy luận sau, quyết định cuối. Không dùng lời kể toàn tri để lấp lỗ hổng logic.`;
+
 const ACTIVE_WRITER_SYSTEM_INSTRUCTION = `${WRITER_SYSTEM_INSTRUCTION}
 
 ${PROSE_RHYTHM_RULES}
 
-${SCENE_LOGIC_RULES}`;
+${SCENE_LOGIC_RULES}
+
+${IMMERSIVE_LOGIC_RULES}`;
 
 const EDITOR_SYSTEM_INSTRUCTION = `Bạn là biên tập viên tuyến truyện khó tính.
 Chỉ chấp nhận chương nếu nó bám đúng đại cục, đúng Arc, đúng mục tiêu chương, không phá logic nhân vật, không lặp chương cũ và không kết thúc sớm khi chưa tới chương cuối.
-Thẩm định bắt buộc cả timeline, số liệu, tên riêng, quan hệ, cấp bậc/quy tắc thế giới, vật phẩm, khoảng cách, mục tiêu chương, nhịp độ và mức lan man.`;
+Thẩm định bắt buộc cả timeline, số liệu, tên riêng, quan hệ, cấp bậc/quy tắc thế giới, vật phẩm, khoảng cách, mục tiêu chương, nhịp độ, mức lan man, điểm nhìn, tên gọi theo thời điểm, tuổi/nhận thức, lời nói và hành động theo hoàn cảnh.`;
 
 class GeminiRequestError extends Error {
   status?: number;
@@ -902,6 +915,7 @@ const buildProjectBrief = (params: StoryParams) => `HỒ SƠ ĐẦU VÀO
 - Tông giọng: ${params.tone}
 - Kiểu kết cấu/kết truyện: ${params.mode}
 - Nhân vật chính: ${params.character.name || "Chưa đặt tên"}
+- Lưu ý tên gọi: tên trong hồ sơ không đồng nghĩa nhân vật đã có/biết tên trong cảnh mở đầu; truyện chỉ được dùng tên này sau khi logic đặt tên/gọi tên đã xảy ra.
 - Giới tính/định danh: ${params.character.gender}
 - Tính cách: ${params.character.personality || "Chưa mô tả"}
 - Mục tiêu nhân vật: ${params.character.goal || "Chưa mô tả"}
@@ -1072,6 +1086,10 @@ const buildFallbackWorldBuilding = (params: StoryParams, totalChapters: number) 
   `- ${params.character.name || "Nhân vật chính"}: ${params.character.personality || "chưa khóa tính cách"}.`,
   `- Mục tiêu: ${params.character.goal || "chưa khóa mục tiêu"}.`,
   "",
+  "# ĐIỂM NHÌN VÀ TÊN GỌI",
+  `- Tên hồ sơ "${params.character.name || "chưa đặt"}" chỉ được dùng trong truyện sau khi có cảnh đặt tên/gọi tên hợp logic.`,
+  "- Mỗi cảnh phải khóa: nhân vật đang biết gì, chưa biết gì, có thể nói/làm gì theo tuổi và hoàn cảnh.",
+  "",
   "# ĐỊA DANH/VẬT PHẨM/HỆ THỐNG",
   "- Chưa khóa. Mỗi yếu tố mới phải có chức năng trong Arc hiện tại.",
   "",
@@ -1116,6 +1134,9 @@ export const generateInitialRoadmap = async (params: StoryParams) => {
   const arcBudgetGuide = buildArcBudgetGuide(recommendedRanges);
   const prompt = `${buildProjectBrief(params)}
 
+[LUẬT NHẬP VAI VÀ ĐIỂM NHÌN]
+${IMMERSIVE_LOGIC_RULES}
+
 YÊU CẦU LẬP LỘ TRÌNH:
 - Chỉ tạo Đại cục và khoảng ${volumeCount} Arc, phủ đủ chương 1-${totalChapters}. Chưa viết bản đồ từng chương ở bước này.
 - Mỗi Arc phải có chapterStart/chapterEnd rõ ràng, nối tiếp nhau, không trùng, không bỏ sót, không vượt quá ${totalChapters}.
@@ -1125,10 +1146,12 @@ ${arcBudgetGuide}
 - Có thể điều chỉnh từng mốc nếu nội dung cần, nhưng tổng vẫn phải đúng ${totalChapters} chương và purpose của mỗi Arc phải nói rõ lý do Arc đó dài/ngắn.
 - Nếu "Hướng truyện đã khóa" có nội dung, phải ưu tiên tuyệt đối hướng đó khi đặt Đại cục, nguyên nhân, phản diện, twist và biến chuyển từng Arc.
 - Mỗi Arc phải trả lời được: nhân vật muốn gì, lực cản là gì, lựa chọn nào tạo hậu quả, dữ kiện canon nào được khóa thêm.
+- Nếu mở đầu nhân vật chưa có tên, chưa có nhận thức, bị bỏ rơi, mất trí nhớ hoặc đang ở trạng thái bất lực, Đại cục phải ghi rõ ai biết gì, ai đặt tên/gọi tên, khi nào nhân vật có thể biết tên/mục tiêu của mình.
+- Không được để chapter 1 gọi nhân vật bằng tên hồ sơ nếu trong logic cảnh chưa có người đặt hoặc gọi tên đó.
 - Nếu tổng số chương rất dài, chia Arc theo cụm 25-60 chương để sau này sinh bản đồ chương theo từng Arc; không bắt buộc Arc nào cũng bằng nhau.
 - Mỗi Arc phải nêu: chức năng trong toàn truyện, xung đột chính, biến chuyển cuối Arc, dữ kiện canon cần giữ.
 - General summary nêu rõ mở đầu, trung đoạn, cao trào, kết cục theo mode "${params.mode}" trong tối đa 120 từ.
-- World building phải là Thiên Cơ Lục khởi tạo dạng Markdown, tối đa 260 từ, có đủ mục: # TIMELINE, # SỐ LIỆU VÀ QUY TẮC, # NHÂN VẬT VÀ QUAN HỆ, # ĐỊA DANH/VẬT PHẨM/HỆ THỐNG, # MÂU THUẪN ĐANG MỞ, # ĐIỀU CẤM PHÁ LOGIC.
+- World building phải là Thiên Cơ Lục khởi tạo dạng Markdown, tối đa 320 từ, có đủ mục: # TIMELINE, # SỐ LIỆU VÀ QUY TẮC, # NHÂN VẬT VÀ QUAN HỆ, # ĐIỂM NHÌN VÀ TÊN GỌI, # ĐỊA DANH/VẬT PHẨM/HỆ THỐNG, # MÂU THUẪN ĐANG MỞ, # ĐIỀU CẤM PHÁ LOGIC.
 - Khóa rõ các dữ kiện định lượng đã có: số chương, mục tiêu chữ, số lượng nhân vật/địa điểm/vật phẩm quan trọng, cấp bậc, thời hạn, khoảng cách. Dữ kiện chưa chắc phải ghi "chưa khóa".
 - Không mở tuyến phụ nếu tuyến đó không có chức năng trong Arc hoặc không tạo hậu quả cho chương sau.
 - Nếu có truyện mẫu/lưu ý tham chiếu, chỉ học nhịp độ và chất văn, không sao chép tên riêng hay tình tiết.
@@ -1200,6 +1223,9 @@ export const generateNextArc = async (
 
   const prompt = `${buildProjectBrief(params)}
 
+[LUẬT NHẬP VAI VÀ ĐIỂM NHÌN]
+${IMMERSIVE_LOGIC_RULES}
+
 ĐẠI CỤC TRUYỆN:
 ${generalSummary}
 
@@ -1213,6 +1239,7 @@ Hãy lập Arc ${safeVolumes.length + 1}, phủ chương ${start}-${end}.
 Arc mới phải nối logic với các Arc đã có, có mục tiêu riêng, có chapterStart/chapterEnd rõ ràng, chưa cần bản đồ chương chi tiết.
 Viết JSON gọn: summary/purpose tối đa 28 từ, không viết văn xuôi truyện.
 Ghi rõ dữ kiện canon cần giữ và hậu quả cuối Arc nối sang Arc sau.
+Ghi rõ trạng thái nhận thức/tên gọi của nhân vật ở đầu Arc nếu Arc có đổi tên, đổi tuổi, đổi người chăm sóc, đổi thân phận hoặc mất/khôi phục ký ức.
 Không thêm nhân vật, vật phẩm, địa danh, cấp bậc hoặc số liệu mới nếu không ghi rõ chức năng trong Arc và không mâu thuẫn Thiên Cơ Lục.
 Trả về JSON của một Volume có index, title, summary, purpose, chapterStart, chapterEnd, chapters: [].`;
   
@@ -1254,6 +1281,9 @@ export const generateChapterPlansForArc = async (
 
   const prompt = `${buildProjectBrief(params)}
 
+[LUẬT NHẬP VAI VÀ ĐIỂM NHÌN]
+${IMMERSIVE_LOGIC_RULES}
+
 [ĐẠI CỤC]
 ${generalSummary}
 
@@ -1275,6 +1305,8 @@ Yêu cầu:
 - Mỗi chương chỉ là kế hoạch, chưa viết văn xuôi.
 - Mỗi chương có title, summary, objective, đúng 3 beats dạng cảnh, 2 mustInclude, cliffhanger, targetWords=${params.length}, pacing.
 - Mỗi chương phải có một biến chuyển không thể đảo ngược và nối nhân quả với chương liền trước/sau.
+- Mỗi chương phải khóa được trạng thái nhập vai: nhân vật hiện bao nhiêu tuổi/giai đoạn nào, đang được gọi bằng tên gì, biết/chưa biết gì, có thể nói/làm gì. Đưa các điểm này vào objective, beats hoặc mustInclude.
+- Nếu chương có sự kiện được nhận nuôi/đặt tên/lớn lên/nhớ lại thân phận, beat phải viết rõ cảnh gây ra sự thay đổi đó; không được nhảy cóc.
 - Không mở tuyến phụ nếu không phục vụ Arc. Mọi tên riêng/số liệu/luật thế giới phải khớp Thiên Cơ Lục.
 - Viết JSON gọn: summary/objective tối đa 18 từ, mỗi beat tối đa 8 từ.
 
@@ -1344,6 +1376,8 @@ ${PROSE_RHYTHM_RULES}
 
 ${SCENE_LOGIC_RULES}
 
+${IMMERSIVE_LOGIC_RULES}
+
 [ĐẠI CỤC]
 ${generalSummary}
 
@@ -1366,6 +1400,8 @@ ${worldBible}
 
 [KHÓA CANON]
 - Giữ nguyên tên riêng, số liệu, mốc thời gian, quan hệ, cấp bậc, luật thế giới và vật phẩm đã khóa trong Thiên Cơ Lục.
+- Tên hồ sơ của nhân vật chính không tự động là tên được dùng trong cảnh. Nếu nhân vật chưa được đặt/gọi tên trong dòng thời gian, không dùng tên đó trong văn xuôi.
+- Mỗi cảnh phải đúng trạng thái nhận thức hiện tại: tuổi, trí nhớ, điều đã biết, điều chưa biết, năng lực cơ thể, quyền lựa chọn và quan hệ với người đang đối thoại.
 - Nếu chương buộc phải thêm dữ kiện mới, dữ kiện đó phải xuất hiện tự nhiên trong cảnh và không được phủ định dữ kiện cũ.
 - Không mở tuyến phụ ngoài kế hoạch chương/Arc; nếu nhắc tuyến phụ, nó phải tạo hậu quả trực tiếp cho mục tiêu chương.
 - Mọi cảnh chính phải bám ít nhất một beat hoặc yếu tố bắt buộc. Cắt bỏ đoạn chỉ giải thích, trang trí hoặc lặp ý.
@@ -1388,6 +1424,7 @@ YÊU CẦU VIẾT:
 - Văn phong hiện đại và chuyên nghiệp: mạch lạc, có hơi văn, có nhạc tính vừa đủ, không cộc, không lạm dụng mỹ từ, không giảng đạo, không dùng câu sáo.
 - Ưu tiên văn hay: hình ảnh chính xác, nhịp câu biến hóa, đối thoại có hàm ý, ít giải thích trực tiếp; mỗi đoạn phải làm tình thế, cảm xúc hoặc thông tin dịch chuyển.
 - Nhân vật chính phải chủ động lựa chọn, sai lầm hoặc trả giá trong chương.
+- Trước khi viết từng cảnh, tự kiểm tra: nhân vật đang ở đâu, được ai gọi bằng tên gì, biết gì, chưa biết gì, cơ thể làm được gì, vì sao nói/hành động như vậy. Không xuất phần kiểm tra này ra văn bản.
 - Mỗi cảnh phải làm rõ mục tiêu, trở ngại, lựa chọn hoặc hậu quả. Không kéo dài hồi tưởng/miêu tả nếu không đổi trạng thái truyện.
 - Không mở bí mật, nhiệm vụ, nhân vật, tổ chức hoặc vật phẩm mới nếu nó không phục vụ mục tiêu chương hoặc Arc hiện tại.
 - Tên riêng, số lượng, thời gian, cảnh giới, khoảng cách, vật phẩm, quan hệ phải nhất quán với Thiên Cơ Lục.
@@ -1491,6 +1528,9 @@ export const validateChapterLogic = async (
   
   const prompt = `THẨM ĐỊNH CANON, TÍNH NHẤT QUÁN VÀ ĐỘ TẬP TRUNG
 
+[LUẬT NHẬP VAI PHẢI KIỂM]
+${IMMERSIVE_LOGIC_RULES}
+
 [KẾ HOẠCH TỔNG THỂ]
 ${generalSummary}
 
@@ -1518,9 +1558,13 @@ CÂU HỎI KIỂM ĐỊNH:
 6. Có lặp tình tiết chương trước mà không tạo biến chuyển mới không?
 7. Có kết thúc toàn truyện quá sớm không?
 8. Độ dài và nhịp chương có phù hợp mục tiêu không?
+9. Tên nhân vật có được dùng đúng thời điểm không? Nếu nhân vật mới sinh/bị bỏ rơi/chưa được đặt tên thì văn bản có gọi sai tên hồ sơ không?
+10. Nhân vật có biết điều họ chưa thể biết không: thân phận, mục tiêu, người thân, bí mật, tên riêng, luật thế giới, ký ức chưa xuất hiện?
+11. Lời nói/hành động có đúng tuổi, cơ thể, địa vị, quan hệ và tình trạng hiện tại không?
+12. Các bước chuyển như được nhận nuôi, đặt tên, lớn lên, đổi thân phận, nhớ lại quá khứ có cảnh nối nhân quả rõ không?
 
-Chỉ chấp nhận nếu chương vừa đúng canon vừa tập trung vào mục tiêu chương. Nếu có lỗi canon hoặc lan man đáng kể, isValid=false.
-Trả về JSON: { "isValid": boolean, "reason": string, "canonIssues": string[], "ramblingIssues": string[], "fixPlan": string }.`;
+Chỉ chấp nhận nếu chương vừa đúng canon, đúng điểm nhìn, đúng logic nhập vai và tập trung vào mục tiêu chương. Nếu có lỗi tên gọi, tuổi/nhận thức, thông tin nhân vật chưa thể biết, hành động/lời nói vô lý, canon hoặc lan man đáng kể, isValid=false.
+Trả về JSON: { "isValid": boolean, "reason": string, "canonIssues": string[], "povIssues": string[], "ramblingIssues": string[], "fixPlan": string }.`;
 
   try {
     return await chatJson(PLAN_MODEL, EDITOR_SYSTEM_INSTRUCTION, prompt, 0.2, 2500);
@@ -1564,6 +1608,9 @@ export const reviewStoryLogic = async (
 
   const prompt = `${buildProjectBrief(params)}
 
+[LUẬT NHẬP VAI PHẢI KIỂM]
+${IMMERSIVE_LOGIC_RULES}
+
 [ĐẠI CỤC]
 ${generalSummary}
 
@@ -1582,6 +1629,7 @@ Hãy kiểm tra logic toàn truyện đã viết:
 - Có lặp tình tiết, nhảy cóc, kết thúc quá sớm, mở tuyến phụ rơi rớt hoặc thiếu hậu quả không?
 - Có chương nào lan man: nhiều đoạn giải thích/tả/hồi tưởng nhưng không đẩy mục tiêu chương?
 - Có dữ kiện nào mới xuất hiện nhưng chưa được Thiên Cơ Lục ghi nhận hoặc mâu thuẫn dữ kiện đã khóa không?
+- Có lỗi điểm nhìn/tên gọi không: dùng tên trước khi được đặt, nhân vật biết điều chưa thể biết, trẻ nhỏ nói/hành động quá tuổi, hoặc chuyển trạng thái nhận nuôi/lớn lên/nhớ lại quá khứ không có cảnh nối?
 - Chương tiếp theo nên tập trung sửa/đẩy điều gì?
 
 Trả về JSON:
@@ -1642,6 +1690,7 @@ Hãy cập nhật hồ sơ truyện như một sổ canon dài kỳ:
 - Giữ lại dữ kiện cũ quan trọng, nhất là dữ kiện chưa được giải quyết.
 - Thêm dữ kiện mới theo đúng mục Markdown, không xóa mâu thuẫn đang mở nếu chương chưa giải quyết.
 - Nếu chương phát sinh số liệu/timeline/quan hệ/vật phẩm mới, ghi lại rõ ràng.
+- Nếu chương phát sinh hoặc thay đổi tên gọi, người đặt tên, nhận thức, trí nhớ, người chăm sóc, năng lực cơ thể hoặc điều nhân vật biết/chưa biết, ghi vào # ĐIỂM NHÌN VÀ TÊN GỌI.
 - Nếu phát hiện nguy cơ lệch canon hoặc lan man, ghi vào # ĐỐI CHIẾU LOGIC.`;
 
   return chatJson(
@@ -1653,6 +1702,7 @@ Thiên Cơ Lục phải có các mục Markdown:
 # SỐ LIỆU VÀ QUY TẮC
 # NHÂN VẬT CHÍNH
 # NHÂN VẬT PHỤ VÀ QUAN HỆ
+# ĐIỂM NHÌN VÀ TÊN GỌI
 # ĐỊA DANH/VẬT PHẨM/HỆ THỐNG
 # MÂU THUẪN ĐANG MỞ
 # ĐIỀU CẤM PHÁ LOGIC
@@ -1681,11 +1731,14 @@ ${PROSE_RHYTHM_RULES}
 
 ${SCENE_LOGIC_RULES}
 
+${IMMERSIVE_LOGIC_RULES}
+
 Hãy viết một truyện ngắn hoàn chỉnh.
 Yêu cầu:
 - Độ dài mục tiêu: khoảng ${targetWords} chữ. Không được dừng dưới ${minWords} chữ nếu truyện chưa khép cảnh và dư âm; không vượt quá ${maxWords} chữ nếu không cần.
 - Có mở truyện, phát triển xung đột, bước ngoặt, cao trào và dư âm.
 - Nhân vật chính phải hành động theo tính cách và mục tiêu đã nhập.
+- Tên trong hồ sơ chỉ được dùng trong truyện sau khi có logic đặt tên/gọi tên. Nếu cảnh mở đầu là sơ sinh, bị bỏ rơi, mất trí nhớ hoặc chưa biết thân phận, phải viết đúng trạng thái đó.
 - Bám thể loại, tông giọng và mode kết truyện.
 - Văn phong hiện đại, chuyên nghiệp: cảnh rõ, thoại tự nhiên, câu văn có lực nhưng không cộc; ngắt đoạn có nhịp, có khoảng lặng, hạn chế sáo ngữ và giải thích trực tiếp.
 - Không lan man: mỗi cảnh phải phục vụ xung đột chính, tính cách nhân vật hoặc hậu quả cao trào.
