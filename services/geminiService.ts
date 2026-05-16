@@ -122,7 +122,8 @@ const PROSE_RHYTHM_RULES = `Luật nhịp văn bắt buộc:
 - Nên xen kẽ câu ngắn, câu vừa và câu dài. Câu ngắn để tạo lực; câu dài để mở cảm giác, không phải để giải thích lan man.
 - Không lặp kiểu mở đoạn như "cậu cảm thấy", "mọi thứ", "trong khoảnh khắc ấy", "đột nhiên" nếu không có chi tiết cụ thể đi kèm.
 - Mỗi đoạn văn nên có một trục rõ: hành động, quan sát, đối thoại, ký ức ngắn, suy luận hoặc hậu quả. Không trộn quá nhiều trục trong cùng đoạn.
-- Ưu tiên động từ và chi tiết cụ thể hơn tính từ chung chung. Cắt các câu chỉ nói nhân vật buồn, đau, sợ, tức mà không cho thấy biểu hiện hoặc lựa chọn.`;
+- Ưu tiên động từ và chi tiết cụ thể hơn tính từ chung chung. Cắt các câu chỉ nói nhân vật buồn, đau, sợ, tức mà không cho thấy biểu hiện hoặc lựa chọn.
+- Không lặp lại cùng một thông tin bằng nhiều câu khác nhau. Khi một dữ kiện đã được nói, lần nhắc lại sau phải tạo thêm tác dụng mới: đổi góc nhìn, tăng rủi ro, làm lộ mâu thuẫn, hoặc buộc nhân vật chọn hành động.`;
 
 const SCENE_LOGIC_RULES = `Luật logic cảnh bắt buộc:
 - Mỗi cảnh phải có chuỗi: mục tiêu -> va chạm -> lựa chọn -> hậu quả. Không được chỉ miêu tả hoặc chỉ kê khai tâm trạng.
@@ -1073,6 +1074,123 @@ const fallbackMustInclude = (params: StoryParams, index: number) => [
   index === params.totalChapters ? "Không bỏ sót kết cục đã chọn" : "Không giải quyết mâu thuẫn trung tâm quá sớm",
 ];
 
+const stripChapterTitlePrefix = (value: string) =>
+  String(value || "")
+    .replace(/^\s*(?:c(?:hương)?\.?|chapter)\s*\d+\s*[:.：\-–—]?\s*/i, "")
+    .trim();
+
+const textFingerprint = (value: string) => plainText(stripChapterTitlePrefix(value))
+  .replace(/\b(?:chuong|chapter|c)\s*\d+\b/g, "")
+  .replace(/[^a-z0-9]+/g, " ")
+  .trim();
+
+const isWeakPlanPhrase = (value: string) => {
+  const normalized = textFingerprint(value);
+  if (!normalized || normalized.split(/\s+/).length < 3) return true;
+  return /^(dung mot canh|mot canh quyet dinh|day nhan vat|khai cuc|gioi thieu|tom tat|muc tieu|chuong thuoc|thuoc giai doan|nhan vat chinh|khong co)/.test(normalized);
+};
+
+const titleFromPlanPhrase = (value: string, maxWords = 8) => {
+  const cleaned = stripChapterTitlePrefix(value)
+    .replace(/^(?:Mục tiêu|Beat|Cảnh|Hậu quả|Móc nối|Chi tiết bắt buộc)\s*[:：-]\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const words = cleaned.split(/\s+/).filter(Boolean).slice(0, maxWords);
+  if (words.length < 3) return "";
+  const title = words.join(" ").replace(/[,.!?;:…]+$/g, "");
+  return title.charAt(0).toUpperCase() + title.slice(1);
+};
+
+const deriveDistinctChapterTitle = (
+  chapter: Chapter,
+  index: number,
+  start: number,
+  end: number,
+  volumeTitle: string,
+  seenTitles: Set<string>,
+) => {
+  const candidates = [
+    chapter.cliffhanger,
+    ...(chapter.mustInclude || []),
+    ...(chapter.beats || []),
+    chapter.objective,
+    chapter.summary,
+  ];
+  for (const candidate of candidates) {
+    const title = titleFromPlanPhrase(candidate || "");
+    const fingerprint = textFingerprint(title);
+    if (title && fingerprint && fingerprint !== textFingerprint(volumeTitle) && !seenTitles.has(fingerprint) && !isWeakPlanPhrase(title)) {
+      return title;
+    }
+  }
+
+  const ratio = (index - start) / Math.max(1, end - start);
+  const fallback = index === start
+    ? "Biến cố mở mạch"
+    : index === end
+      ? "Cái giá cuối Arc"
+      : ratio < 0.34
+        ? "Manh mối đổi hướng"
+        : ratio < 0.67
+          ? "Lựa chọn có giá"
+          : "Hậu quả quay lại";
+  return `${fallback} ${index}`;
+};
+
+const summaryFromPlanParts = (chapter: Chapter) => {
+  const firstBeat = (chapter.beats || []).find(beat => !isWeakPlanPhrase(beat || ""));
+  const consequence = !isWeakPlanPhrase(chapter.cliffhanger || "") ? chapter.cliffhanger : "";
+  const objective = !isWeakPlanPhrase(chapter.objective || "") ? chapter.objective : "";
+  const parts = [firstBeat || objective, consequence ? `Hậu quả: ${consequence}` : ""].filter(Boolean);
+  return parts.join(" ").trim() || chapter.summary;
+};
+
+const refineChapterSequence = (
+  chapters: Chapter[],
+  params: StoryParams,
+  volume: Volume | { title: string; chapterStart?: number; chapterEnd?: number },
+) => {
+  const start = clamp(Math.round(Number(volume.chapterStart) || chapters[0]?.index || 1), 1, 1000);
+  const end = clamp(Math.round(Number(volume.chapterEnd) || chapters[chapters.length - 1]?.index || start), start, 1000);
+  const seenTitles = new Set<string>();
+  const seenSummaries = new Set<string>();
+  const volumeFingerprint = textFingerprint(volume.title || "");
+
+  return chapters.map((chapter) => {
+    let title = stripChapterTitlePrefix(chapter.title || "");
+    let titleFingerprint = textFingerprint(title);
+    if (!title || !titleFingerprint || titleFingerprint === volumeFingerprint || seenTitles.has(titleFingerprint) || isWeakPlanPhrase(title)) {
+      title = deriveDistinctChapterTitle(chapter, chapter.index, start, end, volume.title || "Arc", seenTitles);
+      titleFingerprint = textFingerprint(title);
+    }
+    if (seenTitles.has(titleFingerprint)) {
+      title = `${title} ${chapter.index}`;
+      titleFingerprint = textFingerprint(title);
+    }
+    seenTitles.add(titleFingerprint);
+
+    let summary = String(chapter.summary || "").replace(/\s+/g, " ").trim();
+    let summaryFingerprint = textFingerprint(summary);
+    if (!summary || !summaryFingerprint || seenSummaries.has(summaryFingerprint) || isWeakPlanPhrase(summary)) {
+      summary = summaryFromPlanParts(chapter);
+      summaryFingerprint = textFingerprint(summary);
+    }
+    if (seenSummaries.has(summaryFingerprint)) {
+      summary = `${chapter.objective || chapter.summary} Hậu quả riêng: ${chapter.cliffhanger || "mở lực đẩy cho chương sau."}`;
+      summaryFingerprint = textFingerprint(summary);
+    }
+    seenSummaries.add(summaryFingerprint);
+
+    return {
+      ...chapter,
+      title,
+      summary,
+      objective: asText(chapter.objective, `Đẩy biến cố riêng của chương ${chapter.index} trong Arc ${volume.title || "hiện tại"}.`),
+      targetWords: Number(chapter.targetWords) > 0 ? chapter.targetWords : params.length,
+    };
+  });
+};
+
 const sliderBrief = (params: StoryParams) => {
   const labels: Record<keyof StoryParams["sliders"], string> = {
     romance: "tình cảm",
@@ -1198,11 +1316,13 @@ const normalizeChapterPlans = (
       ? raw.chapters
       : [];
 
-  return Array.from({ length: end - start + 1 }, (_, offset) => {
+  const chapters = Array.from({ length: end - start + 1 }, (_, offset) => {
     const chapterIndex = start + offset;
     const rawChapter = rawChapters.find((chapter: AnyRecord) => Number(chapter?.index) === chapterIndex) || rawChapters[offset];
     return normalizeChapter(rawChapter, chapterIndex, params, volume.title || `Arc ${chapterIndex}`);
   });
+
+  return refineChapterSequence(chapters, params, volume);
 };
 
 const buildEmergencyChapterDraft = (
@@ -1749,6 +1869,8 @@ Yêu cầu:
 - Trả đúng ${chapterCount} chapter object, index liên tục từ ${start} đến ${end}; không thiếu, không trùng.
 - Mỗi chương chỉ là kế hoạch, chưa viết văn xuôi.
 - Mỗi chương có title, summary, objective, đúng 3 beats dạng cảnh, 2 mustInclude, cliffhanger, targetWords=${params.length}, pacing.
+- Title của từng chương phải là tên biến cố riêng 3-8 từ, không được bắt đầu bằng "Chương", "C.", "Chapter", không được lặp tên Arc, không được lặp title của chương khác. Ví dụ đúng: "Đêm Mưa Định Mệnh", "Tên Gọi Bên Bờ Nước", "Dấu Bùn Trên Áo Vải", "Lời Dặn Cấm Kỵ". Ví dụ sai: "Chương 2: Đứa trẻ của dòng nước", "Khai cục", "Đứa trẻ của dòng nước" lặp nhiều lần.
+- Summary/objective không được dùng lại cùng một câu mẫu giữa các chương. Mỗi summary phải nêu rõ biến cố mới và hậu quả riêng của chương đó.
 - Mỗi chương phải có một biến chuyển không thể đảo ngược và nối nhân quả với chương liền trước/sau.
 - Mỗi chương phải khóa được trạng thái nhập vai: nhân vật hiện bao nhiêu tuổi/giai đoạn nào, đang được gọi bằng tên gì, biết/chưa biết gì, có thể nói/làm gì. Đưa các điểm này vào objective, beats hoặc mustInclude.
 - Nếu chương có sự kiện được nhận nuôi/đặt tên/lớn lên/nhớ lại thân phận, beat phải viết rõ cảnh gây ra sự thay đổi đó; không được nhảy cóc.

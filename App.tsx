@@ -951,6 +951,86 @@ const App: React.FC = () => {
     return `${header}${body}`.trim();
   };
 
+  const stripChapterTitlePrefix = (value: string) =>
+    String(value || '').replace(/^\s*(?:c(?:hương)?\.?|chapter)\s*\d+\s*[:.：\-–—]?\s*/i, '').trim();
+
+  const planFingerprint = (value: string) => stripChapterTitlePrefix(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\b(?:chuong|chapter|c)\s*\d+\b/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+
+  const isWeakPlanPhrase = (value: string) => {
+    const normalized = planFingerprint(value);
+    if (!normalized || normalized.split(/\s+/).length < 3) return true;
+    return /^(dung mot canh|mot canh quyet dinh|day nhan vat|khai cuc|gioi thieu|tom tat|muc tieu|chuong thuoc|thuoc giai doan|nhan vat chinh|khong co)/.test(normalized);
+  };
+
+  const titleFromPlanPhrase = (value: string) => {
+    const cleaned = stripChapterTitlePrefix(value)
+      .replace(/^(?:Mục tiêu|Beat|Cảnh|Hậu quả|Móc nối|Chi tiết bắt buộc)\s*[:：-]\s*/i, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const words = cleaned.split(/\s+/).filter(Boolean).slice(0, 8);
+    if (words.length < 3) return '';
+    const title = words.join(' ').replace(/[,.!?;:…]+$/g, '');
+    return title.charAt(0).toUpperCase() + title.slice(1);
+  };
+
+  const repairVolumeChapterPlans = (volume: Volume): Volume => {
+    const chapters = sortChapters(volume.chapters || []);
+    const seenTitles = new Set<string>();
+    const seenSummaries = new Set<string>();
+    const volumeFingerprint = planFingerprint(volume.title || '');
+    const start = volume.chapterStart || chapters[0]?.index || 1;
+    const end = volume.chapterEnd || chapters[chapters.length - 1]?.index || start;
+
+    const repaired = chapters.map(chapter => {
+      let title = stripChapterTitlePrefix(chapter.title || '');
+      let titleKey = planFingerprint(title);
+      if (!title || !titleKey || titleKey === volumeFingerprint || seenTitles.has(titleKey) || isWeakPlanPhrase(title)) {
+        const candidates = [
+          chapter.cliffhanger,
+          ...(chapter.mustInclude || []),
+          ...(chapter.beats || []),
+          chapter.objective,
+          chapter.summary,
+        ];
+        title = candidates.map(item => titleFromPlanPhrase(item || '')).find(item => item && !seenTitles.has(planFingerprint(item)) && !isWeakPlanPhrase(item)) || '';
+        if (!title) {
+          const ratio = (chapter.index - start) / Math.max(1, end - start);
+          title = chapter.index === start
+            ? `Biến cố mở mạch ${chapter.index}`
+            : chapter.index === end
+              ? `Cái giá cuối Arc ${chapter.index}`
+              : ratio < 0.34
+                ? `Manh mối đổi hướng ${chapter.index}`
+                : ratio < 0.67
+                  ? `Lựa chọn có giá ${chapter.index}`
+                  : `Hậu quả quay lại ${chapter.index}`;
+        }
+        titleKey = planFingerprint(title);
+      }
+      seenTitles.add(titleKey);
+
+      let summary = String(chapter.summary || '').replace(/\s+/g, ' ').trim();
+      let summaryKey = planFingerprint(summary);
+      if (!summary || !summaryKey || seenSummaries.has(summaryKey) || isWeakPlanPhrase(summary)) {
+        const firstBeat = (chapter.beats || []).find(beat => !isWeakPlanPhrase(beat || ''));
+        const consequence = !isWeakPlanPhrase(chapter.cliffhanger || '') ? chapter.cliffhanger : '';
+        summary = [firstBeat || chapter.objective || chapter.summary, consequence ? `Hậu quả: ${consequence}` : ''].filter(Boolean).join(' ').trim();
+        summaryKey = planFingerprint(summary);
+      }
+      seenSummaries.add(summaryKey);
+
+      return { ...chapter, title, summary };
+    });
+
+    return { ...volume, chapters: repaired };
+  };
+
   const handleExportManuscript = (project: StoryProject, e?: React.MouseEvent) => {
     e?.stopPropagation();
     const safeTitle = project.title.replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, '_') || 'ButNghien';
@@ -971,7 +1051,7 @@ const App: React.FC = () => {
     return {
       ...currentArc,
       ...plannedArc,
-      chapters: sortChapters([...mergedPlans, ...extraExisting]),
+      chapters: repairVolumeChapterPlans({ ...plannedArc, chapters: sortChapters([...mergedPlans, ...extraExisting]) }).chapters,
     };
   };
 
@@ -1533,7 +1613,7 @@ const App: React.FC = () => {
   };
 
   const loadProject = (p: StoryProject) => {
-    const loadedVolumes = (p.volumes || []).map(v => ({ ...v, chapters: sortChapters(v.chapters || []) }));
+    const loadedVolumes = (p.volumes || []).map(v => repairVolumeChapterPlans({ ...v, chapters: sortChapters(v.chapters || []) }));
     setActiveProjectId(p.id); setParams(p.params); setVolumes(loadedVolumes);
     const loadedWritten = sortChapters(loadedVolumes.flatMap(v => v.chapters || []).filter(c => c.content));
     const loadedPlans = sortChapters(loadedVolumes.flatMap(v => v.chapters || []));
