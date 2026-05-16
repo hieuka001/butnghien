@@ -3,7 +3,7 @@ import { StoryParams, Chapter, Volume, StoryLogicReport } from "../types";
 type AnyRecord = Record<string, any>;
 type GeminiKeyRole = "writer" | "reviewer" | "rewriter";
 
-type ChapterValidationResult = {
+export type ChapterValidationResult = {
   isValid: boolean;
   reason?: string;
   structureIssues?: string[];
@@ -28,26 +28,26 @@ Tư duy bắt buộc:
 - Không chia Arc/chương đều máy móc. Độ dài phải xuất phát từ trọng lượng xung đột, số lần đảo trạng thái, lượng nhân quả cần gieo/trả và vị trí trong toàn truyện.
 - Không viết theo kiểu kể lướt để lấp chữ. Mỗi chương phải là chuỗi cảnh có mục tiêu, va chạm, lựa chọn và hậu quả.
 - Khi viết, bản nháp chưa cần hoàn hảo tuyệt đối nhưng phải đủ nội dung, đủ số chữ tối thiểu, không cụt cuối chương, không phá dữ kiện đã khóa.
-Đầu ra tốt là bản có cấu trúc rõ để Key 2 có thể thẩm định và Key 3 có thể sửa chính xác nếu cần.`;
+Đầu ra tốt là bản có cấu trúc rõ để Cụm 2 có thể thẩm định và Cụm 3 có thể sửa chính xác nếu cần.`;
 
 const REVIEWER_ROLE_BRIEF = `CỤM 2 - THẨM ĐỊNH VIÊN LOGIC, CANON VÀ CHẤT LƯỢNG TRUYỆN
-Vai trò: kiểm tra như một biên tập viên phát triển truyện chuyên nghiệp, không viết thay Key 1.
+Vai trò: kiểm tra như một biên tập viên phát triển truyện chuyên nghiệp, không viết thay Cụm 1.
 Tư duy bắt buộc:
 - Chỉ bắt lỗi thật sự ảnh hưởng logic, canon, điểm nhìn, nhân quả, cấu trúc Arc/chương, chất lượng văn phong hoặc khả năng viết tiếp.
 - Phân biệt lỗi nghiêm trọng với lựa chọn sáng tác hợp lệ. Không ép truyện chia đều, không bắt đổi vì sở thích cá nhân.
 - Luôn đặt mình vào vị trí nhân vật trong từng cảnh: nhân vật đang bao nhiêu tuổi, được gọi bằng tên gì, biết gì/chưa biết gì, cơ thể làm được gì, vì sao nói/hành động như vậy.
 - Đối chiếu từng dữ kiện với Thiên Cơ Lục: timeline, số liệu, quan hệ, luật thế giới, vật phẩm, cảnh giới, địa danh, mâu thuẫn mở.
-- Báo cáo phải đủ cụ thể để Key 3 sửa được: lỗi ở loại nào, vì sao sai, sửa theo hướng nào, phần nào nên giữ.
+- Báo cáo phải đủ cụ thể để Cụm 3 sửa được: lỗi ở loại nào, vì sao sai, sửa theo hướng nào, phần nào nên giữ.
 Đầu ra tốt là JSON thẩm định ngắn, chặt, có reason, issues, suggestions và fixPlan rõ ràng.`;
 
 const REWRITER_ROLE_BRIEF = `CỤM 3 - BIÊN TẬP VIÊN SỬA BẢN THẢO VÀ KHÓA CHẤT LƯỢNG
-Vai trò: nhận bản nháp Key 1 và báo cáo Key 2, sau đó giữ nguyên nếu không có lỗi hoặc sửa lại trực tiếp nếu có lỗi.
+Vai trò: nhận bản nháp Cụm 1 và báo cáo Cụm 2, sau đó giữ nguyên nếu không có lỗi hoặc sửa lại trực tiếp nếu có lỗi.
 Tư duy bắt buộc:
 - Không sáng tác lại tùy hứng. Chỉ sửa những phần cần sửa, giữ ý tưởng, tuyến truyện, canon và điểm mạnh của bản nháp.
 - Nếu sửa chương, phải viết lại thành văn xuôi hoàn chỉnh đủ số chữ, không vá cục bộ làm đứt nhịp, không kết thúc cụt, không bỏ beat bắt buộc.
 - Nếu sửa lộ trình/bản đồ chương, phải trả JSON đúng schema, giữ tổng số chương, phạm vi Arc/chương và các dữ kiện đã khóa.
 - Mọi sửa đổi phải có nhân quả trong truyện: không dùng may mắn, nhân vật/năng lực mới, lời kể toàn tri hoặc số liệu tự đặt để giải quyết lỗi.
-- Khi Key 2 không có lỗi cần sửa, giữ nguyên bản gốc thay vì làm mới văn phong không cần thiết.
+- Khi Cụm 2 không có lỗi cần sửa, giữ nguyên bản gốc thay vì làm mới văn phong không cần thiết.
 Đầu ra tốt là bản cuối sạch lỗi chính, đủ nội dung, nhất quán và có thể lưu/viết tiếp.`;
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
@@ -167,13 +167,13 @@ const EDITOR_SYSTEM_INSTRUCTION = `${REVIEWER_ROLE_BRIEF}
 Bạn là biên tập viên tuyến truyện khó tính.
 Chỉ chấp nhận chương nếu nó bám đúng đại cục, đúng Arc, đúng mục tiêu chương, không phá logic nhân vật, không lặp chương cũ và không kết thúc sớm khi chưa tới chương cuối.
 Thẩm định bắt buộc cả timeline, số liệu, tên riêng, quan hệ, cấp bậc/quy tắc thế giới, vật phẩm, khoảng cách, mục tiêu chương, nhịp độ, mức lan man, điểm nhìn, tên gọi theo thời điểm, tuổi/nhận thức, lời nói và hành động theo hoàn cảnh.
-Đọc bản nháp chương của Key 1 như bản thảo thật: soi nội dung, logic nhân quả, độ bám truyện, thông số, Thiên Cơ Lục, văn phong, lặp chữ/lặp ý và độ chính xác ngôn từ.
-Không được chỉ trả lời chung chung. Mọi lỗi nghiêm trọng phải có vị trí/dấu hiệu nhận diện ngắn, lý do sai và đề xuất sửa cụ thể cho Key 3.`;
+Đọc bản nháp chương của Cụm 1 như bản thảo thật: soi nội dung, logic nhân quả, độ bám truyện, thông số, Thiên Cơ Lục, văn phong, lặp chữ/lặp ý và độ chính xác ngôn từ.
+Không được chỉ trả lời chung chung. Mọi lỗi nghiêm trọng phải có vị trí/dấu hiệu nhận diện ngắn, lý do sai và đề xuất sửa cụ thể cho Cụm 3.`;
 
 const PIPELINE_REVIEWER_SYSTEM_INSTRUCTION = `${REVIEWER_ROLE_BRIEF}
 
-Bạn là Key 2 trong dây chuyền sáng tác: chuyên thẩm định logic lộ trình, bản đồ chương và bản nháp chương.
-Nhiệm vụ của bạn không phải viết lại. Bạn chỉ báo lỗi, nêu mức độ rủi ro và đề xuất cách sửa đủ cụ thể để Key 3 xử lý.
+Bạn là Cụm 2 trong dây chuyền sáng tác: chuyên thẩm định logic lộ trình, bản đồ chương và bản nháp chương.
+Nhiệm vụ của bạn không phải viết lại. Bạn chỉ báo lỗi, nêu mức độ rủi ro và đề xuất cách sửa đủ cụ thể để Cụm 3 xử lý.
 Checklist bắt buộc:
 1. Nhân quả: mọi biến cố có nguyên nhân trước đó và hậu quả sau đó không.
 2. Điểm nhìn: người kể có làm lộ thông tin nhân vật chưa thể biết không.
@@ -188,10 +188,10 @@ Trả JSON hợp lệ, ngắn nhưng chặt chẽ.`;
 
 const PIPELINE_REWRITER_SYSTEM_INSTRUCTION = `${REWRITER_ROLE_BRIEF}
 
-Bạn là Key 3 trong dây chuyền sáng tác: nhận bản nháp từ Key 1 và báo cáo thẩm định từ Key 2.
-Nếu Key 2 không nêu lỗi hoặc không có đề xuất cần sửa, giữ nguyên nội dung/bản JSON gốc.
-Nếu Key 2 có lỗi, sửa trực tiếp theo đề xuất nhưng không tự ý đổi ý tưởng, không thêm tuyến mới, không phá dữ kiện đã khóa, không rút ngắn mục tiêu chữ.
-Khi sửa chương, phải đọc đủ toàn bộ báo cáo Key 2: logic, canon, thông số, Thiên Cơ Lục, văn phong, lặp chữ và ngôn từ. Mỗi lỗi cần được xử lý trong bản văn mới, không chỉ nhắc lại.
+Bạn là Cụm 3 trong dây chuyền sáng tác: nhận bản nháp từ Cụm 1 và báo cáo thẩm định từ Cụm 2.
+Nếu Cụm 2 không nêu lỗi hoặc không có đề xuất cần sửa, giữ nguyên nội dung/bản JSON gốc.
+Nếu Cụm 2 có lỗi, sửa trực tiếp theo đề xuất nhưng không tự ý đổi ý tưởng, không thêm tuyến mới, không phá dữ kiện đã khóa, không rút ngắn mục tiêu chữ.
+Khi sửa chương, phải đọc đủ toàn bộ báo cáo Cụm 2: logic, canon, thông số, Thiên Cơ Lục, văn phong, lặp chữ và ngôn từ. Mỗi lỗi cần được xử lý trong bản văn mới, không chỉ nhắc lại.
 Khi sửa lộ trình hoặc bản đồ chương, chỉ trả JSON đúng schema được yêu cầu. Khi sửa chương, chỉ trả văn xuôi hoàn chỉnh, không markdown, không giải thích.`;
 
 class GeminiRequestError extends Error {
@@ -1768,7 +1768,7 @@ ${STORY_ARCHITECTURE_RULES}
 [BẢN NHÁP TỪ KEY 1]
 ${JSON.stringify(draft, null, 2).slice(0, 16000)}
 
-Hãy thẩm định như Key 2:
+Hãy thẩm định như Cụm 2:
 - Không viết lại.
 - Chỉ đánh dấu lỗi thật sự ảnh hưởng logic, canon, điểm nhìn, độ dài Arc/chương, hoặc khả năng viết chương sau.
 - Với lộ trình dài, không yêu cầu chia đều; chỉ bắt lỗi nếu độ dài Arc không có lý do nội dung.
@@ -1785,18 +1785,18 @@ Trả JSON:
   "reason": "kết luận ngắn",
   "issues": ["lỗi logic/canon/cấu trúc nếu có"],
   "suggestions": ["đề xuất sửa nếu có"],
-  "fixPlan": "kế hoạch sửa cụ thể cho Key 3, để trống nếu không cần"
+  "fixPlan": "kế hoạch sửa cụ thể cho Cụm 3, để trống nếu không cần"
 }`;
 
   try {
     return normalizePipelineReview(await chatJson(PLAN_MODEL, PIPELINE_REVIEWER_SYSTEM_INSTRUCTION, prompt, 0.18, 3500, "reviewer"));
   } catch (error) {
     if (!isAIJsonFormatError(error)) throw error;
-    console.warn("Key 2 trả thẩm định lộ trình không đúng JSON, giữ bản nháp Key 1:", error);
+    console.warn("Cụm 2 trả thẩm định lộ trình không đúng JSON, giữ bản nháp Cụm 1:", error);
     return {
       isValid: true,
       shouldRewrite: false,
-      reason: "Không đọc được báo cáo Key 2; giữ bản nháp Key 1 để tránh kẹt luồng.",
+      reason: "Không đọc được báo cáo Cụm 2; giữ bản nháp Cụm 1 để tránh kẹt luồng.",
       issues: [],
       suggestions: [],
       fixPlan: "",
@@ -1830,8 +1830,8 @@ ${JSON.stringify(draft, null, 2).slice(0, 16000)}
 [BÁO CÁO KEY 2]
 ${JSON.stringify(review, null, 2)}
 
-Hãy đóng vai Key 3:
-- Sửa trực tiếp các lỗi Key 2 nêu.
+Hãy đóng vai Cụm 3:
+- Sửa trực tiếp các lỗi Cụm 2 nêu.
 - Giữ nguyên mọi phần không bị lỗi.
 - Không chia Arc/chương đều máy móc; độ dài phải theo trọng lượng tình tiết.
 - Không tự ý đổi tên riêng, tổng số chương, mục tiêu chữ, mode, hướng truyện đã khóa.
@@ -1848,7 +1848,7 @@ ${expectedJson}`;
     return await chatJson(PLAN_MODEL, PIPELINE_REWRITER_SYSTEM_INSTRUCTION, prompt, 0.22, DEFAULT_MAX_OUTPUT_TOKENS, "rewriter");
   } catch (error) {
     if (!isAIJsonFormatError(error)) throw error;
-    console.warn("Key 3 trả bản sửa không đúng JSON, giữ bản nháp Key 1:", error);
+    console.warn("Cụm 3 trả bản sửa không đúng JSON, giữ bản nháp Cụm 1:", error);
     return draft;
   }
 };
@@ -1864,7 +1864,7 @@ const finalizeStructuredDraft = async (
     const review = await reviewStructuredDraft(params, subject, context, draft);
     return await rewriteStructuredDraft(params, subject, context, draft, review, expectedJson);
   } catch (error) {
-    console.warn("Dây chuyền Key 2/Key 3 không hoàn tất, giữ bản nháp Key 1:", error);
+    console.warn("Dây chuyền Cụm 2/Cụm 3 không hoàn tất, giữ bản nháp Cụm 1:", error);
     return draft;
   }
 };
@@ -2346,6 +2346,7 @@ export const rewriteChapterWithReviewStream = async (
     review.rewriteDirectives,
   ];
   const hasActionableReview = !review.isValid
+    || Boolean(userIdea.trim())
     || Boolean(review.fixPlan)
     || reviewIssueGroups.some(group => Boolean(group?.length));
 
@@ -2407,11 +2408,11 @@ ${excerptForAudit(originalDraft, 18000)}
 
 YÊU CẦU KEY 3:
 - Viết lại toàn bộ chương, không chỉ vá vài đoạn.
-- Sửa đúng toàn bộ lỗi Key 2 nêu trong các nhóm: structureIssues, logicIssues, canonIssues, povIssues, metricIssues, ramblingIssues, styleIssues, repetitionIssues, dictionIssues, suggestions và rewriteDirectives.
-- Nếu Key 2 có preserveStrengths, giữ các điểm mạnh đó; nếu phải sửa, giữ tác dụng truyện của chúng nhưng thay cách thể hiện.
-- Dùng báo cáo Key 2 như bản giao việc: lỗi nào có dẫn chứng/vị trí thì xử lý trực tiếp tại vùng đó; lỗi nào là nguyên tắc chung thì rà toàn chương.
+- Sửa đúng toàn bộ lỗi Cụm 2 nêu trong các nhóm: structureIssues, logicIssues, canonIssues, povIssues, metricIssues, ramblingIssues, styleIssues, repetitionIssues, dictionIssues, suggestions và rewriteDirectives.
+- Nếu Cụm 2 có preserveStrengths, giữ các điểm mạnh đó; nếu phải sửa, giữ tác dụng truyện của chúng nhưng thay cách thể hiện.
+- Dùng báo cáo Cụm 2 như bản giao việc: lỗi nào có dẫn chứng/vị trí thì xử lý trực tiếp tại vùng đó; lỗi nào là nguyên tắc chung thì rà toàn chương.
 - Không chỉ thay vài câu. Hãy viết lại thành một bản chương liền mạch, đã tự sửa lặp chữ, lặp ý, câu sáo, đoạn quá dài, thoại sai quan hệ và các chỗ nhân vật biết/làm điều không hợp logic.
-- Nếu báo cáo Key 2 nêu lặp đoạn/câu dài, tuyệt đối không giữ lại hai đoạn giống nhau. Chỉ giữ một lần thông tin cần thiết, phần còn lại phải thay bằng diễn biến mới có mục tiêu, va chạm và hậu quả riêng.
+- Nếu báo cáo Cụm 2 nêu lặp đoạn/câu dài, tuyệt đối không giữ lại hai đoạn giống nhau. Chỉ giữ một lần thông tin cần thiết, phần còn lại phải thay bằng diễn biến mới có mục tiêu, va chạm và hậu quả riêng.
 - Không rút ngắn: mục tiêu khoảng ${targetWords} chữ, không dừng dưới ${minWords} chữ, không vượt quá ${maxWords} chữ nếu không cần để khép cảnh.
 - Không đổi tổng hướng truyện, không thêm tuyến mới, không đổi canon, không tự đặt số liệu nếu Thiên Cơ Lục chưa khóa.
 - Nếu lỗi liên quan tên nhân vật/nhận thức, phải sửa bằng cách đặt người đọc vào đúng vị trí nhân vật trong cảnh: ai biết gì, ai gọi tên, khi nào được đặt tên, cơ thể có thể làm gì.
@@ -2427,9 +2428,9 @@ YÊU CẦU KEY 3:
     rounds++;
     const currentWords = countWords(fullText);
     const remainingWords = Math.max(450, Math.min(1400, minWords - currentWords + 180));
-    const continuationPrompt = `Bản sửa Key 3 của chương ${newIndex} hiện mới khoảng ${currentWords}/${targetWords} chữ hoặc đoạn cuối chưa khép.
+    const continuationPrompt = `Bản sửa Cụm 3 của chương ${newIndex} hiện mới khoảng ${currentWords}/${targetWords} chữ hoặc đoạn cuối chưa khép.
 Hãy viết tiếp ngay từ đoạn cuối khoảng ${remainingWords} chữ, không lặp tiêu đề, không tóm tắt, không viết lại từ đầu.
-Ưu tiên hoàn tất lỗi Key 2 còn liên quan, đặc biệt logic nhân quả, canon/Thiên Cơ Lục, thông số, POV, lặp chữ, lặp ý, văn phong và ngôn từ. Khép cảnh bằng hậu quả cụ thể, giữ đúng canon và điểm nhìn.
+Ưu tiên hoàn tất lỗi Cụm 2 còn liên quan, đặc biệt logic nhân quả, canon/Thiên Cơ Lục, thông số, POV, lặp chữ, lặp ý, văn phong và ngôn từ. Khép cảnh bằng hậu quả cụ thể, giữ đúng canon và điểm nhìn.
 
 [BÁO CÁO KEY 2]
 ${JSON.stringify(review, null, 2)}
@@ -2444,7 +2445,7 @@ ${fullText.slice(-3500)}`;
   }
 
   if (isLikelyCutOffText(fullText)) {
-    const closingPrompt = `Đoạn cuối bản sửa Key 3 của chương ${newIndex} đang bị cụt hoặc chưa khép.
+    const closingPrompt = `Đoạn cuối bản sửa Cụm 3 của chương ${newIndex} đang bị cụt hoặc chưa khép.
 Viết tiếp 180-320 chữ để hoàn tất câu/cảnh cuối bằng hậu quả cụ thể. Không lặp tiêu đề, không mở tuyến mới, không đổi canon.
 
 [ĐOẠN CUỐI]
@@ -2498,10 +2499,10 @@ export const validateChapterLogic = async (
   if (mechanicalRepetitionIssues.length) {
     return {
       isValid: false,
-      reason: "Phát hiện đoạn/câu dài bị lặp gần như nguyên văn. Không lưu bản này cho tới khi Key 3 viết lại sạch lặp.",
+      reason: "Phát hiện đoạn/câu dài bị lặp gần như nguyên văn. Không lưu bản này cho tới khi Cụm 3 viết lại sạch lặp.",
       repetitionIssues: mechanicalRepetitionIssues,
       suggestions: [
-        "Key 3 phải viết lại vùng bị lặp bằng biến chuyển mới, không diễn đạt lại cùng cảnh để kéo dài số chữ.",
+        "Cụm 3 phải viết lại vùng bị lặp bằng biến chuyển mới, không diễn đạt lại cùng cảnh để kéo dài số chữ.",
         "Nếu cần tăng số chữ, hãy mở sâu hậu quả, lựa chọn hoặc đối thoại mới bám beat chương thay vì lặp lại đoạn đã có.",
       ],
       rewriteDirectives: [
@@ -2549,7 +2550,7 @@ ${lastChapter ? `${lastChapter.title}: ${lastChapter.summary}` : "Không có."}
 ${chapterAuditText}
 
 CỤM 2 PHẢI ĐỌC BẢN CHƯƠNG KEY 1 NHƯ MỘT BẢN THẢO THẬT.
-Không viết lại chương. Hãy soi đủ các lớp sau và đưa báo cáo để Key 3 sửa:
+Không viết lại chương. Hãy soi đủ các lớp sau và đưa báo cáo để Cụm 3 sửa:
 1. Bám sát truyện: chương có đi đúng Đại cục, Arc, kế hoạch chương, beat và trạng thái đầu/cuối không.
 2. Nội dung và logic: mỗi cảnh có mục tiêu, va chạm, lựa chọn/hành động, hậu quả; biến cố có nguyên nhân; nhân vật không hành động/nói vô cớ.
 3. Thiên Cơ Lục và canon: timeline, số liệu, địa danh, cấp bậc, vật phẩm, quan hệ, luật thế giới, bí mật, mâu thuẫn mở có khớp không.
@@ -2560,10 +2561,10 @@ Không viết lại chương. Hãy soi đủ các lớp sau và đưa báo cáo 
 8. Ngôn từ: từ yếu, mỹ từ rỗng, câu trừu tượng, thoại sai sắc thái, xưng hô sai, từ làm lệch tính cách hoặc thời điểm.
 
 QUY TẮC BÁO LỖI:
-- Mỗi lỗi phải nói rõ vì sao ảnh hưởng truyện và Key 3 cần sửa theo hướng nào.
+- Mỗi lỗi phải nói rõ vì sao ảnh hưởng truyện và Cụm 3 cần sửa theo hướng nào.
 - Nếu có thể, ghi dấu hiệu nhận diện ngắn 5-12 chữ hoặc vị trí kiểu “đầu chương/giữa cảnh 2/cuối chương”; không chép dài bản thảo.
 - Không bắt lỗi theo sở thích cá nhân. Chỉ bắt lỗi làm sai logic, canon, văn phong, nhịp đọc hoặc khả năng viết tiếp.
-- Nếu chương tốt, vẫn nêu preserveStrengths để Key 3 biết phần nào cần giữ.
+- Nếu chương tốt, vẫn nêu preserveStrengths để Cụm 3 biết phần nào cần giữ.
 
 Chỉ chấp nhận nếu chương vừa đúng canon, đúng điểm nhìn, đúng logic nhập vai, đúng kiến trúc cảnh và tập trung vào mục tiêu chương. Nếu có lỗi tên gọi, tuổi/nhận thức, thông tin nhân vật chưa thể biết, hành động/lời nói vô lý, canon, văn phong rỗng hoặc lan man đáng kể, isValid=false.
 Trả về JSON đúng schema:
@@ -2579,9 +2580,9 @@ Trả về JSON đúng schema:
   "styleIssues": ["lỗi nhịp đoạn, ngắt dòng, câu sáo, văn phong chưa chuyên nghiệp"],
   "repetitionIssues": ["lỗi lặp chữ, lặp cụm, lặp ý, lặp cảnh"],
   "dictionIssues": ["lỗi ngôn từ, xưng hô, thoại, sắc thái từ"],
-  "preserveStrengths": ["điểm mạnh cần giữ khi Key 3 viết lại"],
+  "preserveStrengths": ["điểm mạnh cần giữ khi Cụm 3 viết lại"],
   "suggestions": ["đề xuất sửa cụ thể"],
-  "rewriteDirectives": ["mệnh lệnh viết lại trực tiếp cho Key 3"],
+  "rewriteDirectives": ["mệnh lệnh viết lại trực tiếp cho Cụm 3"],
   "fixPlan": "kế hoạch sửa ngắn gọn theo thứ tự ưu tiên"
 }.`;
 
@@ -2592,8 +2593,8 @@ Trả về JSON đúng schema:
     console.warn("AI trả thẩm định không đúng JSON; giữ bản thảo nếu đã qua kiểm tra cục bộ số chữ và đoạn cuối:", error);
     return {
       isValid: true,
-      reason: "Key 2 trả thẩm định không đúng JSON. App đã bỏ qua lớp thẩm định AI cho lượt này và vẫn giữ các kiểm tra cục bộ về số chữ, bản đồ chương, Thiên Cơ Lục và đoạn cuối.",
-      preserveStrengths: ["Giữ bản thảo Key 1 vì báo cáo Key 2 không đọc được và kiểm tra cục bộ đã đạt."],
+      reason: "Cụm 2 trả thẩm định không đúng JSON. App đã bỏ qua lớp thẩm định AI cho lượt này và vẫn giữ các kiểm tra cục bộ về số chữ, bản đồ chương, Thiên Cơ Lục và đoạn cuối.",
+      preserveStrengths: ["Giữ bản thảo Cụm 1 vì báo cáo Cụm 2 không đọc được và kiểm tra cục bộ đã đạt."],
     };
   }
 };

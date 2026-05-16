@@ -9,7 +9,8 @@ import {
   generateShortStoryStream,
   validateChapterLogic,
   reviewStoryLogic,
-  getConfiguredGeminiKeyCount
+  getConfiguredGeminiKeyCount,
+  type ChapterValidationResult
 } from './services/geminiService';
 import {
   deleteProjectFromDb,
@@ -127,7 +128,16 @@ const App: React.FC = () => {
   const [directionChoices, setDirectionChoices] = useState<StoryDirectionChoice[]>([]);
   const [pendingDirectionParams, setPendingDirectionParams] = useState<StoryParams | null>(null);
   const [selectedDirectionId, setSelectedDirectionId] = useState<string>('');
+  const [pendingDraftMeta, setPendingDraftMeta] = useState<{ chapterIndex: number; arcIndex: number } | null>(null);
+  const [draftReview, setDraftReview] = useState<ChapterValidationResult | null>(null);
+  const [revisionRequest, setRevisionRequest] = useState<string>('');
   const [view, setView] = useState<'editor' | 'outline' | 'manuscript' | 'setup' | 'directions' | 'my-stories' | 'bible'>('setup');
+
+  const clearDraftPipeline = () => {
+    setPendingDraftMeta(null);
+    setDraftReview(null);
+    setRevisionRequest('');
+  };
 
   const updateDraftParams = (updater: (previous: StoryParams) => StoryParams) => {
     setDirectionChoices([]);
@@ -893,6 +903,23 @@ const App: React.FC = () => {
     ? plannedChapters.find(chapter => chapter.index === firstUnwrittenChapterIndex)
     : plannedChapters.find(chapter => !writtenChapterIndexes.has(chapter.index));
   const currentChapterPlan = getChapterPlan(currentChapterIndex);
+  const currentDraftIsPending = Boolean(
+    story.trim()
+    && pendingDraftMeta
+    && pendingDraftMeta.chapterIndex === currentChapterIndex
+    && pendingDraftMeta.arcIndex === activeArcIndex,
+  );
+  const draftReviewIssues = draftReview ? [
+    ...(draftReview.structureIssues || []),
+    ...(draftReview.logicIssues || []),
+    ...(draftReview.canonIssues || []),
+    ...(draftReview.povIssues || []),
+    ...(draftReview.metricIssues || []),
+    ...(draftReview.ramblingIssues || []),
+    ...(draftReview.styleIssues || []),
+    ...(draftReview.repetitionIssues || []),
+    ...(draftReview.dictionIssues || []),
+  ] : [];
   const planCompletenessPercent = params.projectType === 'Trường Thiên'
     ? Math.min(100, Math.round((plannedChapterIndexes.size / Math.max(1, params.totalChapters)) * 100))
     : 100;
@@ -1119,6 +1146,71 @@ const App: React.FC = () => {
     return mergedArc;
   };
 
+  const persistChapterContent = async (finalContent: string, currentArc: Volume, volumesForSave: Volume[] = volumes) => {
+    const chapterPlan = currentArc.chapters?.find(ch => ch.index === currentChapterIndex);
+    const targetWords = chapterPlan?.targetWords || params.length;
+    const finalWords = countDraftWords(finalContent);
+    const hardMinimumWords = Math.max(650, Math.floor(targetWords * 0.95));
+    if (finalWords < hardMinimumWords || draftLooksCutOff(finalContent)) {
+      throw new Error(`Chương đang bị thiếu phần cuối hoặc chưa đủ chữ: hiện khoảng ${finalWords}/${targetWords} chữ. App chưa lưu bản này để tránh mất nội dung.`);
+    }
+
+    setGenerationStatus('Đang lưu chương và cập nhật Thiên Cơ Lục...');
+    let updates: { chapterTitle?: string; chapterSummary?: string; updatedBible: string };
+    try {
+      updates = await updateWorldBibleAndSummary(worldBible, finalContent, currentChapterIndex, generalSummary, params, currentArc);
+    } catch (updateError) {
+      console.warn('Không cập nhật được Thiên Cơ Lục, vẫn lưu chương đã viết:', updateError);
+      updates = {
+        chapterTitle: chapterPlan?.title || `Chương ${currentChapterIndex}`,
+        chapterSummary: chapterPlan?.summary || finalContent.slice(0, 240),
+        updatedBible: worldBible,
+      };
+    }
+
+    const extracted = extractGeneratedTitle(finalContent, updates.chapterTitle || chapterPlan?.title || `Chương ${currentChapterIndex}`);
+    const finalTitle = updates.chapterTitle || extracted.title;
+    const actualText = extracted.body;
+
+    const newChapter: Chapter = {
+      ...chapterPlan,
+      index: currentChapterIndex,
+      title: finalTitle,
+      content: actualText,
+      summary: updates.chapterSummary || chapterPlan?.summary || '',
+      bibleSnapshot: updates.updatedBible,
+      targetWords: chapterPlan?.targetWords || params.length,
+    };
+
+    const nextWrittenList = writtenChapters.some(c => c.index === newChapter.index)
+      ? sortChapters(writtenChapters.map(c => c.index === newChapter.index ? newChapter : c))
+      : sortChapters([...writtenChapters, newChapter]);
+
+    const updatedVolumes = volumesForSave.map(v => {
+      if (v.index === currentArc.index) {
+        const existingInVol = v.chapters || [];
+        const isChapterInVol = existingInVol.some(c => c.index === newChapter.index);
+        return {
+          ...v,
+          chapters: isChapterInVol
+            ? sortChapters(existingInVol.map(c => c.index === newChapter.index ? { ...c, ...newChapter } : c))
+            : sortChapters([...existingInVol, newChapter]),
+        };
+      }
+      return v;
+    });
+
+    setWrittenChapters(nextWrittenList);
+    setWorldBible(updates.updatedBible);
+    setStory(actualText);
+    setVolumes(updatedVolumes);
+    clearDraftPipeline();
+    setProjects(prevProjects => prevProjects.map(p => p.id === activeProjectId
+      ? { ...p, volumes: updatedVolumes, progressionSummary: updates.updatedBible, lastChapterWritten: Math.max(0, ...nextWrittenList.map(chapter => chapter.index)), updatedAt: Date.now() }
+      : p
+    ));
+  };
+
   const handleWriteChapter = async () => {
     if (isGenerating) return;
     if (!activeProjectId) {
@@ -1138,6 +1230,7 @@ const App: React.FC = () => {
 
     setIsGenerating(true);
     setStory('');
+    clearDraftPipeline();
 
     if (params.projectType === 'Truyện Ngắn') {
       try {
@@ -1197,200 +1290,140 @@ const App: React.FC = () => {
       return;
     }
     
-    let attempts = 0;
-    const maxAttempts = 2;
-    let isValid = false;
-    let finalContent = "";
-    let bestCandidate = "";
-    let bestCandidateScore = Number.NEGATIVE_INFINITY;
-    let lastValidationReason = "";
-
     try {
-      let workingVolumes = volumes;
       let currentArc = chapterArc || { index: activeArcIndex, title: 'Tự do', summary: 'Không có lộ trình cụ thể.', chapters: [] };
       if (params.projectType === 'Trường Thiên' && !hasCompleteArcChapterPlan(currentArc as Volume)) {
         currentArc = await ensureArcChapterPlans(currentArc.index);
-        workingVolumes = volumes.map(volume => volume.index === currentArc.index ? currentArc : volume);
       }
       setActiveArcIndex(currentArc.index);
       const chapterPlan = currentArc.chapters?.find(ch => ch.index === currentChapterIndex);
       const targetWords = chapterPlan?.targetWords || params.length;
-      const previousForValidation = writtenChapters.filter(ch => ch.index !== currentChapterIndex);
 
-      while (attempts < maxAttempts && !isValid) {
-        attempts++;
-        setGenerationStatus(attempts > 1 ? `Đang viết lại cho sát lộ trình và đủ số chữ...` : `Đang chấp bút Chương ${currentChapterIndex} theo bản đồ chương...`);
-        
-        finalContent = await generateChapterStream(
-          params, writtenChapters, currentChapterIndex, worldBible, chapterIdea, generalSummary, 
-          currentArc,
-          (chunk) => setStory(prev => prev + chunk),
-          attempts > 1
-        );
-        setStory(finalContent);
-        if (!finalContent.trim()) throw new Error('Gemini chưa trả về nội dung chương. Hãy thử lại hoặc giảm mục tiêu số chữ.');
-        const candidateScore = chapterCandidateScore(finalContent, targetWords);
-        if (candidateScore > bestCandidateScore) {
-          bestCandidateScore = candidateScore;
-          bestCandidate = finalContent;
-        }
+      setGenerationStatus(`Đang chấp bút Chương ${currentChapterIndex} theo bản đồ chương...`);
+      const finalContent = await generateChapterStream(
+        params,
+        writtenChapters,
+        currentChapterIndex,
+        worldBible,
+        chapterIdea,
+        generalSummary,
+        currentArc,
+        (chunk) => setStory(prev => prev + chunk),
+        false,
+      );
+      setStory(finalContent);
+      if (!finalContent.trim()) throw new Error('Gemini chưa trả về nội dung chương. Hãy thử lại hoặc giảm mục tiêu số chữ.');
 
-        setGenerationStatus('Đang thẩm định số chữ, canon, logic và độ tập trung...');
-        let validation;
-        try {
-          validation = await validateChapterLogic(finalContent, previousForValidation, worldBible, currentArc, generalSummary, params, currentChapterIndex);
-        } catch (validationError) {
-          if (!isGeminiKeyInfrastructureError(validationError)) throw validationError;
-          console.warn('Key 2 thẩm định lỗi, giữ bản thảo Key 1 nếu qua kiểm tra cục bộ:', validationError);
-          validation = {
-            isValid: true,
-            reason: 'Key 2 thẩm định đang lỗi key/quyền API. App giữ bản thảo Key 1 nếu đủ số chữ và không cụt cuối chương.',
-          };
-        }
-        
-        if (validation.isValid) {
-          isValid = true;
-          bestCandidate = finalContent;
-        } else {
-          console.warn("Lệch lộ trình:", validation.reason);
-          lastValidationReason = validation.reason || 'Chưa đạt thẩm định logic.';
-          setGenerationStatus(`Key 3 đang sửa theo thẩm định: ${validation.reason || 'cần chặt logic hơn.'}`);
-          setStory('');
-          try {
-            finalContent = await rewriteChapterWithReviewStream(
-              params,
-              writtenChapters,
-              currentChapterIndex,
-              worldBible,
-              chapterIdea,
-              generalSummary,
-              currentArc,
-              finalContent,
-              validation,
-              (chunk) => setStory(prev => prev + chunk),
-            );
-          } catch (rewriteError) {
-            if (!isGeminiKeyInfrastructureError(rewriteError)) throw rewriteError;
-            const blockingValidationIssues = [
-              ...(validation.structureIssues || []),
-              ...(validation.logicIssues || []),
-              ...(validation.canonIssues || []),
-              ...(validation.povIssues || []),
-              ...(validation.metricIssues || []),
-              ...(validation.repetitionIssues || []),
-            ];
-            if (blockingValidationIssues.length > 0) {
-              throw new Error(`Key 3 đang lỗi key/quyền API nên app không lưu bản còn lỗi: ${validation.reason || blockingValidationIssues[0]}`);
-            }
-            console.warn('Key 3 sửa bản thảo lỗi, giữ bản nháp Key 1 để tránh mất nội dung:', rewriteError);
-            finalContent = bestCandidate || finalContent;
-            isValid = true;
-            lastValidationReason = 'Key 3 sửa bản thảo đang lỗi key/quyền API, app giữ bản nháp Key 1 nếu đủ số chữ và không cụt cuối.';
-          }
-          setStory(finalContent);
-          const revisedScore = chapterCandidateScore(finalContent, targetWords);
-          if (revisedScore > bestCandidateScore) {
-            bestCandidateScore = revisedScore;
-            bestCandidate = finalContent;
-          }
-
-          setGenerationStatus('Key 2 đang thẩm định lại bản sửa của Key 3...');
-          let rewrittenValidation;
-          try {
-            rewrittenValidation = await validateChapterLogic(finalContent, previousForValidation, worldBible, currentArc, generalSummary, params, currentChapterIndex);
-          } catch (validationError) {
-            if (!isGeminiKeyInfrastructureError(validationError)) throw validationError;
-            console.warn('Key 2 thẩm định lại lỗi, giữ bản sửa nếu qua kiểm tra cục bộ:', validationError);
-            rewrittenValidation = {
-              isValid: true,
-              reason: 'Key 2 thẩm định lại đang lỗi key/quyền API. App giữ bản hiện tại nếu đủ số chữ và không cụt cuối chương.',
-            };
-          }
-          if (rewrittenValidation.isValid) {
-            isValid = true;
-            bestCandidate = finalContent;
-          } else {
-            lastValidationReason = rewrittenValidation.reason || lastValidationReason || 'Bản sửa vẫn chưa đạt thẩm định logic.';
-            if (attempts < maxAttempts) {
-              setGenerationStatus(`Bản sửa vẫn chưa đạt. ${lastValidationReason}`);
-              setStory('');
-            }
-          }
-        }
+      const draftWords = countDraftWords(finalContent);
+      const draftMinimumWords = Math.max(650, Math.floor(targetWords * 0.95));
+      if (draftWords < draftMinimumWords || draftLooksCutOff(finalContent)) {
+        throw new Error(`Bản nháp Cụm 1 đang thiếu phần cuối hoặc chưa đủ chữ: hiện khoảng ${draftWords}/${targetWords} chữ. App chưa gọi Cụm 2/3 và chưa lưu bản này.`);
       }
 
-      if (!isValid) {
-        throw new Error(`Chương chưa đạt thẩm định logic/canon: ${lastValidationReason || 'cần viết lại trước khi lưu.'}`);
-      }
-      if (bestCandidate && bestCandidate !== finalContent) {
-        finalContent = bestCandidate;
-        setStory(finalContent);
-      }
-      const finalWords = countDraftWords(finalContent);
-      const hardMinimumWords = Math.max(650, Math.floor(targetWords * 0.95));
-      if (finalWords < hardMinimumWords || draftLooksCutOff(finalContent)) {
-        throw new Error(`Chương đang bị thiếu phần cuối hoặc chưa đủ chữ: hiện khoảng ${finalWords}/${targetWords} chữ. App chưa lưu bản này để tránh mất nội dung. Hãy bấm viết lại, hoặc giảm mục tiêu chữ nếu Gemini đang bị giới hạn.`);
-      }
-
-      setGenerationStatus('Đang cập nhật Thiên Cơ Lục và khóa dữ kiện mới...');
-      let updates: { chapterTitle?: string; chapterSummary?: string; updatedBible: string };
-      try {
-        updates = await updateWorldBibleAndSummary(worldBible, finalContent, currentChapterIndex, generalSummary, params, currentArc);
-      } catch (updateError) {
-        console.warn('Không cập nhật được Thiên Cơ Lục, vẫn lưu chương đã viết:', updateError);
-        updates = {
-          chapterTitle: chapterPlan?.title || `Chương ${currentChapterIndex}`,
-          chapterSummary: chapterPlan?.summary || finalContent.slice(0, 240),
-          updatedBible: worldBible,
-        };
-      }
-      
-      const extracted = extractGeneratedTitle(finalContent, updates.chapterTitle || chapterPlan?.title || `Chương ${currentChapterIndex}`);
-      const finalTitle = updates.chapterTitle || extracted.title;
-      const actualText = extracted.body;
-
-      const newChapter: Chapter = {
-        ...chapterPlan,
-        index: currentChapterIndex,
-        title: finalTitle,
-        content: actualText,
-        summary: updates.chapterSummary || chapterPlan?.summary || '',
-        bibleSnapshot: updates.updatedBible,
-        targetWords: chapterPlan?.targetWords || params.length
-      };
-
-      const nextWrittenList = writtenChapters.some(c => c.index === newChapter.index)
-        ? sortChapters(writtenChapters.map(c => c.index === newChapter.index ? newChapter : c))
-        : sortChapters([...writtenChapters, newChapter]);
-
-      setWrittenChapters(nextWrittenList);
-      setWorldBible(updates.updatedBible);
-      setStory(actualText);
-
-      const updatedVolumes = workingVolumes.map(v => {
-        if (v.index === currentArc.index) {
-          const existingInVol = v.chapters || [];
-          const isChapterInVol = existingInVol.some(c => c.index === newChapter.index);
-          return {
-            ...v,
-            chapters: isChapterInVol
-              ? sortChapters(existingInVol.map(c => c.index === newChapter.index ? { ...c, ...newChapter } : c))
-              : sortChapters([...existingInVol, newChapter])
-          };
-        }
-        return v;
-      });
-
-      setVolumes(updatedVolumes);
-      setProjects(prevProjects => prevProjects.map(p => p.id === activeProjectId
-        ? { ...p, volumes: updatedVolumes, progressionSummary: updates.updatedBible, lastChapterWritten: Math.max(0, ...nextWrittenList.map(chapter => chapter.index)), updatedAt: Date.now() }
-        : p
-      ));
+      setPendingDraftMeta({ chapterIndex: currentChapterIndex, arcIndex: currentArc.index });
+      setDraftReview(null);
+      setRevisionRequest('');
+      setGenerationStatus('Bản nháp Cụm 1 đã sẵn sàng. Tác giả có thể đọc, ghi yêu cầu thêm, rồi bấm thẩm định nếu cần.');
     } catch (e) { 
         console.error(e);
         alert(friendlyError(e)); 
     }
     finally { setIsGenerating(false); setGenerationStatus(''); }
+  };
+
+  const chapterReviewNeedsRewrite = (review: ChapterValidationResult | null, authorNote = '') => {
+    if (!review) return Boolean(authorNote.trim());
+    return !review.isValid
+      || Boolean(authorNote.trim())
+      || Boolean(review.fixPlan)
+      || [
+        review.structureIssues,
+        review.logicIssues,
+        review.canonIssues,
+        review.povIssues,
+        review.metricIssues,
+        review.ramblingIssues,
+        review.styleIssues,
+        review.repetitionIssues,
+        review.dictionIssues,
+        review.suggestions,
+        review.rewriteDirectives,
+      ].some(group => Boolean(group?.length));
+  };
+
+  const handleSaveCurrentDraft = async () => {
+    if (!story.trim()) {
+      alert('Chưa có bản nháp để lưu.');
+      return;
+    }
+    const currentArc = getArcByChapterIndex(currentChapterIndex) || getActiveArc();
+    if (!currentArc) {
+      alert('Không tìm thấy Arc của chương hiện tại.');
+      return;
+    }
+    setIsGenerating(true);
+    try {
+      await persistChapterContent(story, currentArc);
+    } catch (error) {
+      console.error(error);
+      alert(friendlyError(error));
+    } finally {
+      setIsGenerating(false);
+      setGenerationStatus('');
+    }
+  };
+
+  const handleReviewAndRewriteDraft = async () => {
+    if (!story.trim()) {
+      alert('Chưa có bản nháp Cụm 1 để thẩm định.');
+      return;
+    }
+    const currentArc = getArcByChapterIndex(currentChapterIndex) || getActiveArc();
+    if (!currentArc) {
+      alert('Không tìm thấy Arc của chương hiện tại.');
+      return;
+    }
+
+    const originalDraft = story;
+    const authorNote = revisionRequest.trim();
+    const previousForValidation = writtenChapters.filter(ch => ch.index !== currentChapterIndex);
+    setIsGenerating(true);
+
+    try {
+      setGenerationStatus('Cụm 2 đang thẩm định bản nháp Cụm 1...');
+      const validation = await validateChapterLogic(originalDraft, previousForValidation, worldBible, currentArc, generalSummary, params, currentChapterIndex);
+      setDraftReview(validation);
+
+      if (!chapterReviewNeedsRewrite(validation, authorNote)) {
+        setGenerationStatus('Cụm 2 không thấy lỗi lớn. Đang lưu bản nháp hiện tại...');
+        await persistChapterContent(originalDraft, currentArc);
+        return;
+      }
+
+      setGenerationStatus('Cụm 3 đang viết lại theo thẩm định và yêu cầu tác giả...');
+      setStory('');
+      const rewritten = await rewriteChapterWithReviewStream(
+        params,
+        writtenChapters,
+        currentChapterIndex,
+        worldBible,
+        authorNote || chapterIdea,
+        generalSummary,
+        currentArc,
+        originalDraft,
+        validation,
+        (chunk) => setStory(prev => prev + chunk),
+      );
+      setStory(rewritten);
+      await persistChapterContent(rewritten, currentArc);
+    } catch (error) {
+      console.error(error);
+      setStory(originalDraft);
+      alert(friendlyError(error));
+    } finally {
+      setIsGenerating(false);
+      setGenerationStatus('');
+    }
   };
 
   const generateProjectFromParams = async (workingParams: StoryParams) => {
@@ -1560,6 +1593,7 @@ const App: React.FC = () => {
       setCurrentChapterIndex(firstUnwritten.index);
       setChapterIdea('');
       setStory('');
+      clearDraftPipeline();
       setView('editor');
     } catch (error) {
       console.error(error);
@@ -1592,6 +1626,7 @@ const App: React.FC = () => {
       setCurrentChapterIndex(nextIndex);
       setChapterIdea('');
       setStory('');
+      clearDraftPipeline();
     }
     setView('editor');
   };
@@ -1620,15 +1655,16 @@ const App: React.FC = () => {
     setCurrentChapterIndex(nextIndex);
     setChapterIdea('');
     setStory('');
+    clearDraftPipeline();
     setView('editor');
   };
 
   const handleReadChapter = (chapter: Chapter, arcIndex: number) => {
-    setStory(chapter.content || ''); setCurrentChapterIndex(chapter.index); setActiveArcIndex(arcIndex); setView('editor');
+    clearDraftPipeline(); setStory(chapter.content || ''); setCurrentChapterIndex(chapter.index); setActiveArcIndex(arcIndex); setView('editor');
   };
 
   const handleRewriteChapter = (chapter: Chapter, arcIndex: number) => {
-    setCurrentChapterIndex(chapter.index); setActiveArcIndex(arcIndex); setChapterIdea(''); setStory(''); setView('editor');
+    clearDraftPipeline(); setCurrentChapterIndex(chapter.index); setActiveArcIndex(arcIndex); setChapterIdea(''); setStory(''); setView('editor');
   };
 
   const handleDeleteChapter = (chapterIndex: number, _arcIndex: number, e: React.MouseEvent) => {
@@ -2472,6 +2508,44 @@ const App: React.FC = () => {
                       <button onClick={() => setView('outline')} className="text-[10px] font-black uppercase text-slate-400 border border-slate-200 px-8 py-3 rounded-full hover:bg-slate-50 transition-all">Về Lộ Trình</button>
                     </div>
                   </header>
+                  {currentDraftIsPending && (
+                    <section className="bg-white border border-indigo-100 rounded-[2rem] shadow-xl p-5 md:p-6 space-y-4">
+                      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+                        <div>
+                          <span className="inline-flex px-3 py-1 bg-amber-50 text-amber-700 rounded-full text-[9px] font-black uppercase tracking-widest border border-amber-100">
+                            Bản nháp Cụm 1
+                          </span>
+                          <h3 className="mt-3 text-lg font-black text-slate-900">Chưa gọi Cụm 2/3, chưa lưu vào bản thảo chính</h3>
+                          <p className="mt-1 text-xs text-slate-500 leading-5">
+                            Đọc bản nháp bên dưới. Nếu ổn, có thể lưu ngay. Nếu cần biên tập, nhập yêu cầu rồi bấm thẩm định để Cụm 2 đọc và Cụm 3 viết lại.
+                          </p>
+                        </div>
+                        <button onClick={handleSaveCurrentDraft} disabled={isGenerating} className="px-5 py-3 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-2xl text-[10px] font-black uppercase hover:bg-emerald-600 hover:text-white transition-all disabled:opacity-50">
+                          Lưu bản này
+                        </button>
+                      </div>
+                      <textarea
+                        value={revisionRequest}
+                        onChange={e => setRevisionRequest(e.target.value)}
+                        placeholder="Yêu cầu thêm cho Cụm 3: ví dụ giảm lặp hình ảnh dòng sông, tăng đối thoại, sửa logic đặt tên, giữ nhịp chậm nhưng phải có biến chuyển rõ..."
+                        className="w-full h-28 p-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm outline-none resize-none focus:bg-white focus:ring-4 focus:ring-indigo-50 transition-all"
+                      />
+                      {draftReview && (
+                        <div className={`p-4 rounded-2xl border ${draftReview.isValid ? 'bg-emerald-50 border-emerald-100 text-emerald-900' : 'bg-amber-50 border-amber-100 text-amber-900'}`}>
+                          <p className="text-[9px] font-black uppercase tracking-widest">{draftReview.isValid ? 'Cụm 2: đạt cơ bản' : 'Cụm 2: cần sửa'}</p>
+                          <p className="mt-1 text-xs leading-5">{draftReview.reason}</p>
+                          {draftReviewIssues.length > 0 && (
+                            <ul className="mt-3 space-y-1 text-xs leading-5 list-disc pl-4">
+                              {draftReviewIssues.slice(0, 5).map((issue, idx) => <li key={idx}>{issue}</li>)}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+                      <button onClick={handleReviewAndRewriteDraft} disabled={isGenerating} className="w-full py-4 bg-indigo-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all disabled:opacity-50">
+                        {isGenerating ? (generationStatus || 'Đang xử lý...') : 'Cụm 2 thẩm định, Cụm 3 viết lại'}
+                      </button>
+                    </section>
+                  )}
                   <article className="manuscript-reader story-font text-lg md:text-2xl text-slate-800 text-left shadow-2xl p-6 md:p-20 bg-white/95 rounded-[2rem] md:rounded-[3rem] border border-slate-50 relative">
                     {renderStoryParagraphs(story)}
                   </article>
