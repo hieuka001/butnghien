@@ -110,7 +110,7 @@ const getGeminiKeysForRole = (role: GeminiKeyRole) => {
   return uniqueKeys(preferredByRole[role]);
 };
 
-const isRotatableStatus = (status: number) => [401, 402, 408, 429, 500, 502, 503].includes(status);
+const isRotatableStatus = (status: number) => [401, 402, 403, 408, 429, 500, 502, 503].includes(status);
 const isFallbackStatus = (status: number) => [404, 429, 500, 502, 503].includes(status);
 
 const normalizeGeminiModel = (model?: string) => {

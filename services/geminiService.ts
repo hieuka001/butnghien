@@ -293,7 +293,7 @@ export const getConfiguredGeminiKeyCount = () => getGeminiKeys().length || (USE_
 
 const isRotatableStatus = (status?: number) => {
   if (!status) return false;
-  return [401, 402, 408, 429, 500, 502, 503].includes(status);
+  return [401, 402, 403, 408, 429, 500, 502, 503].includes(status);
 };
 
 const roleCooldownKey = (role: GeminiKeyRole, keyIndex: number) => `${role}:${keyIndex}`;
