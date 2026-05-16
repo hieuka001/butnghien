@@ -1271,6 +1271,17 @@ const App: React.FC = () => {
             );
           } catch (rewriteError) {
             if (!isGeminiKeyInfrastructureError(rewriteError)) throw rewriteError;
+            const blockingValidationIssues = [
+              ...(validation.structureIssues || []),
+              ...(validation.logicIssues || []),
+              ...(validation.canonIssues || []),
+              ...(validation.povIssues || []),
+              ...(validation.metricIssues || []),
+              ...(validation.repetitionIssues || []),
+            ];
+            if (blockingValidationIssues.length > 0) {
+              throw new Error(`Key 3 đang lỗi key/quyền API nên app không lưu bản còn lỗi: ${validation.reason || blockingValidationIssues[0]}`);
+            }
             console.warn('Key 3 sửa bản thảo lỗi, giữ bản nháp Key 1 để tránh mất nội dung:', rewriteError);
             finalContent = bestCandidate || finalContent;
             isValid = true;

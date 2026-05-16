@@ -465,11 +465,84 @@ const chapterNeedsContinuation = (text: string, minWords: number) =>
 const minimumChapterWords = (targetWords: number) => Math.max(650, Math.floor(targetWords * 0.95));
 const minimumShortStoryWords = (targetWords: number) => Math.max(700, Math.floor(targetWords * 0.92));
 
-const normalizeGeneratedDraft = (text: string) => cleanStoryText(text)
+const normalizeDraftWhitespace = (text: string) => cleanStoryText(text)
   .replace(/\r\n/g, "\n")
   .replace(/[ \t]+\n/g, "\n")
   .replace(/\n{3,}/g, "\n\n")
   .trim();
+
+const draftBlockFingerprint = (value: string) => value
+  .toLowerCase()
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .replace(/đ/g, "d")
+  .replace(/[^a-z0-9\s]/g, " ")
+  .replace(/\s+/g, " ")
+  .trim();
+
+const splitDraftBlocks = (text: string) => normalizeDraftWhitespace(text)
+  .split(/\n{2,}/)
+  .map(block => block.trim())
+  .filter(Boolean);
+
+const repeatedBlockCandidate = (block: string) =>
+  countWords(block) >= 24 && !/^\s*(?:Tên chương|Tên truyện)\s*:/i.test(block);
+
+const removeDuplicateLongBlocks = (text: string) => {
+  const blocks = splitDraftBlocks(text);
+  const seen = new Set<string>();
+  const kept: string[] = [];
+
+  for (const block of blocks) {
+    const fingerprint = draftBlockFingerprint(block);
+    if (repeatedBlockCandidate(block) && fingerprint) {
+      if (seen.has(fingerprint)) continue;
+      seen.add(fingerprint);
+    }
+    kept.push(block);
+  }
+
+  return kept.join("\n\n").trim();
+};
+
+const detectDraftRepetition = (text: string, maxIssues = 6) => {
+  const issues: string[] = [];
+  const seenBlocks = new Map<string, number>();
+
+  splitDraftBlocks(text).forEach((block, index) => {
+    if (!repeatedBlockCandidate(block)) return;
+    const fingerprint = draftBlockFingerprint(block);
+    if (!fingerprint) return;
+    const firstIndex = seenBlocks.get(fingerprint);
+    if (firstIndex !== undefined) {
+      issues.push(`Đoạn ${index + 1} lặp gần như nguyên văn đoạn ${firstIndex + 1}: "${block.replace(/\s+/g, " ").slice(0, 120)}..."`);
+      return;
+    }
+    seenBlocks.set(fingerprint, index);
+  });
+
+  const seenSentences = new Map<string, number>();
+  const sentences = normalizeDraftWhitespace(text)
+    .split(/(?<=[.!?…])\s+|\n+/)
+    .map(sentence => sentence.trim())
+    .filter(sentence => countWords(sentence) >= 16);
+
+  sentences.forEach((sentence, index) => {
+    if (issues.length >= maxIssues) return;
+    const fingerprint = draftBlockFingerprint(sentence);
+    if (!fingerprint) return;
+    const firstIndex = seenSentences.get(fingerprint);
+    if (firstIndex !== undefined) {
+      issues.push(`Câu dài ${index + 1} lặp nguyên ý/cấu trúc với câu ${firstIndex + 1}: "${sentence.replace(/\s+/g, " ").slice(0, 110)}..."`);
+      return;
+    }
+    seenSentences.set(fingerprint, index);
+  });
+
+  return issues.slice(0, maxIssues);
+};
+
+const normalizeGeneratedDraft = (text: string) => removeDuplicateLongBlocks(normalizeDraftWhitespace(text));
 
 const cleanContinuationText = (text: string) => normalizeGeneratedDraft(text)
   .replace(/^\s*(?:Tên chương|Tên truyện)\s*:\s*.+(?:\n+|$)/i, "")
@@ -477,10 +550,22 @@ const cleanContinuationText = (text: string) => normalizeGeneratedDraft(text)
 
 const appendDraftPart = (base: string, addition: string) => {
   const current = normalizeGeneratedDraft(base);
-  const next = cleanContinuationText(addition);
+  const currentTailFingerprints = new Set(
+    splitDraftBlocks(current)
+      .slice(-5)
+      .filter(repeatedBlockCandidate)
+      .map(draftBlockFingerprint)
+      .filter(Boolean),
+  );
+  const next = splitDraftBlocks(cleanContinuationText(addition))
+    .filter(block => {
+      const fingerprint = draftBlockFingerprint(block);
+      return !repeatedBlockCandidate(block) || !fingerprint || !currentTailFingerprints.has(fingerprint);
+    })
+    .join("\n\n");
   if (!current) return next;
   if (!next) return current;
-  return `${current}\n\n${next}`;
+  return normalizeGeneratedDraft(`${current}\n\n${next}`);
 };
 
 const excerptForAudit = (text: string, limit = 11000) => {
@@ -2326,6 +2411,7 @@ YÊU CẦU KEY 3:
 - Nếu Key 2 có preserveStrengths, giữ các điểm mạnh đó; nếu phải sửa, giữ tác dụng truyện của chúng nhưng thay cách thể hiện.
 - Dùng báo cáo Key 2 như bản giao việc: lỗi nào có dẫn chứng/vị trí thì xử lý trực tiếp tại vùng đó; lỗi nào là nguyên tắc chung thì rà toàn chương.
 - Không chỉ thay vài câu. Hãy viết lại thành một bản chương liền mạch, đã tự sửa lặp chữ, lặp ý, câu sáo, đoạn quá dài, thoại sai quan hệ và các chỗ nhân vật biết/làm điều không hợp logic.
+- Nếu báo cáo Key 2 nêu lặp đoạn/câu dài, tuyệt đối không giữ lại hai đoạn giống nhau. Chỉ giữ một lần thông tin cần thiết, phần còn lại phải thay bằng diễn biến mới có mục tiêu, va chạm và hậu quả riêng.
 - Không rút ngắn: mục tiêu khoảng ${targetWords} chữ, không dừng dưới ${minWords} chữ, không vượt quá ${maxWords} chữ nếu không cần để khép cảnh.
 - Không đổi tổng hướng truyện, không thêm tuyến mới, không đổi canon, không tự đặt số liệu nếu Thiên Cơ Lục chưa khóa.
 - Nếu lỗi liên quan tên nhân vật/nhận thức, phải sửa bằng cách đặt người đọc vào đúng vị trí nhân vật trong cảnh: ai biết gì, ai gọi tên, khi nào được đặt tên, cơ thể có thể làm gì.
@@ -2406,6 +2492,23 @@ export const validateChapterLogic = async (
     return {
       isValid: false,
       reason: "Đoạn cuối chương có dấu hiệu bị cụt câu hoặc chưa khép cảnh.",
+    };
+  }
+  const mechanicalRepetitionIssues = detectDraftRepetition(currentChapterContent);
+  if (mechanicalRepetitionIssues.length) {
+    return {
+      isValid: false,
+      reason: "Phát hiện đoạn/câu dài bị lặp gần như nguyên văn. Không lưu bản này cho tới khi Key 3 viết lại sạch lặp.",
+      repetitionIssues: mechanicalRepetitionIssues,
+      suggestions: [
+        "Key 3 phải viết lại vùng bị lặp bằng biến chuyển mới, không diễn đạt lại cùng cảnh để kéo dài số chữ.",
+        "Nếu cần tăng số chữ, hãy mở sâu hậu quả, lựa chọn hoặc đối thoại mới bám beat chương thay vì lặp lại đoạn đã có.",
+      ],
+      rewriteDirectives: [
+        "Xóa toàn bộ đoạn lặp nguyên văn, chỉ giữ một lần thông tin cần thiết.",
+        "Thay phần bị lặp bằng một cảnh/hành động/hậu quả mới làm trạng thái truyện thay đổi.",
+      ],
+      fixPlan: "Ưu tiên xử lý trùng đoạn trước: xác định đoạn lặp, giữ bản tốt nhất, thay bản còn lại bằng diễn biến mới có mục tiêu, va chạm và hậu quả riêng.",
     };
   }
 
