@@ -961,10 +961,31 @@ const plainText = (value: unknown) => String(value || "")
   .replace(/[\u0300-\u036f]/g, "")
   .toLowerCase();
 
-const directionTitleFromLock = (params: StoryParams) => {
-  const match = String(params.directionLock || "").match(/HƯỚNG TRUYỆN ĐÃ CHỌN:\s*(.+)/i);
-  return match?.[1]?.trim() || "";
+const stripDirectionLabels = (value: unknown) => String(value || "")
+  .replace(/\r\n/g, "\n")
+  .replace(/^\s*(?:HƯỚNG TRUYỆN ĐÃ CHỌN|HUONG TRUYEN DA CHON)\s*[:：-]\s*/gim, "")
+  .replace(/^\s*(?:Tiền đề|Tien de|Động cơ truyện|Dong co truyen|Phù hợp khi|Phu hop khi|Logic cốt truyện|Logic cot truyen|Nhịp Arc|Nhip Arc|Dư âm\/cao trào|Du am\/cao trao|Điều cần tránh|Dieu can tranh|Bắt buộc khi lập lộ trình|Bat buoc khi lap lo trinh)\s*[:：-]\s*/gim, "")
+  .replace(/\s+/g, " ")
+  .trim();
+
+const labeledLineFromLock = (lock: string | undefined, label: string) => {
+  const normalizedLabel = plainText(label);
+  return String(lock || "")
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .find(line => plainText(line).startsWith(`${normalizedLabel}:`))
+    ?.replace(/^[^:：]+[:：]\s*/, "")
+    .trim() || "";
 };
+
+const directionTitleFromLock = (params: StoryParams) =>
+  stripDirectionLabels(labeledLineFromLock(params.directionLock, "HƯỚNG TRUYỆN ĐÃ CHỌN"));
+
+const premiseFromParams = (params: StoryParams) =>
+  stripDirectionLabels(params.seed)
+  || stripDirectionLabels(labeledLineFromLock(params.directionLock, "Tiền đề"))
+  || stripDirectionLabels(params.character.goal)
+  || "mâu thuẫn trung tâm đã khóa";
 
 const directionTextFromParams = (params: StoryParams) =>
   plainText(`${directionTitleFromLock(params)} ${params.directionLock || ""}`);
@@ -1192,8 +1213,8 @@ const isWeakPlanPhrase = (value: string) => {
 };
 
 const titleFromPlanPhrase = (value: string, maxWords = 8) => {
-  const cleaned = stripChapterTitlePrefix(value)
-    .replace(/^(?:Mục tiêu|Beat|Cảnh|Hậu quả|Móc nối|Chi tiết bắt buộc)\s*[:：-]\s*/i, "")
+  const cleaned = stripDirectionLabels(stripChapterTitlePrefix(value))
+    .replace(/^(?:Mục tiêu|Beat|Cảnh|Hậu quả|Móc nối|Chi tiết bắt buộc|Chủ đề Arc|Mục tiêu sơ bộ|Vai trò Arc|Nội dung Arc)\s*[:：-]\s*/i, "")
     .replace(/\s+/g, " ")
     .trim();
   const words = cleaned.split(/\s+/).filter(Boolean).slice(0, maxWords);
@@ -1247,19 +1268,48 @@ const summaryFromPlanParts = (chapter: Chapter) => {
 };
 
 const isWeakArcSummary = (value: string) => {
+  if (/(HƯỚNG TRUYỆN ĐÃ CHỌN|HUONG TRUYEN DA CHON|Logic cốt truyện|Logic cot truyen|Nhịp Arc|Nhip Arc)/i.test(value)) return true;
   const normalized = textFingerprint(value);
   if (!normalized || normalized.split(/\s+/).length < 10) return true;
-  return /^(arc \d+ phu trach|arc \d+ tiep tuc|tom tat arc|khong co|khai cuc ngan|hoi nhap va khoa quy tac|day nhan vat)/.test(normalized);
+  return /(?:huong truyen da chon|arc cau noi ngan|arc nhip vua|arc trong tam dai)|^(arc \d+ phu trach|arc \d+ tiep tuc|tom tat arc|khong co|khai cuc ngan|hoi nhap va khoa quy tac|day nhan vat)/.test(normalized);
 };
 
 const isWeakArcTitle = (value: string) => {
+  if (/(HƯỚNG TRUYỆN ĐÃ CHỌN|HUONG TRUYEN DA CHON|Tiền đề|Tien de|Logic cốt truyện|Logic cot truyen|Nhịp Arc|Nhip Arc)/i.test(value)) return true;
   const normalized = textFingerprint(value);
   if (!normalized) return true;
-  return /^(arc|arc \d+|khai cuc|phat trien|cao trao|ket cuc|hoi nhap|chuyen tiep|mo dau)$/.test(normalized);
+  if (normalized.split(/\s+/).length > 9) return true;
+  return /(?:huong truyen da chon|tien de|logic cot truyen)|^(arc|arc \d+|khai cuc|phat trien|cao trao|ket cuc|hoi nhap|chuyen tiep|mo dau)$/.test(normalized);
 };
 
 const deriveArcTitleFallback = (params: StoryParams, index: number, count: number, arcRole: string) => {
-  const direction = titleFromPlanPhrase(params.directionLock || params.seed || params.character.goal || "", 5);
+  const titleSignal = plainText(`${premiseFromParams(params)} ${directionTitleFromLock(params)} ${params.character.goal || ""} ${(params.genres || []).join(" ")}`);
+  const titleBanks = [
+    {
+      test: /cuu long|song|dong nuoc|thuy|nuoc|lan|ca/,
+      titles: ["Đứa Trẻ Của Dòng Nước", "Luật Nước Ngầm", "Vết Dấu Cửu Long", "Mạch Sâu Trỗi Dậy", "Bờ Bên Kia Bão"],
+    },
+    {
+      test: /dieu tra|huyen nghi|bi an|manh moi|than phan|lat mat/,
+      titles: ["Dấu Hỏi Đầu Tiên", "Lớp Vỏ Giả", "Người Giấu Chứng Cứ", "Sự Thật Đổi Mặt", "Đáp Án Có Giá"],
+    },
+    {
+      test: /bao thu|thu han|mon no|tra gia|nhan qua/,
+      titles: ["Món Nợ Đầu Tiên", "Giá Của Lời Thề", "Kẻ Đòi Nợ Cũ", "Vết Máu Quay Lại", "Ngày Trả Giá"],
+    },
+    {
+      test: /ma phap|ma dao|hoc phu|yeu ma|thanh thanh|cam chu|phap su/,
+      titles: ["Ấn Chú Đầu Tiên", "Luật Của Học Phủ", "Bóng Tối Trong Thành", "Cấm Chú Thức Tỉnh", "Pháp Trận Sau Cùng"],
+    },
+    {
+      test: /the luc|xay dung|tai nguyen|danh phan|dong minh/,
+      titles: ["Viên Gạch Đầu Tiên", "Luật Của Danh Phận", "Tài Nguyên Có Giá", "Đồng Minh Hai Mặt", "Thế Cờ Thành Hình"],
+    },
+  ];
+  const matchedBank = titleBanks.find(bank => bank.test.test(titleSignal));
+  if (matchedBank) return matchedBank.titles[(index - 1) % matchedBank.titles.length];
+
+  const direction = titleFromPlanPhrase(directionTitleFromLock(params) || params.character.goal || "", 5);
   const roleHint = titleFromPlanPhrase(arcRole, 4);
   const phaseTitle = index === 1
     ? "Lời Hứa Mở Đầu"
@@ -1270,7 +1320,7 @@ const deriveArcTitleFallback = (params: StoryParams, index: number, count: numbe
         : index > count * 0.42
           ? "Dấu Vết Đổi Hướng"
           : "Luật Chơi Đầu Tiên";
-  if (direction && !isWeakPlanPhrase(direction)) return `${phaseTitle}: ${direction}`;
+  if (direction && !isWeakPlanPhrase(direction)) return `${phaseTitle} Của ${direction}`;
   return roleHint && !isWeakPlanPhrase(roleHint) ? `${phaseTitle}: ${roleHint}` : phaseTitle;
 };
 
@@ -1283,7 +1333,7 @@ const buildArcSummaryFallback = (
   arcRole: string,
 ) => {
   const characterName = params.character.name || "nhân vật chính";
-  const seed = plainText(params.seed || params.directionLock || "").slice(0, 150);
+  const seed = premiseFromParams(params).slice(0, 220);
   const goal = params.character.goal || "mục tiêu trung tâm đã khóa";
   const premise = seed
     ? `xuất phát từ mâu thuẫn "${seed}"`
@@ -1438,21 +1488,25 @@ const normalizeVolumes = (raw: AnyRecord, params: StoryParams): Volume[] => {
         ? "Arc cầu nối ngắn"
         : "Arc nhịp vừa";
     const arcRole = arcNarrativeRole(volumeOffset, ranges.length);
-    const rawTitle = asText(rawVolume.title);
-    const title = isWeakArcTitle(rawTitle)
+    const rawTitleOriginal = asText(rawVolume.title);
+    const rawTitle = stripDirectionLabels(rawTitleOriginal);
+    const title = isWeakArcTitle(rawTitleOriginal) || isWeakArcTitle(rawTitle)
       ? deriveArcTitleFallback(params, index, ranges.length, arcRole)
       : rawTitle;
     const rawChapters = Array.isArray(rawVolume.chapters) ? rawVolume.chapters : [];
-    const rawSummary = asText(rawVolume.content || rawVolume.synopsis || rawVolume.arcContent || rawVolume.summary);
-    const summary = isWeakArcSummary(rawSummary)
+    const rawSummaryOriginal = asText(rawVolume.content || rawVolume.synopsis || rawVolume.arcContent || rawVolume.summary);
+    const rawSummary = stripDirectionLabels(rawSummaryOriginal);
+    const summary = isWeakArcSummary(rawSummaryOriginal) || isWeakArcSummary(rawSummary)
       ? buildArcSummaryFallback(params, title, index, range.start, range.end, arcRole)
       : rawSummary;
-    const content = asText(rawVolume.content || rawVolume.synopsis || rawVolume.arcContent, summary);
-    const theme = asText(rawVolume.theme || rawVolume.topic || rawVolume.subject, buildArcThemeFallback(params, index, ranges.length));
-    const objective = asText(
+    const rawContentOriginal = asText(rawVolume.content || rawVolume.synopsis || rawVolume.arcContent);
+    const rawContent = stripDirectionLabels(rawContentOriginal);
+    const content = isWeakArcSummary(rawContentOriginal) || isWeakArcSummary(rawContent) ? summary : rawContent;
+    const theme = stripDirectionLabels(asText(rawVolume.theme || rawVolume.topic || rawVolume.subject, buildArcThemeFallback(params, index, ranges.length)));
+    const objective = stripDirectionLabels(asText(
       rawVolume.objective || rawVolume.goal || rawVolume.preliminaryGoal || rawVolume.arcGoal,
       buildArcObjectiveFallback(params, title, range.start, range.end, arcRole),
-    );
+    ));
     const chapters = rawChapters
       .filter((chapter: AnyRecord) => {
         const chapterIndex = Number(chapter?.index);
@@ -1467,7 +1521,7 @@ const normalizeVolumes = (raw: AnyRecord, params: StoryParams): Volume[] => {
       content,
       theme,
       objective,
-      purpose: asText(rawVolume.purpose, `${lengthShape}: dùng ${arcSize} chương để ${arcRole}${directionTitle ? `, phục vụ hướng "${directionTitle}"` : ""}.`),
+      purpose: stripDirectionLabels(asText(rawVolume.purpose, `${lengthShape}: dùng ${arcSize} chương để ${arcRole}${directionTitle ? `, phục vụ hướng "${directionTitle}"` : ""}.`)),
       chapterStart: range.start,
       chapterEnd: range.end,
       chapters: refineChapterSequence(chapters, params, { title, chapterStart: range.start, chapterEnd: range.end }),
@@ -1893,6 +1947,8 @@ ${arcBudgetGuide}
 - Mỗi Arc phải trả lời được: nhân vật muốn gì, lực cản là gì, lựa chọn nào tạo hậu quả, dữ kiện canon nào được khóa thêm, trạng thái nhân vật thay đổi ra sao ở cuối Arc.
 - Đại cục phải nêu rõ mâu thuẫn trung tâm, lời hứa thể loại, hệ giá phải trả, phản lực chính, tuyến cảm xúc của nhân vật và kiểu kết cục theo "${params.mode}".
 - Không dùng tên Arc chung chung. Tránh "Khai cục", "Arc 2", "Phát triển", "Cao trào" đơn độc; tên Arc phải gắn với sự kiện, địa danh, bí mật, lời nguyền, vụ án, thế lực, chủ đề hoặc giá phải trả cụ thể.
+- Không được đưa nhãn quản trị vào title/content/summary của Arc. Cấm dùng các cụm như "HƯỚNG TRUYỆN ĐÃ CHỌN", "Tiền đề", "Logic cốt truyện", "Nhịp Arc" làm tên Arc hoặc câu mở đầu nội dung Arc.
+- Mỗi tên Arc nên giống tiêu đề truyện thật, 3-8 từ, ví dụ "Đứa Trẻ Của Dòng Nước", "Luật Chơi Đầu Tiên", "Dấu Vết Không Người Nhận", không phải mô tả thao tác lập kế hoạch.
 - Nếu mở đầu nhân vật chưa có tên, chưa có nhận thức, bị bỏ rơi, mất trí nhớ hoặc đang ở trạng thái bất lực, Đại cục phải ghi rõ ai biết gì, ai đặt tên/gọi tên, khi nào nhân vật có thể biết tên/mục tiêu của mình.
 - Không được để chapter 1 gọi nhân vật bằng tên hồ sơ nếu trong logic cảnh chưa có người đặt hoặc gọi tên đó.
 - Nếu tổng số chương rất dài, chia Arc theo cụm 25-60 chương để sau này sinh bản đồ chương theo từng Arc; không bắt buộc Arc nào cũng bằng nhau.
@@ -1914,9 +1970,9 @@ JSON bắt buộc:
   "volumes": [
     {
       "index": 1,
-      "title": "tên Arc riêng, không dùng Arc 1/Khai cục đơn độc",
-      "summary": "sơ lược Arc cụ thể: tình thế đầu Arc, xung đột chính, biến chuyển cuối Arc",
-      "content": "nội dung sơ lược Arc 2-4 câu",
+      "title": "tên Arc riêng 3-8 từ, không chứa nhãn HƯỚNG TRUYỆN ĐÃ CHỌN/Tiền đề/Logic cốt truyện",
+      "summary": "sơ lược Arc cụ thể: tình thế đầu Arc, xung đột chính, biến chuyển cuối Arc; không dùng nhãn quản trị",
+      "content": "nội dung sơ lược Arc 2-4 câu bằng văn bản tự nhiên, không dùng nhãn quản trị",
       "theme": "chủ đề Arc",
       "objective": "mục tiêu sơ bộ Arc",
       "purpose": "chức năng của Arc trong toàn truyện, kèm lý do Arc này cần dài/ngắn",
@@ -1939,7 +1995,7 @@ JSON bắt buộc:
   "title": "tên tác phẩm",
   "worldBuilding": "Thiên Cơ Lục dạng markdown",
   "generalSummary": "đại cục toàn truyện dạng Markdown 5 mục, bắt buộc có # Sơ lược truyện",
-  "volumes": [{ "index": 1, "title": "tên Arc riêng", "summary": "sơ lược Arc cụ thể", "content": "nội dung sơ lược Arc", "theme": "chủ đề Arc", "objective": "mục tiêu sơ bộ Arc", "purpose": "chức năng Arc và lý do dài/ngắn", "chapterStart": 1, "chapterEnd": ${Math.min(totalChapters, 40)}, "chapters": [] }]
+  "volumes": [{ "index": 1, "title": "tên Arc riêng 3-8 từ, không chứa nhãn quản trị", "summary": "sơ lược Arc cụ thể", "content": "nội dung sơ lược Arc tự nhiên", "theme": "chủ đề Arc", "objective": "mục tiêu sơ bộ Arc", "purpose": "chức năng Arc và lý do dài/ngắn", "chapterStart": 1, "chapterEnd": ${Math.min(totalChapters, 40)}, "chapters": [] }]
 }`,
     );
   } catch (error) {
@@ -2005,7 +2061,7 @@ ${history || "Chưa có chương đã viết."}
 
 Hãy lập Arc ${safeVolumes.length + 1}, phủ chương ${start}-${end}.
 Arc mới phải nối logic với các Arc đã có, có mục tiêu riêng, có chapterStart/chapterEnd rõ ràng, chưa cần bản đồ chương chi tiết.
-Viết JSON gọn nhưng đủ ý: title là tên Arc riêng; content/summary là sơ lược Arc cụ thể 2-4 câu ngắn; theme là chủ đề Arc; objective là mục tiêu sơ bộ Arc; purpose tối đa 42 từ.
+Viết JSON gọn nhưng đủ ý: title là tên Arc riêng 3-8 từ như tiêu đề truyện thật, không chứa nhãn quản trị; content/summary là sơ lược Arc cụ thể 2-4 câu ngắn; theme là chủ đề Arc; objective là mục tiêu sơ bộ Arc; purpose tối đa 42 từ.
 Summary/content phải nói rõ tình thế đầu Arc, xung đột chính, biến chuyển cuối Arc và móc nối sang Arc sau; không được chỉ ghi "Arc này phụ trách chương..." hoặc chỉ nêu chức năng.
 Ghi rõ dữ kiện canon cần giữ và hậu quả cuối Arc nối sang Arc sau.
 Ghi rõ trạng thái nhận thức/tên gọi của nhân vật ở đầu Arc nếu Arc có đổi tên, đổi tuổi, đổi người chăm sóc, đổi thân phận hoặc mất/khôi phục ký ức.
@@ -2021,7 +2077,7 @@ Trả về JSON của một Volume có index, title, summary, content, theme, ob
       `Arc ${safeVolumes.length + 1} mở rộng`,
       `Arc mới phải phủ chương ${start}-${end}, nối tiếp ${safeVolumes.length} Arc đã có và không phá Thiên Cơ Lục.`,
       data,
-      `{ "index": ${safeVolumes.length + 1}, "title": "tên Arc riêng", "summary": "sơ lược Arc cụ thể", "content": "nội dung sơ lược Arc", "theme": "chủ đề Arc", "objective": "mục tiêu sơ bộ Arc", "purpose": "chức năng Arc", "chapterStart": ${start}, "chapterEnd": ${end}, "chapters": [] }`,
+      `{ "index": ${safeVolumes.length + 1}, "title": "tên Arc riêng 3-8 từ, không chứa nhãn quản trị", "summary": "sơ lược Arc cụ thể", "content": "nội dung sơ lược Arc tự nhiên", "theme": "chủ đề Arc", "objective": "mục tiêu sơ bộ Arc", "purpose": "chức năng Arc", "chapterStart": ${start}, "chapterEnd": ${end}, "chapters": [] }`,
     );
   } catch (error) {
     if (!isAIJsonFormatError(error)) throw error;
@@ -2030,22 +2086,27 @@ Trả về JSON của một Volume có index, title, summary, content, theme, ob
   }
   const index = safeVolumes.length + 1;
   const arcRole = arcNarrativeRole(safeVolumes.length, profileCount);
-  const title = isWeakArcTitle(asText(data?.title))
+  const rawTitleOriginal = asText(data?.title);
+  const rawTitle = stripDirectionLabels(rawTitleOriginal);
+  const title = isWeakArcTitle(rawTitleOriginal) || isWeakArcTitle(rawTitle)
     ? deriveArcTitleFallback(params, index, profileCount, arcRole)
-    : asText(data?.title);
-  const rawSummary = asText(data?.content || data?.summary);
-  const summary = isWeakArcSummary(rawSummary)
+    : rawTitle;
+  const rawSummaryOriginal = asText(data?.content || data?.summary);
+  const rawSummary = stripDirectionLabels(rawSummaryOriginal);
+  const summary = isWeakArcSummary(rawSummaryOriginal) || isWeakArcSummary(rawSummary)
     ? buildArcSummaryFallback(params, title, index, start, end, arcRole)
     : rawSummary;
+  const rawContentOriginal = asText(data?.content);
+  const rawContent = stripDirectionLabels(rawContentOriginal);
 
   return {
     index,
     title,
     summary,
-    content: summary,
-    theme: asText(data?.theme, buildArcThemeFallback(params, safeVolumes.length + 1, profileCount)),
-    objective: asText(data?.objective || data?.preliminaryGoal || data?.goal, buildArcObjectiveFallback(params, title, start, end, arcRole)),
-    purpose: asText(data?.purpose, "Mở rộng xung đột, tăng sức ép và chuẩn bị cho bước ngoặt kế tiếp."),
+    content: isWeakArcSummary(rawContentOriginal) || isWeakArcSummary(rawContent) ? summary : rawContent,
+    theme: stripDirectionLabels(asText(data?.theme, buildArcThemeFallback(params, safeVolumes.length + 1, profileCount))),
+    objective: stripDirectionLabels(asText(data?.objective || data?.preliminaryGoal || data?.goal, buildArcObjectiveFallback(params, title, start, end, arcRole))),
+    purpose: stripDirectionLabels(asText(data?.purpose, "Mở rộng xung đột, tăng sức ép và chuẩn bị cho bước ngoặt kế tiếp.")),
     chapterStart: start,
     chapterEnd: end,
     chapters: [],

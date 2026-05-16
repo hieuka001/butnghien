@@ -987,7 +987,24 @@ const App: React.FC = () => {
   const stripChapterTitlePrefix = (value: string) =>
     String(value || '').replace(/^\s*(?:c(?:hương)?\.?|chapter)\s*\d+\s*[:.：\-–—]?\s*/i, '').trim();
 
-  const planFingerprint = (value: string) => stripChapterTitlePrefix(value)
+  const stripDirectionLabels = (value: string) => String(value || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/^\s*(?:HƯỚNG TRUYỆN ĐÃ CHỌN|HUONG TRUYEN DA CHON)\s*[:：-]\s*/gim, '')
+    .replace(/^\s*(?:Tiền đề|Tien de|Động cơ truyện|Dong co truyen|Phù hợp khi|Phu hop khi|Logic cốt truyện|Logic cot truyen|Nhịp Arc|Nhip Arc|Dư âm\/cao trào|Du am\/cao trao|Điều cần tránh|Dieu can tranh|Bắt buộc khi lập lộ trình|Bat buoc khi lap lo trinh)\s*[:：-]\s*/gim, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const directionTitleFromLock = (lock: string) =>
+    stripDirectionLabels(String(lock || '')
+      .split(/\r?\n/)
+      .find(line => line
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim()
+        .startsWith('huong truyen da chon')) || '');
+
+  const planFingerprint = (value: string) => stripDirectionLabels(stripChapterTitlePrefix(value))
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
@@ -1002,34 +1019,51 @@ const App: React.FC = () => {
   };
 
   const isWeakArcSummaryText = (value: string) => {
+    if (/(HƯỚNG TRUYỆN ĐÃ CHỌN|HUONG TRUYEN DA CHON|Logic cốt truyện|Logic cot truyen|Nhịp Arc|Nhip Arc)/i.test(value)) return true;
     const normalized = planFingerprint(value);
     if (!normalized || normalized.split(/\s+/).length < 10) return true;
-    return /^(arc \d+ phu trach|arc \d+ tiep tuc|tom tat arc|khong co|khai cuc ngan|hoi nhap va khoa quy tac|day nhan vat)/.test(normalized);
+    return /(?:huong truyen da chon|arc cau noi ngan|arc nhip vua|arc trong tam dai)|^(arc \d+ phu trach|arc \d+ tiep tuc|tom tat arc|khong co|khai cuc ngan|hoi nhap va khoa quy tac|day nhan vat)/.test(normalized);
   };
 
   const isWeakArcTitleText = (value: string) => {
+    if (/(HƯỚNG TRUYỆN ĐÃ CHỌN|HUONG TRUYEN DA CHON|Tiền đề|Tien de|Logic cốt truyện|Logic cot truyen|Nhịp Arc|Nhip Arc)/i.test(value)) return true;
     const normalized = planFingerprint(value);
     if (!normalized) return true;
-    return /^(arc|arc \d+|khai cuc|phat trien|cao trao|ket cuc|hoi nhap|chuyen tiep|mo dau)$/.test(normalized);
+    if (normalized.split(/\s+/).length > 9) return true;
+    return /(?:huong truyen da chon|tien de|logic cot truyen)|^(arc|arc \d+|khai cuc|phat trien|cao trao|ket cuc|hoi nhap|chuyen tiep|mo dau)$/.test(normalized);
   };
 
-  const getArcDisplayTitle = (volume: Volume) => {
-    if (!isWeakArcTitleText(volume.title || '')) return volume.title;
-    const phase = volume.index === 1
-      ? 'Lời Hứa Mở Đầu'
+  const fallbackArcDisplayTitle = (volume: Volume) => {
+    const signal = planFingerprint(`${params.seed || ''} ${params.directionLock || ''} ${params.character.goal || ''} ${(params.genres || []).join(' ')}`);
+    const banks = [
+      { test: /cuu long|song|dong nuoc|thuy|nuoc|lan|ca/, titles: ['Đứa Trẻ Của Dòng Nước', 'Luật Nước Ngầm', 'Vết Dấu Cửu Long', 'Mạch Sâu Trỗi Dậy', 'Bờ Bên Kia Bão'] },
+      { test: /dieu tra|huyen nghi|bi an|manh moi|than phan|lat mat/, titles: ['Dấu Hỏi Đầu Tiên', 'Lớp Vỏ Giả', 'Người Giấu Chứng Cứ', 'Sự Thật Đổi Mặt', 'Đáp Án Có Giá'] },
+      { test: /bao thu|thu han|mon no|tra gia|nhan qua/, titles: ['Món Nợ Đầu Tiên', 'Giá Của Lời Thề', 'Kẻ Đòi Nợ Cũ', 'Vết Máu Quay Lại', 'Ngày Trả Giá'] },
+      { test: /ma phap|ma dao|hoc phu|yeu ma|thanh thanh|cam chu|phap su/, titles: ['Ấn Chú Đầu Tiên', 'Luật Của Học Phủ', 'Bóng Tối Trong Thành', 'Cấm Chú Thức Tỉnh', 'Pháp Trận Sau Cùng'] },
+    ];
+    const bank = banks.find(item => item.test.test(signal));
+    if (bank) return bank.titles[(volume.index - 1) % bank.titles.length];
+    return volume.index === 1
+      ? 'Vết Nứt Đầu Tiên'
       : volume.index === volumes.length
         ? 'Cánh Cửa Kết Cục'
         : volume.index > volumes.length * 0.65
           ? 'Cái Giá Dâng Cao'
           : 'Dấu Vết Đổi Hướng';
-    const detail = titleFromPlanPhrase(volume.content || volume.summary || params.directionLock || params.seed || params.character.goal || '');
-    return detail ? `${phase}: ${detail}` : phase;
+  };
+
+  const getArcDisplayTitle = (volume: Volume) => {
+    const originalTitle = volume.title || '';
+    const rawTitle = stripDirectionLabels(volume.title || '');
+    if (!isWeakArcTitleText(originalTitle) && !isWeakArcTitleText(rawTitle)) return rawTitle;
+    return fallbackArcDisplayTitle(volume);
   };
 
   const getArcSynopsis = (volume: Volume) => {
-    const content = volume.content || volume.summary || '';
-    if (!isWeakArcSummaryText(content)) return content;
-    const seed = (params.seed || params.directionLock || '').replace(/\s+/g, ' ').trim();
+    const originalContent = volume.content || volume.summary || '';
+    const content = stripDirectionLabels(volume.content || volume.summary || '');
+    if (!isWeakArcSummaryText(originalContent) && !isWeakArcSummaryText(content)) return content;
+    const seed = stripDirectionLabels(params.seed || '') || directionTitleFromLock(params.directionLock || '');
     const premise = seed ? `xuất phát từ mâu thuẫn "${seed.slice(0, 120)}"` : `xoay quanh mục tiêu "${params.character.goal || 'đã khóa'}"`;
     return `Trong ${getArcDisplayTitle(volume)}, ${params.character.name || 'nhân vật chính'} đi qua chương ${volume.chapterStart || '?'}-${volume.chapterEnd || '?'}, ${premise}. Arc này cần tạo một biến chuyển riêng, khóa thêm dữ kiện canon và để lại hậu quả nối sang Arc sau.`;
   };
@@ -1042,9 +1076,22 @@ const App: React.FC = () => {
   const getArcObjective = (volume: Volume) =>
     volume.objective || volume.purpose || `Đưa ${params.character.name || 'nhân vật chính'} qua một biến chuyển rõ trong chương ${volume.chapterStart || '?'}-${volume.chapterEnd || '?'}.`;
 
+  const getCleanArcForPrompt = (volume: Volume): Volume => {
+    const synopsis = getArcSynopsis(volume);
+    return {
+      ...volume,
+      title: getArcDisplayTitle(volume),
+      summary: synopsis,
+      content: synopsis,
+      theme: stripDirectionLabels(volume.theme || getArcTheme(volume)),
+      objective: stripDirectionLabels(volume.objective || getArcObjective(volume)),
+      purpose: stripDirectionLabels(volume.purpose || ''),
+    };
+  };
+
   const titleFromPlanPhrase = (value: string) => {
-    const cleaned = stripChapterTitlePrefix(value)
-      .replace(/^(?:Mục tiêu|Beat|Cảnh|Hậu quả|Móc nối|Chi tiết bắt buộc)\s*[:：-]\s*/i, '')
+    const cleaned = stripDirectionLabels(stripChapterTitlePrefix(value))
+      .replace(/^(?:Mục tiêu|Beat|Cảnh|Hậu quả|Móc nối|Chi tiết bắt buộc|Chủ đề Arc|Mục tiêu sơ bộ|Vai trò Arc|Nội dung Arc)\s*[:：-]\s*/i, '')
       .replace(/\s+/g, ' ')
       .trim();
     const words = cleaned.split(/\s+/).filter(Boolean).slice(0, 8);
@@ -1132,11 +1179,12 @@ const App: React.FC = () => {
   const ensureArcChapterPlans = async (arcIndex: number): Promise<Volume> => {
     const currentArc = volumes.find(volume => volume.index === arcIndex);
     if (!currentArc) throw new Error('Không tìm thấy Arc trong lộ trình.');
-    if (hasCompleteArcChapterPlan(currentArc)) return currentArc;
+    if (hasCompleteArcChapterPlan(currentArc)) return getCleanArcForPrompt(currentArc);
 
-    setGenerationStatus(`Đang lập bản đồ chương cho ${currentArc.title}...`);
-    const plannedArc = await generateChapterPlansForArc(params, worldBible, generalSummary, currentArc, writtenChapters);
-    const mergedArc = mergeArcPlans(currentArc, plannedArc);
+    const cleanArc = getCleanArcForPrompt(currentArc);
+    setGenerationStatus(`Đang lập bản đồ chương cho ${cleanArc.title}...`);
+    const plannedArc = await generateChapterPlansForArc(params, worldBible, generalSummary, cleanArc, writtenChapters);
+    const mergedArc = mergeArcPlans(cleanArc, plannedArc);
     const updatedVolumes = volumes.map(volume => volume.index === arcIndex ? mergedArc : volume);
     setVolumes(updatedVolumes);
     setProjects(prevProjects => prevProjects.map(project => project.id === activeProjectId
