@@ -36,6 +36,7 @@ Nhiệm vụ bắt buộc:
 const SYSTEM_INSTRUCTION_NEXT_ARC = `Bạn là biên kịch trưởng đang mở rộng một truyện dài đã có hồ sơ.
 Dựa vào Thiên Cơ Lục, đại cục và lịch sử chương, hãy tạo Arc kế tiếp sao cho không phá logic cũ, không lặp tình tiết và vẫn đẩy tác phẩm tới kết cục đã chọn.
 Không được đổi số liệu, timeline, quan hệ, luật thế giới, vật phẩm hoặc cấp bậc đã khóa nếu không có lý do nhân quả rõ trong truyện.
+Không được đổi tên gọi, tuổi, người chăm sóc, ký ức, mục tiêu hoặc năng lực hành động của nhân vật nếu lịch sử chương chưa tạo cảnh chuyển trạng thái.
 Chỉ trả về JSON hợp lệ.`;
 
 const SYSTEM_INSTRUCTION_CHAPTER_PLAN = `Bạn là biên kịch trưởng chuyên lập bản đồ chương cho một Arc đã khóa.
@@ -44,7 +45,8 @@ Nhiệm vụ:
 2. Mỗi chương phải có mục tiêu, chức năng trong Arc, 3 beat dạng cảnh, 2 chi tiết bắt buộc, nhịp độ và móc nối.
 3. Bám Thiên Cơ Lục tuyệt đối: không đổi tên riêng, số liệu, timeline, quan hệ, cấp bậc, vật phẩm hoặc luật thế giới.
 4. Mỗi kế hoạch chương phải đúng điểm nhìn và trạng thái nhân vật tại thời điểm đó: tên gọi, tuổi/nhận thức, điều biết/chưa biết, năng lực hành động, lời nói hợp tuổi và quan hệ.
-5. Không viết văn xuôi truyện ở bước này. Chỉ trả về JSON hợp lệ.`;
+5. Mỗi beat phải là một cảnh có nhân quả: ai đang ở đó, họ muốn gì, va chạm là gì, lựa chọn nào tạo hậu quả.
+6. Không viết văn xuôi truyện ở bước này. Chỉ trả về JSON hợp lệ.`;
 
 const WRITER_SYSTEM_INSTRUCTION = `Bạn là tiểu thuyết gia tiếng Việt hiện đại, có tư duy biên kịch chặt chẽ và gu văn chuyên nghiệp.
 Văn phong ưu tiên: giàu cảnh, ít sáo ngữ, câu văn linh hoạt, hình ảnh chính xác, thoại có hàm ý, nhịp đoạn kiểm soát tốt. Viết có chất văn nhưng không phô diễn; cảm xúc sâu nhưng không ủy mị; hiện đại nhưng không cộc.
@@ -70,6 +72,7 @@ const SCENE_LOGIC_RULES = `Luật logic cảnh bắt buộc:
 - Mỗi cảnh phải có chuỗi: mục tiêu -> va chạm -> lựa chọn -> hậu quả. Không được chỉ miêu tả hoặc chỉ kê khai tâm trạng.
 - Nhân vật không được biết, đoán đúng, xuất hiện, thắng hoặc thất bại nếu chưa có nguyên nhân trong cảnh hoặc trong Thiên Cơ Lục.
 - Mỗi dữ kiện mới phải để lại dấu vết cho chương sau: một mối quan hệ đổi trạng thái, một manh mối, một cấm kỵ, một món nợ, một vết thương, hoặc một quyết định khó rút lại.
+- Không được để lời kể biết thay nhân vật. Nếu cảnh bám sát một đứa trẻ, người mất trí nhớ hoặc người chưa có thông tin, văn bản phải giới hạn trong thứ họ có thể cảm, thấy, nghe, suy ra hoặc được người khác gọi.
 - Khi cần giải thích, hãy để giải thích nằm trong hành động, đối thoại, vật chứng hoặc sai lầm của nhân vật.`;
 
 const IMMERSIVE_LOGIC_RULES = `Luật nhập vai và điểm nhìn bắt buộc:
@@ -79,6 +82,7 @@ const IMMERSIVE_LOGIC_RULES = `Luật nhập vai và điểm nhìn bắt buộc:
 - Lời nói phải đúng tuổi, địa vị, quan hệ và mức hiểu biết. Trẻ sơ sinh không có độc thoại trưởng thành; trẻ nhỏ không nói như người lớn; người xa lạ không gọi thân mật nếu chưa có quan hệ.
 - Hành động phải đúng cơ thể và hoàn cảnh. Nhân vật bị thương, mới sinh, bị trói, đói, mất trí nhớ, nghèo khó hoặc bị bỏ rơi không thể hành động như người khỏe mạnh/đủ quyền lực nếu chưa có nguyên nhân.
 - Khi chuyển thời gian, đổi tên gọi, đổi người chăm sóc, đổi mục tiêu hoặc đổi quan hệ, phải có cảnh hoặc câu nối rõ nguyên nhân. Không nhảy từ "bị bỏ rơi" sang "đã có tên và ký ức đầy đủ" nếu chưa viết quá trình được nhặt, nhận nuôi, đặt tên và lớn lên.
+- Nếu hồ sơ nhập tên nhân vật nhưng chương mở đầu là giai đoạn chưa được đặt tên, hãy xem tên đó là tên tương lai. Văn xuôi hiện tại chỉ được gọi bằng cách nhân vật/người trong cảnh có thể biết.
 - Ưu tiên đặt người đọc vào vị trí nhân vật: cảm giác trước, suy luận sau, quyết định cuối. Không dùng lời kể toàn tri để lấp lỗ hổng logic.`;
 
 const ACTIVE_WRITER_SYSTEM_INSTRUCTION = `${WRITER_SYSTEM_INSTRUCTION}
@@ -310,6 +314,39 @@ const appendDraftPart = (base: string, addition: string) => {
   if (!current) return next;
   if (!next) return current;
   return `${current}\n\n${next}`;
+};
+
+const excerptForAudit = (text: string, limit = 11000) => {
+  const cleaned = normalizeGeneratedDraft(text);
+  if (cleaned.length <= limit) return cleaned;
+  const partSize = Math.floor(limit / 3);
+  const middleStart = Math.max(partSize, Math.floor(cleaned.length / 2 - partSize / 2));
+  return [
+    "[ĐẦU VĂN BẢN]",
+    cleaned.slice(0, partSize),
+    "[GIỮA VĂN BẢN]",
+    cleaned.slice(middleStart, middleStart + partSize),
+    "[CUỐI VĂN BẢN]",
+    cleaned.slice(-partSize),
+  ].join("\n\n");
+};
+
+const protagonistHandleForDraft = (params: StoryParams, context = "") => {
+  const text = plainText(`${context} ${params.seed || ""} ${params.directionLock || ""}`);
+  const childOrUnnamed = /(so sinh|moi sinh|hai nhi|em be|dua be|dua tre|tre so sinh|bo roi|bo lai|nhan nuoi|nhat duoc|mo coi|khong ten|chua dat ten)/.test(text);
+  const amnesia = /(mat tri nho|quen ten|khong nho ten|mat ky uc|xoa ky uc)/.test(text);
+  if (childOrUnnamed) return { label: "đứa trẻ", pronoun: "nó" };
+  if (amnesia) {
+    if (params.character.gender === "Nữ") return { label: "người phụ nữ ấy", pronoun: "cô" };
+    if (params.character.gender === "Nam") return { label: "người đàn ông ấy", pronoun: "anh" };
+    return { label: "người ấy", pronoun: "người ấy" };
+  }
+  if (params.character.name?.trim()) {
+    if (params.character.gender === "Nữ") return { label: params.character.name.trim(), pronoun: "cô" };
+    if (params.character.gender === "Nam") return { label: params.character.name.trim(), pronoun: "cậu" };
+    return { label: params.character.name.trim(), pronoun: "người ấy" };
+  }
+  return { label: "nhân vật chính", pronoun: "người ấy" };
 };
 
 const stripJsonFence = (text: string) => text
@@ -1021,7 +1058,13 @@ const buildEmergencyChapterDraft = (
   userIdea: string,
   minWords: number,
 ) => {
-  const characterName = params.character?.name || "nhân vật chính";
+  const handle = protagonistHandleForDraft(
+    params,
+    `${userIdea} ${currentArc.summary} ${chapterPlan?.summary || ""} ${chapterPlan?.objective || ""}`,
+  );
+  const characterName = handle.label;
+  const pronoun = handle.pronoun;
+  const sentencePronoun = pronoun.charAt(0).toUpperCase() + pronoun.slice(1);
   const title = chapterPlan?.title || `Chương ${chapterIndex}`;
   const objective = chapterPlan?.objective || chapterPlan?.summary || currentArc.summary || "đẩy câu chuyện tiến lên bằng một lựa chọn có hậu quả";
   const beats = (chapterPlan?.beats?.length ? chapterPlan.beats : fallbackBeats(chapterIndex, params.totalChapters, currentArc.title)).slice(0, 4);
@@ -1029,13 +1072,13 @@ const buildEmergencyChapterDraft = (
   const storyHint = userIdea || params.seed || "mạch truyện đã khởi tạo";
   const paragraphs = [
     `Tên chương: ${title}`,
-    `${characterName} bước vào phần việc của mình trong ${currentArc.title} với cảm giác mọi thứ đã lệch đi một nấc rất nhỏ. Điều cần làm không còn là nghĩ xem chuyện nào đáng tin, mà là chọn một hành động đủ cụ thể để kiểm chứng ${objective}. Cậu giữ lại những chi tiết đã được khóa trong Thiên Cơ Lục, không vội đặt thêm con số mới, cũng không tự ý mở một bí mật ngoài đường dây đang có.`,
+    `${characterName} bị đặt vào phần việc của mình trong ${currentArc.title} với cảm giác mọi thứ đã lệch đi một nấc rất nhỏ. Điều cần làm không còn là nghĩ xem chuyện nào đáng tin, mà là chọn một hành động đủ cụ thể để kiểm chứng ${objective}. ${sentencePronoun} giữ lại những chi tiết đã được khóa trong Thiên Cơ Lục, không vội đặt thêm con số mới, cũng không tự ý mở một bí mật ngoài đường dây đang có.`,
   ];
   const templates = [
     (beat: string, detail: string) => `${beat}. Cảnh này được kéo xuống mặt đất bằng một việc nhìn thấy được: ${characterName} quan sát, đối chiếu rồi buộc phải phản ứng trước ${detail}. Mỗi lời nói trong cảnh đều có mục đích, hoặc che giấu, hoặc thử lòng, hoặc đẩy nhân vật tiến gần hơn đến hậu quả cuối chương.`,
-    (beat: string, detail: string) => `Khi ${detail} hiện ra rõ hơn, ${characterName} không thắng bằng may mắn. Cậu phải đổi một thứ đang có lấy một manh mối nhỏ, và chính lựa chọn ấy khiến ${beat.toLowerCase()} trở thành biến chuyển không thể đảo ngược của chương.`,
-    (beat: string, detail: string) => `Nhịp truyện chậm lại đủ để người đọc thấy áp lực bên trong nhân vật. ${characterName} nhớ mục tiêu ban đầu, nhưng không sa vào hồi tưởng dài; cậu chỉ giữ lại một hình ảnh ngắn rồi quay về hiện tại, nơi ${detail} đang buộc cậu xử lý ${beat.toLowerCase()}.`,
-    (_beat: string, detail: string) => `Đến cuối cảnh, ${detail} không còn là thông tin rời rạc. Nó trở thành bằng chứng, món nợ hoặc lời cảnh báo. ${characterName} hiểu rằng nếu bước tiếp, cậu phải chấp nhận mất quyền đứng ngoài cuộc, còn nếu lùi lại, toàn bộ ${storyHint} sẽ đứt mạch.`,
+    (beat: string, detail: string) => `Khi ${detail} hiện ra rõ hơn, ${characterName} không thắng bằng may mắn. ${sentencePronoun} phải đổi một thứ đang có lấy một manh mối nhỏ, và chính lựa chọn ấy khiến ${beat.toLowerCase()} trở thành biến chuyển không thể đảo ngược của chương.`,
+    (beat: string, detail: string) => `Nhịp truyện chậm lại đủ để người đọc thấy áp lực bên trong nhân vật. ${characterName} không cần một hồi tưởng dài; ${pronoun} chỉ giữ lại một dấu hiệu ngắn rồi quay về hiện tại, nơi ${detail} đang buộc ${pronoun} xử lý ${beat.toLowerCase()}.`,
+    (_beat: string, detail: string) => `Đến cuối cảnh, ${detail} không còn là thông tin rời rạc. Nó trở thành bằng chứng, món nợ hoặc lời cảnh báo. Tình thế buộc ${characterName} bước tiếp: nếu đứng yên, toàn bộ ${storyHint} sẽ đứt mạch; nếu đi tiếp, cái giá phải trả bắt đầu hiện hình.`,
   ];
 
   let cursor = 0;
@@ -1046,7 +1089,7 @@ const buildEmergencyChapterDraft = (
     cursor++;
   }
 
-  paragraphs.push(`Chương khép lại ở một điểm chưa giải quyết hết. ${characterName} đã có hướng đi mới, nhưng cái giá của lựa chọn vừa rồi bắt đầu lộ ra, đủ để kéo thẳng sang chương kế tiếp mà không phá kết cục toàn truyện.`);
+  paragraphs.push(`Chương khép lại ở một điểm chưa giải quyết hết. ${characterName} đã bị đẩy sang một hướng đi mới, nhưng cái giá của lựa chọn vừa rồi bắt đầu lộ ra, đủ để kéo thẳng sang chương kế tiếp mà không phá kết cục toàn truyện.`);
   return paragraphs.join("\n\n");
 };
 
@@ -1083,7 +1126,7 @@ const buildFallbackWorldBuilding = (params: StoryParams, totalChapters: number) 
   "- Không tự đổi số tuổi, tiền bạc, khoảng cách, cấp bậc, vật phẩm hoặc luật thế giới nếu chưa có nhân quả trong truyện.",
   "",
   "# NHÂN VẬT VÀ QUAN HỆ",
-  `- ${params.character.name || "Nhân vật chính"}: ${params.character.personality || "chưa khóa tính cách"}.`,
+  `- Hồ sơ nhân vật chính: ${params.character.name || "chưa đặt tên quản trị"}; tính cách nền: ${params.character.personality || "chưa khóa tính cách"}.`,
   `- Mục tiêu: ${params.character.goal || "chưa khóa mục tiêu"}.`,
   "",
   "# ĐIỂM NHÌN VÀ TÊN GỌI",
@@ -1423,7 +1466,7 @@ YÊU CẦU VIẾT:
 - Mỗi beat phải được viết thành cảnh có hành động, cảm giác, đối thoại hoặc quyết định cụ thể; không tóm tắt thay cho cảnh.
 - Văn phong hiện đại và chuyên nghiệp: mạch lạc, có hơi văn, có nhạc tính vừa đủ, không cộc, không lạm dụng mỹ từ, không giảng đạo, không dùng câu sáo.
 - Ưu tiên văn hay: hình ảnh chính xác, nhịp câu biến hóa, đối thoại có hàm ý, ít giải thích trực tiếp; mỗi đoạn phải làm tình thế, cảm xúc hoặc thông tin dịch chuyển.
-- Nhân vật chính phải chủ động lựa chọn, sai lầm hoặc trả giá trong chương.
+- Nhân vật chính phải có lựa chọn, sai lầm hoặc trả giá trong chương. Nếu đang là trẻ sơ sinh, bị bỏ rơi, bất tỉnh, mất trí nhớ hoặc chưa đủ năng lực chủ động, lựa chọn có thể thuộc người chăm sóc/đối thủ/tình thế, nhưng hậu quả phải tác động trực tiếp lên nhân vật và đúng điểm nhìn.
 - Trước khi viết từng cảnh, tự kiểm tra: nhân vật đang ở đâu, được ai gọi bằng tên gì, biết gì, chưa biết gì, cơ thể làm được gì, vì sao nói/hành động như vậy. Không xuất phần kiểm tra này ra văn bản.
 - Mỗi cảnh phải làm rõ mục tiêu, trở ngại, lựa chọn hoặc hậu quả. Không kéo dài hồi tưởng/miêu tả nếu không đổi trạng thái truyện.
 - Không mở bí mật, nhiệm vụ, nhân vật, tổ chức hoặc vật phẩm mới nếu nó không phục vụ mục tiêu chương hoặc Arc hiện tại.
@@ -1455,6 +1498,7 @@ Hãy VIẾT TIẾP ngay từ đoạn cuối khoảng ${remainingWords} chữ, kh
 Nếu đoạn cuối đang dở câu hoặc dở cảnh, nối tiếp trực tiếp để hoàn tất câu/cảnh đó trước.
 Ưu tiên hoàn tất các beat còn thiếu, làm sâu tâm lý/xung đột, và kết chương bằng một câu hoàn chỉnh có hậu quả hoặc móc nối.
 Không mở tuyến phụ mới, không đổi số liệu/timeline, không thêm dữ kiện canon nếu không cần cho beat còn thiếu.
+Giữ nguyên điểm nhìn, tên gọi hiện tại, tuổi/nhận thức và trạng thái cơ thể trong đoạn đã có; không đưa tên hồ sơ vào nếu đoạn trước chưa có cảnh đặt hoặc gọi tên.
 
 [KẾ HOẠCH CHƯƠNG]
 ${chapterPlan?.objective || ""}
@@ -1473,6 +1517,7 @@ ${fullText.slice(-3500)}`;
     const closingPrompt = `Đoạn cuối chương ${newIndex} đang bị cụt hoặc chưa khép câu.
 Hãy viết tiếp 180-320 chữ ngay từ đoạn cuối bên dưới để khép cảnh bằng câu hoàn chỉnh.
 Không lặp lại tiêu đề, không tóm tắt, không mở tuyến mới, không đổi dữ kiện canon.
+Chỉ nối để khép cảnh; không đổi điểm nhìn, tên gọi, tuổi, timeline hoặc quan hệ.
 
 [ĐOẠN CUỐI ĐỂ NỐI MẠCH]
 ${fullText.slice(-2200)}`;
@@ -1509,7 +1554,7 @@ export const validateChapterLogic = async (
       reason: "Thiên Cơ Lục quá mỏng, chưa đủ dữ kiện để khóa canon dài kỳ.",
     };
   }
-  if (targetWords && wordCount < Math.max(650, targetWords * 0.9)) {
+  if (targetWords && wordCount < Math.max(650, targetWords * 0.95)) {
     return {
       isValid: false,
       reason: `Chương quá ngắn so với mục tiêu ${targetWords} chữ, hiện khoảng ${wordCount} chữ.`,
@@ -1525,6 +1570,7 @@ export const validateChapterLogic = async (
   const lastChapter = [...previousChapters]
     .filter(chapter => chapter.index !== chapterIndex)
     .sort((a, b) => b.index - a.index)[0];
+  const chapterAuditText = excerptForAudit(currentChapterContent, 12000);
   
   const prompt = `THẨM ĐỊNH CANON, TÍNH NHẤT QUÁN VÀ ĐỘ TẬP TRUNG
 
@@ -1547,7 +1593,7 @@ ${worldBible.slice(0, 5000)}
 ${lastChapter ? `${lastChapter.title}: ${lastChapter.summary}` : "Không có."}
 
 [NỘI DUNG CHƯƠNG MỚI]
-${currentChapterContent.slice(0, 6500)}
+${chapterAuditText}
 
 CÂU HỎI KIỂM ĐỊNH:
 1. Chương có thực hiện đúng mục tiêu và beat chính không?
@@ -1570,10 +1616,10 @@ Trả về JSON: { "isValid": boolean, "reason": string, "canonIssues": string[]
     return await chatJson(PLAN_MODEL, EDITOR_SYSTEM_INSTRUCTION, prompt, 0.2, 2500);
   } catch (error) {
     if (!isAIJsonFormatError(error)) throw error;
-    console.warn("AI trả thẩm định không đúng JSON, không chặn lưu chương:", error);
+    console.warn("AI trả thẩm định không đúng JSON, chặn lưu chương để tránh lọt lỗi logic:", error);
     return {
-      isValid: true,
-      reason: "Không đọc được JSON thẩm định, hệ thống cho lưu bản nháp để tránh kẹt luồng viết.",
+      isValid: false,
+      reason: "Không đọc được JSON thẩm định logic; app chưa lưu bản này để tránh lọt lỗi canon, điểm nhìn hoặc tên gọi.",
     };
   }
 };
@@ -1668,6 +1714,7 @@ export const updateWorldBibleAndSummary = async (
   currentArc?: Volume | { title: string; summary: string; chapters?: Chapter[]; purpose?: string },
 ) => {
   const chapterPlan = currentArc?.chapters?.find(chapter => chapter.index === chapterIndex);
+  const chapterAuditText = excerptForAudit(lastChapterContent, 12000);
   const prompt = `CẬP NHẬT THIÊN CƠ LỤC SAU CHƯƠNG ${chapterIndex}
 
 [HỒ SƠ TÁC PHẨM]
@@ -1684,7 +1731,7 @@ ${chapterPlan ? JSON.stringify(chapterPlan, null, 2) : ""}
 ${currentBible}
 
 [NỘI DUNG CHƯƠNG VỪA VIẾT]
-${lastChapterContent.slice(0, 7500)}
+${chapterAuditText}
 
 Hãy cập nhật hồ sơ truyện như một sổ canon dài kỳ:
 - Giữ lại dữ kiện cũ quan trọng, nhất là dữ kiện chưa được giải quyết.
@@ -1737,7 +1784,7 @@ Hãy viết một truyện ngắn hoàn chỉnh.
 Yêu cầu:
 - Độ dài mục tiêu: khoảng ${targetWords} chữ. Không được dừng dưới ${minWords} chữ nếu truyện chưa khép cảnh và dư âm; không vượt quá ${maxWords} chữ nếu không cần.
 - Có mở truyện, phát triển xung đột, bước ngoặt, cao trào và dư âm.
-- Nhân vật chính phải hành động theo tính cách và mục tiêu đã nhập.
+- Nhân vật chính phải hành động theo tính cách và mục tiêu đã nhập khi đã đủ năng lực chủ động. Nếu mở đầu là trẻ sơ sinh, bị bỏ rơi, bất tỉnh hoặc mất trí nhớ, chỉ viết những phản ứng cơ thể/cảm giác phù hợp; lựa chọn lớn có thể thuộc người trong cảnh và phải tạo hậu quả cho nhân vật chính.
 - Tên trong hồ sơ chỉ được dùng trong truyện sau khi có logic đặt tên/gọi tên. Nếu cảnh mở đầu là sơ sinh, bị bỏ rơi, mất trí nhớ hoặc chưa biết thân phận, phải viết đúng trạng thái đó.
 - Bám thể loại, tông giọng và mode kết truyện.
 - Văn phong hiện đại, chuyên nghiệp: cảnh rõ, thoại tự nhiên, câu văn có lực nhưng không cộc; ngắt đoạn có nhịp, có khoảng lặng, hạn chế sáo ngữ và giải thích trực tiếp.
@@ -1760,6 +1807,7 @@ ${userIdea || "Không có bổ sung."}`;
     const continuationPrompt = `Truyện ngắn hiện mới khoảng ${currentWords} chữ, thấp hơn mục tiêu ${targetWords}.
 Hãy viết tiếp ngay từ đoạn cuối khoảng ${remainingWords} chữ để hoàn chỉnh xung đột và dư âm, không lặp lại tiêu đề, không tóm tắt.
 Nếu đoạn cuối đang dở câu hoặc dở cảnh, nối tiếp trực tiếp để hoàn tất câu/cảnh đó trước.
+Giữ đúng điểm nhìn/tên gọi/tuổi/nhận thức đã thiết lập; không đổi tên hoặc cho nhân vật biết điều chưa có nguyên nhân.
 
 [ĐOẠN CUỐI ĐỂ NỐI MẠCH]
 ${fullText.slice(-3500)}`;
@@ -1773,6 +1821,7 @@ ${fullText.slice(-3500)}`;
     const closingPrompt = `Đoạn cuối truyện đang bị cụt hoặc chưa khép câu.
 Hãy viết tiếp 180-320 chữ ngay từ đoạn cuối bên dưới để khép cảnh bằng câu hoàn chỉnh.
 Không lặp lại tiêu đề, không tóm tắt, không mở tuyến mới.
+Chỉ khép cảnh; không mở tuyến mới, không đổi tên gọi, điểm nhìn, tuổi hoặc dữ kiện canon.
 
 [ĐOẠN CUỐI ĐỂ NỐI MẠCH]
 ${fullText.slice(-2200)}`;

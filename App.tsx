@@ -626,6 +626,39 @@ const App: React.FC = () => {
     return words + completenessBonus - distancePenalty;
   };
 
+  const validateShortStoryDraft = async (body: string, title: string, workingParams: StoryParams) => {
+    const shortStoryCanon = [
+      '# ĐIỂM NHÌN VÀ TÊN GỌI',
+      `- Tên hồ sơ "${workingParams.character.name || 'chưa đặt'}" chỉ được dùng sau khi truyện có logic đặt tên hoặc gọi tên.`,
+      '- Nhân vật chỉ được biết, nói và hành động theo tuổi, hoàn cảnh, ký ức và thông tin đã xuất hiện trong truyện.',
+      '# MÂU THUẪN ĐANG MỞ',
+      `- Ý tưởng khởi nguồn: ${workingParams.seed || 'Truyện ngắn độc lập.'}`,
+      '# ĐIỀU CẤM PHÁ LOGIC',
+      '- Không nhảy cóc qua nhận nuôi, đặt tên, trưởng thành, đổi thân phận hoặc biết bí mật nếu chưa có cảnh nối nhân quả.',
+    ].join('\n');
+    const shortStoryArc: Volume = {
+      index: 1,
+      title: 'Truyện ngắn',
+      summary: workingParams.seed || 'Một truyện ngắn độc lập, có mở truyện, phát triển, cao trào và dư âm.',
+      purpose: 'Thẩm định logic một truyện độc lập trước khi lưu.',
+      chapterStart: 1,
+      chapterEnd: 1,
+      chapters: [{
+        index: 1,
+        title,
+        summary: workingParams.seed || title,
+        objective: 'Hoàn chỉnh xung đột chính và dư âm mà không phá logic nhân vật.',
+        targetWords: workingParams.length,
+        beats: ['mở tình thế', 'đẩy lựa chọn', 'trả hậu quả'],
+        mustInclude: ['đúng tên gọi theo thời điểm', 'không nhảy cóc nhận thức'],
+      }],
+    };
+    const validation = await validateChapterLogic(body, [], shortStoryCanon, shortStoryArc, workingParams.seed || title, workingParams, 1);
+    if (!validation.isValid) {
+      throw new Error(`Truyện ngắn chưa đạt thẩm định logic/canon: ${validation.reason || 'cần viết lại trước khi lưu.'}`);
+    }
+  };
+
   const renderStoryParagraphs = (text: string) => {
     const blocks = text
       .replace(/\r\n/g, '\n')
@@ -917,10 +950,12 @@ const App: React.FC = () => {
 
         const extracted = extractGeneratedTitle(fullText, writtenChapters[0]?.title || 'Toàn văn');
         const shortStoryWords = countDraftWords(extracted.body);
-        const shortStoryMinimum = Math.max(700, Math.floor(params.length * 0.88));
+        const shortStoryMinimum = Math.max(700, Math.floor(params.length * 0.92));
         if (shortStoryWords < shortStoryMinimum || draftLooksCutOff(extracted.body)) {
           throw new Error(`Bản truyện đang bị thiếu phần cuối hoặc chưa đủ chữ: hiện khoảng ${shortStoryWords}/${params.length} chữ. Hãy bấm viết lại để app nối tiếp bản đầy đủ hơn.`);
         }
+        setGenerationStatus('Đang thẩm định logic truyện ngắn...');
+        await validateShortStoryDraft(extracted.body, extracted.title, params);
         const shortChapter: Chapter = {
           ...(writtenChapters[0] || {}),
           index: 1,
@@ -971,6 +1006,7 @@ const App: React.FC = () => {
     let finalContent = "";
     let bestCandidate = "";
     let bestCandidateScore = Number.NEGATIVE_INFINITY;
+    let lastValidationReason = "";
 
     try {
       let workingVolumes = volumes;
@@ -1010,6 +1046,7 @@ const App: React.FC = () => {
           bestCandidate = finalContent;
         } else {
           console.warn("Lệch lộ trình:", validation.reason);
+          lastValidationReason = validation.reason || 'Chưa đạt thẩm định logic.';
           if (attempts < maxAttempts) {
             setGenerationStatus(`Chưa đạt khóa canon. ${validation.reason || 'Đang viết lại chặt hơn...'}`);
             setStory(''); 
@@ -1018,14 +1055,14 @@ const App: React.FC = () => {
       }
 
       if (!isValid) {
-        console.warn("Chương cần biên tập thêm, nhưng vẫn lưu bản tốt nhất đã viết.");
+        throw new Error(`Chương chưa đạt thẩm định logic/canon: ${lastValidationReason || 'cần viết lại trước khi lưu.'}`);
       }
       if (bestCandidate && bestCandidate !== finalContent) {
         finalContent = bestCandidate;
         setStory(finalContent);
       }
       const finalWords = countDraftWords(finalContent);
-      const hardMinimumWords = Math.max(650, Math.floor(targetWords * 0.9));
+      const hardMinimumWords = Math.max(650, Math.floor(targetWords * 0.95));
       if (finalWords < hardMinimumWords || draftLooksCutOff(finalContent)) {
         throw new Error(`Chương đang bị thiếu phần cuối hoặc chưa đủ chữ: hiện khoảng ${finalWords}/${targetWords} chữ. App chưa lưu bản này để tránh mất nội dung. Hãy bấm viết lại, hoặc giảm mục tiêu chữ nếu Gemini đang bị giới hạn.`);
       }
@@ -1103,10 +1140,12 @@ const App: React.FC = () => {
         const fullText = await generateShortStoryStream(workingParams, (chunk) => setStory(prev => prev + chunk));
         const extracted = extractGeneratedTitle(fullText, 'Toàn văn');
         const shortStoryWords = countDraftWords(extracted.body);
-        const shortStoryMinimum = Math.max(700, Math.floor(workingParams.length * 0.88));
+        const shortStoryMinimum = Math.max(700, Math.floor(workingParams.length * 0.92));
         if (shortStoryWords < shortStoryMinimum || draftLooksCutOff(extracted.body)) {
           throw new Error(`Bản truyện đang bị thiếu phần cuối hoặc chưa đủ chữ: hiện khoảng ${shortStoryWords}/${workingParams.length} chữ. Hãy bấm viết lại để app nối tiếp bản đầy đủ hơn.`);
         }
+        setGenerationStatus('Đang thẩm định logic truyện ngắn...');
+        await validateShortStoryDraft(extracted.body, extracted.title, workingParams);
         const newId = Date.now().toString();
         const shortChapter: Chapter = { index: 1, title: extracted.title, content: extracted.body, summary: workingParams.seed || '', targetWords: workingParams.length };
         const shortVolume: Volume = { index: 1, title: 'Truyện ngắn', summary: 'Nội dung truyện ngắn hoàn chỉnh', chapterStart: 1, chapterEnd: 1, chapters: [shortChapter] };
