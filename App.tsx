@@ -4,6 +4,7 @@ import {
   generateNextArc, 
   generateChapterPlansForArc,
   generateChapterStream, 
+  rewriteChapterWithReviewStream,
   updateWorldBibleAndSummary, 
   generateShortStoryStream,
   validateChapterLogic,
@@ -1047,9 +1048,38 @@ const App: React.FC = () => {
         } else {
           console.warn("Lệch lộ trình:", validation.reason);
           lastValidationReason = validation.reason || 'Chưa đạt thẩm định logic.';
-          if (attempts < maxAttempts) {
-            setGenerationStatus(`Chưa đạt khóa canon. ${validation.reason || 'Đang viết lại chặt hơn...'}`);
-            setStory(''); 
+          setGenerationStatus(`Key 3 đang sửa theo thẩm định: ${validation.reason || 'cần chặt logic hơn.'}`);
+          setStory('');
+          finalContent = await rewriteChapterWithReviewStream(
+            params,
+            writtenChapters,
+            currentChapterIndex,
+            worldBible,
+            chapterIdea,
+            generalSummary,
+            currentArc,
+            finalContent,
+            validation,
+            (chunk) => setStory(prev => prev + chunk),
+          );
+          setStory(finalContent);
+          const revisedScore = chapterCandidateScore(finalContent, targetWords);
+          if (revisedScore > bestCandidateScore) {
+            bestCandidateScore = revisedScore;
+            bestCandidate = finalContent;
+          }
+
+          setGenerationStatus('Key 2 đang thẩm định lại bản sửa của Key 3...');
+          const rewrittenValidation = await validateChapterLogic(finalContent, previousForValidation, worldBible, currentArc, generalSummary, params, currentChapterIndex);
+          if (rewrittenValidation.isValid) {
+            isValid = true;
+            bestCandidate = finalContent;
+          } else {
+            lastValidationReason = rewrittenValidation.reason || lastValidationReason || 'Bản sửa vẫn chưa đạt thẩm định logic.';
+            if (attempts < maxAttempts) {
+              setGenerationStatus(`Bản sửa vẫn chưa đạt. ${lastValidationReason}`);
+              setStory('');
+            }
           }
         }
       }

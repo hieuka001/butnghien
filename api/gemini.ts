@@ -20,12 +20,19 @@ type GeminiProxyBody = {
   maxTokens?: number;
   jsonMode?: boolean;
   stream?: boolean;
+  role?: GeminiKeyRole;
 };
+
+type GeminiKeyRole = "writer" | "reviewer" | "rewriter";
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const MAX_OUTPUT_TOKENS = Math.min(Math.max(Number(process.env.GEMINI_MAX_OUTPUT_TOKENS) || 8192, 512), 65536);
-let keyCursor = 0;
-const keyCooldownUntil = new Map<number, number>();
+const keyCursorByRole: Record<GeminiKeyRole, number> = {
+  writer: 0,
+  reviewer: 0,
+  rewriter: 0,
+};
+const keyCooldownUntil = new Map<string, number>();
 
 class GeminiProxyError extends Error {
   status: number;
@@ -41,6 +48,16 @@ class GeminiProxyError extends Error {
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
+const splitEnvList = (value?: string) => (value || "")
+  .split(",")
+  .map(item => item.trim())
+  .filter(Boolean);
+
+const uniqueKeys = (keys: Array<string | undefined>) => keys
+  .map(key => key?.trim() || "")
+  .filter(Boolean)
+  .filter((key, index, all) => all.indexOf(key) === index);
+
 const getGeminiKeys = () => {
   const numberedKeys = [
     process.env.GEMINI_API_KEY,
@@ -50,23 +67,37 @@ const getGeminiKeys = () => {
     process.env.GEMINI_API_KEY_4,
     process.env.GEMINI_API_KEY_5,
   ];
-  const listKeys = (process.env.GEMINI_API_KEYS || "")
-    .split(",")
-    .map(key => key.trim())
-    .filter(Boolean);
+  const listKeys = splitEnvList(process.env.GEMINI_API_KEYS);
+  return uniqueKeys([...numberedKeys, ...listKeys]);
+};
 
-  return [...numberedKeys, ...listKeys]
-    .filter((key): key is string => Boolean(key && key.trim()))
-    .filter((key, index, all) => all.indexOf(key) === index);
+const getGeminiKeysForRole = (role: GeminiKeyRole) => {
+  const preferredByRole: Record<GeminiKeyRole, Array<string | undefined>> = {
+    writer: [
+      process.env.GEMINI_WRITER_API_KEY,
+      process.env.GEMINI_API_KEY_1,
+      process.env.GEMINI_API_KEY,
+    ],
+    reviewer: [
+      process.env.GEMINI_REVIEWER_API_KEY,
+      process.env.GEMINI_API_KEY_2,
+      process.env.GEMINI_API_KEY_1,
+      process.env.GEMINI_API_KEY,
+    ],
+    rewriter: [
+      process.env.GEMINI_REWRITER_API_KEY,
+      process.env.GEMINI_API_KEY_3,
+      process.env.GEMINI_API_KEY_2,
+      process.env.GEMINI_API_KEY_1,
+      process.env.GEMINI_API_KEY,
+    ],
+  };
+
+  return uniqueKeys([...preferredByRole[role], ...getGeminiKeys()]);
 };
 
 const isRotatableStatus = (status: number) => [401, 402, 408, 429, 500, 502, 503].includes(status);
 const isFallbackStatus = (status: number) => [404, 429, 500, 502, 503].includes(status);
-
-const splitEnvList = (value?: string) => (value || "")
-  .split(",")
-  .map(item => item.trim())
-  .filter(Boolean);
 
 const normalizeGeminiModel = (model?: string) => {
   const cleaned = (model || "").trim().replace(/^models\//, "");
@@ -100,42 +131,47 @@ const getFallbackModels = (requestedModel?: string) => {
 const shouldTryFallbackModel = (error: unknown) =>
   error instanceof GeminiProxyError && isFallbackStatus(error.status);
 
-const markKeyCooling = (keyIndex: number, status: number) => {
-  keyCooldownUntil.set(keyIndex, Date.now() + (status === 429 ? 90_000 : 20_000));
+const roleCooldownKey = (role: GeminiKeyRole, keyIndex: number) => `${role}:${keyIndex}`;
+
+const normalizeRole = (role?: string): GeminiKeyRole =>
+  role === "reviewer" || role === "rewriter" ? role : "writer";
+
+const markKeyCooling = (role: GeminiKeyRole, keyIndex: number, status: number) => {
+  keyCooldownUntil.set(roleCooldownKey(role, keyIndex), Date.now() + (status === 429 ? 90_000 : 20_000));
 };
 
-const pickKeyIndex = (keys: string[]) => {
+const pickKeyIndex = (keys: string[], role: GeminiKeyRole) => {
   const now = Date.now();
   for (let offset = 0; offset < keys.length; offset++) {
-    const index = (keyCursor + offset) % keys.length;
-    const coolingUntil = keyCooldownUntil.get(index) || 0;
+    const index = (keyCursorByRole[role] + offset) % keys.length;
+    const coolingUntil = keyCooldownUntil.get(roleCooldownKey(role, index)) || 0;
     if (coolingUntil <= now) {
-      keyCursor = (index + 1) % keys.length;
+      keyCursorByRole[role] = (index + 1) % keys.length;
       return index;
     }
   }
 
   keyCooldownUntil.clear();
-  const index = keyCursor % keys.length;
-  keyCursor = (index + 1) % keys.length;
+  const index = keyCursorByRole[role] % keys.length;
+  keyCursorByRole[role] = (index + 1) % keys.length;
   return index;
 };
 
-const withGeminiKeys = async <T,>(requester: (apiKey: string, keyIndex: number) => Promise<T>) => {
-  const keys = getGeminiKeys();
+const withGeminiKeys = async <T,>(role: GeminiKeyRole, requester: (apiKey: string, keyIndex: number) => Promise<T>) => {
+  const keys = getGeminiKeysForRole(role);
   if (!keys.length) {
     throw new GeminiProxyError("Thieu GEMINI_API_KEY trong Vercel Environment Variables.", 500);
   }
 
   let lastError: unknown;
   for (let attempt = 0; attempt < keys.length; attempt++) {
-    const keyIndex = pickKeyIndex(keys);
+    const keyIndex = pickKeyIndex(keys, role);
     try {
       return await requester(keys[keyIndex], keyIndex);
     } catch (error) {
       lastError = error;
       if (error instanceof GeminiProxyError && error.rotatable && attempt < keys.length - 1) {
-        markKeyCooling(keyIndex, error.status);
+        markKeyCooling(role, keyIndex, error.status);
         continue;
       }
       throw error;
@@ -200,10 +236,11 @@ const requestHeaders = (apiKey: string) => ({
 const callGemini = async (body: GeminiProxyBody) => {
   let lastError: unknown;
   const models = getFallbackModels(body.model);
+  const role = normalizeRole(body.role);
 
   for (const model of models) {
     try {
-      return await withGeminiKeys(async (apiKey) => {
+      return await withGeminiKeys(role, async (apiKey) => {
         const action = body.stream ? "streamGenerateContent?alt=sse" : "generateContent";
         const response = await fetch(`${GEMINI_API_BASE}/models/${model}:${action}`, {
           method: "POST",

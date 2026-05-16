@@ -32,8 +32,12 @@ npm.cmd run dev
 
 Mặc định app dùng `gemini-2.5-flash`, phù hợp hơn cho viết truyện vì cân bằng giữa tốc độ, chất lượng và context dài.
 
-- `GEMINI_API_KEY`: key chính.
-- `GEMINI_API_KEY_1` đến `GEMINI_API_KEY_5`: key phụ nếu muốn xoay khi quota/rate limit.
+- `GEMINI_API_KEY`: key chính dự phòng.
+- `GEMINI_API_KEY_1`: Key 1, dùng để lập khung/lộ trình và viết bản nháp chương.
+- `GEMINI_API_KEY_2`: Key 2, dùng để thẩm định logic, canon, điểm nhìn và đề xuất sửa.
+- `GEMINI_API_KEY_3`: Key 3, dùng để viết lại lộ trình/chương theo báo cáo của Key 2.
+- `GEMINI_API_KEY_4` đến `GEMINI_API_KEY_5`: key phụ nếu muốn xoay khi quota/rate limit.
+- `GEMINI_WRITER_API_KEY`, `GEMINI_REVIEWER_API_KEY`, `GEMINI_REWRITER_API_KEY`: tên biến rõ vai trò, được ưu tiên hơn `GEMINI_API_KEY_1/2/3` nếu có.
 - `GEMINI_MODEL`: model mặc định.
 - `GEMINI_PLAN_MODEL`: model lập lộ trình và kiểm tra logic.
 - `GEMINI_WRITE_MODEL`: model viết chương.
