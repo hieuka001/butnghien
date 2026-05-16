@@ -60,7 +60,6 @@ const uniqueKeys = (keys: Array<string | undefined>) => keys
 
 const getGeminiKeys = () => {
   const numberedKeys = [
-    process.env.GEMINI_API_KEY,
     process.env.GEMINI_API_KEY_1,
     process.env.GEMINI_API_KEY_2,
     process.env.GEMINI_API_KEY_3,

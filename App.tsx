@@ -291,7 +291,7 @@ const App: React.FC = () => {
   };
 
   const validateSetupParams = (draft: StoryParams) => {
-    if (getConfiguredGeminiKeyCount() === 0) return 'Chưa có GEMINI_API_KEY trong .env.local. Hãy điền key rồi khởi động lại server.';
+    if (getConfiguredGeminiKeyCount() === 0) return 'Chưa có đủ Gemini key. Hãy cấu hình GEMINI_API_KEY_1 đến GEMINI_API_KEY_6 rồi redeploy hoặc khởi động lại server.';
     if (!draft.seed?.trim()) return 'Hãy nhập ý tưởng khởi nguồn.';
     if (!draft.character.name?.trim()) return 'Hãy nhập tên nhân vật chính.';
     if (!draft.character.personality?.trim()) return 'Hãy nhập tính cách nhân vật chính để AI giữ logic nhân vật.';
@@ -303,7 +303,13 @@ const App: React.FC = () => {
 
   const friendlyError = (error: unknown) => {
     const message = error instanceof Error ? error.message : String(error || '');
-    if (message.includes('GEMINI_API_KEY')) return message;
+    if (
+      message.includes('GEMINI_API_KEY_') ||
+      message.includes('GEMINI_WRITER_API_KEY') ||
+      message.includes('GEMINI_REVIEWER_API_KEY') ||
+      message.includes('GEMINI_REWRITER_API_KEY') ||
+      message.includes('Gemini API key')
+    ) return message;
     if (message.includes('429')) return 'Gemini đang bị giới hạn quota/rate limit. Hãy chờ một lúc, giảm số chữ/chương, hoặc dùng key khác.';
     if (message.includes('503') || message.toLowerCase().includes('high demand')) return 'Gemini đang quá tải. Hệ thống đã thử model dự phòng nhưng vẫn chưa có lượt trống; hãy chờ vài phút rồi thử lại.';
     if (message.includes('400')) return 'Gemini từ chối request. Kiểm tra lại tên model, GEMINI_MAX_OUTPUT_TOKENS hoặc giảm độ dài chương.';
@@ -1271,7 +1277,7 @@ const App: React.FC = () => {
 
   const handleAddNextArc = async () => {
     if (isGeneratingOutline) return;
-    if (getConfiguredGeminiKeyCount() === 0) return alert('Chưa có GEMINI_API_KEY trong .env.local. Hãy điền key rồi khởi động lại server.');
+    if (getConfiguredGeminiKeyCount() === 0) return alert('Chưa có đủ Gemini key. Hãy cấu hình GEMINI_API_KEY_1 đến GEMINI_API_KEY_6 rồi redeploy hoặc khởi động lại server.');
     setIsGeneratingOutline(true);
     setGenerationStatus('Đang lập Arc mở rộng dựa trên Đại cục và Thiên Cơ Lục...');
     try {

@@ -18,7 +18,7 @@
 2. Cài dependency:
    `npm install`
 3. Tạo `.env.local` theo `.env.example`.
-4. Điền `GEMINI_API_KEY` và cấu hình Firebase nếu cần lưu cloud.
+4. Điền `GEMINI_API_KEY_1` đến `GEMINI_API_KEY_6` và cấu hình Firebase nếu cần lưu cloud.
 5. Chạy app:
    `npm run dev`
 
@@ -32,7 +32,6 @@ npm.cmd run dev
 
 Mặc định app dùng `gemini-2.5-flash`, phù hợp hơn cho viết truyện vì cân bằng giữa tốc độ, chất lượng và context dài.
 
-- `GEMINI_API_KEY`: key chính dự phòng để đếm/cấu hình cũ, không tham gia xoay chéo giữa các cụm.
 - Cụm 1 viết/lập khung: `GEMINI_API_KEY_1`, `GEMINI_API_KEY_2`.
 - Cụm 2 thẩm định logic/canon: `GEMINI_API_KEY_3`, `GEMINI_API_KEY_4`.
 - Cụm 3 sửa lại theo báo cáo thẩm định: `GEMINI_API_KEY_5`, `GEMINI_API_KEY_6`.
