@@ -735,6 +735,12 @@ const App: React.FC = () => {
       }
     }
 
+    if (source && !/^\s*#{1,3}\s*Sơ lược truyện/im.test(source)) {
+      const synopsis = params.seed?.trim()
+        || `${params.character.name || 'Nhân vật chính'} theo đuổi mục tiêu "${params.character.goal || 'đã khóa'}" qua lộ trình ${params.totalChapters} chương, mỗi Arc phải đẩy một tầng nhân quả mới.`;
+      source = ['# Sơ lược truyện', synopsis, '', source].join('\n');
+    }
+
     const blocks = source
       .replace(/\r\n/g, '\n')
       .split(/\n{2,}/)
@@ -965,7 +971,20 @@ const App: React.FC = () => {
   const isWeakPlanPhrase = (value: string) => {
     const normalized = planFingerprint(value);
     if (!normalized || normalized.split(/\s+/).length < 3) return true;
-    return /^(dung mot canh|mot canh quyet dinh|day nhan vat|khai cuc|gioi thieu|tom tat|muc tieu|chuong thuoc|thuoc giai doan|nhan vat chinh|khong co)/.test(normalized);
+    return /^(dung mot canh|mot canh quyet dinh|day nhan vat|khai cuc|gioi thieu|tom tat|muc tieu|chuong thuoc|thuoc giai doan|nhan vat chinh|khong co|bien co mo mach|lua chon co gia|manh moi doi huong|hau qua quay lai|cai gia cuoi arc)/.test(normalized);
+  };
+
+  const isWeakArcSummaryText = (value: string) => {
+    const normalized = planFingerprint(value);
+    if (!normalized || normalized.split(/\s+/).length < 10) return true;
+    return /^(arc \d+ phu trach|arc \d+ tiep tuc|tom tat arc|khong co|khai cuc ngan|hoi nhap va khoa quy tac|day nhan vat)/.test(normalized);
+  };
+
+  const getArcSynopsis = (volume: Volume) => {
+    if (!isWeakArcSummaryText(volume.summary || '')) return volume.summary;
+    const seed = (params.seed || params.directionLock || '').replace(/\s+/g, ' ').trim();
+    const premise = seed ? `xuất phát từ mâu thuẫn "${seed.slice(0, 120)}"` : `xoay quanh mục tiêu "${params.character.goal || 'đã khóa'}"`;
+    return `Trong ${volume.title}, ${params.character.name || 'nhân vật chính'} đi qua chương ${volume.chapterStart || '?'}-${volume.chapterEnd || '?'}, ${premise}. Arc này cần tạo một biến chuyển riêng, khóa thêm dữ kiện canon và để lại hậu quả nối sang Arc sau.`;
   };
 
   const titleFromPlanPhrase = (value: string) => {
@@ -2192,7 +2211,10 @@ const App: React.FC = () => {
                               </>
                             )}
                           </div>
-                          <p className="text-sm text-slate-500 italic mt-1">{vol.summary}</p>
+                          <div className="mt-2">
+                            <span className="block text-[8px] font-black uppercase tracking-widest text-slate-400">Sơ lược Arc</span>
+                            <p className="text-sm text-slate-500 italic mt-1 leading-relaxed">{getArcSynopsis(vol)}</p>
+                          </div>
                           {vol.purpose && <p className="text-[10px] text-indigo-500 font-bold mt-2 uppercase tracking-widest">{vol.purpose}</p>}
                         </div>
                       </div>
