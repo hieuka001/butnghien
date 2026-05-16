@@ -6,10 +6,18 @@ type GeminiKeyRole = "writer" | "reviewer" | "rewriter";
 type ChapterValidationResult = {
   isValid: boolean;
   reason?: string;
+  structureIssues?: string[];
+  logicIssues?: string[];
   canonIssues?: string[];
   povIssues?: string[];
+  metricIssues?: string[];
   ramblingIssues?: string[];
+  styleIssues?: string[];
+  repetitionIssues?: string[];
+  dictionIssues?: string[];
+  preserveStrengths?: string[];
   suggestions?: string[];
+  rewriteDirectives?: string[];
   fixPlan?: string;
 };
 
@@ -159,7 +167,8 @@ const EDITOR_SYSTEM_INSTRUCTION = `${REVIEWER_ROLE_BRIEF}
 Bạn là biên tập viên tuyến truyện khó tính.
 Chỉ chấp nhận chương nếu nó bám đúng đại cục, đúng Arc, đúng mục tiêu chương, không phá logic nhân vật, không lặp chương cũ và không kết thúc sớm khi chưa tới chương cuối.
 Thẩm định bắt buộc cả timeline, số liệu, tên riêng, quan hệ, cấp bậc/quy tắc thế giới, vật phẩm, khoảng cách, mục tiêu chương, nhịp độ, mức lan man, điểm nhìn, tên gọi theo thời điểm, tuổi/nhận thức, lời nói và hành động theo hoàn cảnh.
-Không được chỉ trả lời chung chung. Mọi lỗi nghiêm trọng phải có đề xuất sửa cụ thể cho Key 3.`;
+Đọc bản nháp chương của Key 1 như bản thảo thật: soi nội dung, logic nhân quả, độ bám truyện, thông số, Thiên Cơ Lục, văn phong, lặp chữ/lặp ý và độ chính xác ngôn từ.
+Không được chỉ trả lời chung chung. Mọi lỗi nghiêm trọng phải có vị trí/dấu hiệu nhận diện ngắn, lý do sai và đề xuất sửa cụ thể cho Key 3.`;
 
 const PIPELINE_REVIEWER_SYSTEM_INSTRUCTION = `${REVIEWER_ROLE_BRIEF}
 
@@ -173,6 +182,8 @@ Checklist bắt buộc:
 5. Canon: timeline, số liệu, quan hệ, vật phẩm, luật thế giới có khớp Thiên Cơ Lục không.
 6. Cấu trúc: Arc/chương có mục tiêu riêng, trạng thái đầu/cuối khác nhau và mốc nối tiếp không.
 7. Văn phong: có sáo, kể lướt, lan man, đoạn quá dài không chuyển trạng thái hoặc kết cụt không.
+8. Lặp chữ/lặp ý: có cụm từ, hình ảnh, nhịp câu, giải thích hoặc một thông tin bị nhắc lại nhiều lần mà không tạo tác dụng mới không.
+9. Ngôn từ: có từ yếu, mỹ từ rỗng, câu trừu tượng, thoại sai quan hệ hoặc diễn đạt làm sai sắc thái nhân vật không.
 Trả JSON hợp lệ, ngắn nhưng chặt chẽ.`;
 
 const PIPELINE_REWRITER_SYSTEM_INSTRUCTION = `${REWRITER_ROLE_BRIEF}
@@ -180,6 +191,7 @@ const PIPELINE_REWRITER_SYSTEM_INSTRUCTION = `${REWRITER_ROLE_BRIEF}
 Bạn là Key 3 trong dây chuyền sáng tác: nhận bản nháp từ Key 1 và báo cáo thẩm định từ Key 2.
 Nếu Key 2 không nêu lỗi hoặc không có đề xuất cần sửa, giữ nguyên nội dung/bản JSON gốc.
 Nếu Key 2 có lỗi, sửa trực tiếp theo đề xuất nhưng không tự ý đổi ý tưởng, không thêm tuyến mới, không phá dữ kiện đã khóa, không rút ngắn mục tiêu chữ.
+Khi sửa chương, phải đọc đủ toàn bộ báo cáo Key 2: logic, canon, thông số, Thiên Cơ Lục, văn phong, lặp chữ và ngôn từ. Mỗi lỗi cần được xử lý trong bản văn mới, không chỉ nhắc lại.
 Khi sửa lộ trình hoặc bản đồ chương, chỉ trả JSON đúng schema được yêu cầu. Khi sửa chương, chỉ trả văn xuôi hoàn chỉnh, không markdown, không giải thích.`;
 
 class GeminiRequestError extends Error {
@@ -227,6 +239,10 @@ const asStringArray = (value: unknown): string[] => {
   if (!Array.isArray(value)) return [];
   return value.map(item => asText(item)).filter(Boolean);
 };
+
+const mergeStringArrays = (...values: unknown[]): string[] => values
+  .flatMap(value => asStringArray(value))
+  .filter((item, index, all) => all.indexOf(item) === index);
 
 const uniqueKeys = (keys: Array<string | undefined>) => keys
   .map(key => key?.trim() || "")
@@ -1538,10 +1554,18 @@ const normalizePipelineReview = (data: AnyRecord): PipelineReview => {
 const normalizeChapterValidationResult = (data: AnyRecord): ChapterValidationResult => ({
   isValid: data?.isValid === true || data?.valid === true,
   reason: asText(data?.reason || data?.summary),
-  canonIssues: asStringArray(data?.canonIssues),
-  povIssues: asStringArray(data?.povIssues),
-  ramblingIssues: asStringArray(data?.ramblingIssues),
-  suggestions: asStringArray(data?.suggestions),
+  structureIssues: mergeStringArrays(data?.structureIssues, data?.plotIssues, data?.contentIssues, data?.arcIssues, data?.chapterPlanIssues),
+  logicIssues: mergeStringArrays(data?.logicIssues, data?.causalityIssues, data?.sceneLogicIssues, data?.motivationIssues),
+  canonIssues: mergeStringArrays(data?.canonIssues, data?.continuityIssues, data?.worldBibleIssues, data?.timelineIssues),
+  povIssues: mergeStringArrays(data?.povIssues, data?.characterIssues, data?.knowledgeIssues, data?.nameUsageIssues),
+  metricIssues: mergeStringArrays(data?.metricIssues, data?.wordCountIssues, data?.statIssues, data?.targetIssues),
+  ramblingIssues: mergeStringArrays(data?.ramblingIssues, data?.focusIssues, data?.pacingIssues),
+  styleIssues: mergeStringArrays(data?.styleIssues, data?.proseIssues, data?.paragraphIssues, data?.rhythmIssues),
+  repetitionIssues: mergeStringArrays(data?.repetitionIssues, data?.duplicateIssues, data?.repeatedPhraseIssues, data?.repeatedIdeaIssues),
+  dictionIssues: mergeStringArrays(data?.dictionIssues, data?.languageIssues, data?.wordChoiceIssues, data?.toneIssues),
+  preserveStrengths: mergeStringArrays(data?.preserveStrengths, data?.strengths, data?.keep),
+  suggestions: mergeStringArrays(data?.suggestions, data?.fixes, data?.proposals),
+  rewriteDirectives: mergeStringArrays(data?.rewriteDirectives, data?.directives, data?.rewriteInstructions),
   fixPlan: asText(data?.fixPlan || data?.rewritePlan || data?.proposal),
 });
 
@@ -2097,13 +2121,22 @@ export const rewriteChapterWithReviewStream = async (
   review: ChapterValidationResult,
   onChunk: (text: string) => void,
 ): Promise<string> => {
+  const reviewIssueGroups = [
+    review.structureIssues,
+    review.logicIssues,
+    review.canonIssues,
+    review.povIssues,
+    review.metricIssues,
+    review.ramblingIssues,
+    review.styleIssues,
+    review.repetitionIssues,
+    review.dictionIssues,
+    review.suggestions,
+    review.rewriteDirectives,
+  ];
   const hasActionableReview = !review.isValid
     || Boolean(review.fixPlan)
-    || Boolean(review.reason)
-    || Boolean(review.canonIssues?.length)
-    || Boolean(review.povIssues?.length)
-    || Boolean(review.ramblingIssues?.length)
-    || Boolean(review.suggestions?.length);
+    || reviewIssueGroups.some(group => Boolean(group?.length));
 
   if (!hasActionableReview) {
     return normalizeGeneratedDraft(originalDraft);
@@ -2160,7 +2193,10 @@ ${excerptForAudit(originalDraft, 18000)}
 
 YÊU CẦU KEY 3:
 - Viết lại toàn bộ chương, không chỉ vá vài đoạn.
-- Sửa đúng các lỗi Key 2 nêu; giữ mọi phần tốt của bản nháp.
+- Sửa đúng toàn bộ lỗi Key 2 nêu trong các nhóm: structureIssues, logicIssues, canonIssues, povIssues, metricIssues, ramblingIssues, styleIssues, repetitionIssues, dictionIssues, suggestions và rewriteDirectives.
+- Nếu Key 2 có preserveStrengths, giữ các điểm mạnh đó; nếu phải sửa, giữ tác dụng truyện của chúng nhưng thay cách thể hiện.
+- Dùng báo cáo Key 2 như bản giao việc: lỗi nào có dẫn chứng/vị trí thì xử lý trực tiếp tại vùng đó; lỗi nào là nguyên tắc chung thì rà toàn chương.
+- Không chỉ thay vài câu. Hãy viết lại thành một bản chương liền mạch, đã tự sửa lặp chữ, lặp ý, câu sáo, đoạn quá dài, thoại sai quan hệ và các chỗ nhân vật biết/làm điều không hợp logic.
 - Không rút ngắn: mục tiêu khoảng ${targetWords} chữ, không dừng dưới ${minWords} chữ, không vượt quá ${maxWords} chữ nếu không cần để khép cảnh.
 - Không đổi tổng hướng truyện, không thêm tuyến mới, không đổi canon, không tự đặt số liệu nếu Thiên Cơ Lục chưa khóa.
 - Nếu lỗi liên quan tên nhân vật/nhận thức, phải sửa bằng cách đặt người đọc vào đúng vị trí nhân vật trong cảnh: ai biết gì, ai gọi tên, khi nào được đặt tên, cơ thể có thể làm gì.
@@ -2178,7 +2214,7 @@ YÊU CẦU KEY 3:
     const remainingWords = Math.max(450, Math.min(1400, minWords - currentWords + 180));
     const continuationPrompt = `Bản sửa Key 3 của chương ${newIndex} hiện mới khoảng ${currentWords}/${targetWords} chữ hoặc đoạn cuối chưa khép.
 Hãy viết tiếp ngay từ đoạn cuối khoảng ${remainingWords} chữ, không lặp tiêu đề, không tóm tắt, không viết lại từ đầu.
-Ưu tiên hoàn tất lỗi Key 2 còn liên quan, khép cảnh bằng hậu quả cụ thể, giữ đúng canon và điểm nhìn.
+Ưu tiên hoàn tất lỗi Key 2 còn liên quan, đặc biệt logic nhân quả, canon/Thiên Cơ Lục, thông số, POV, lặp chữ, lặp ý, văn phong và ngôn từ. Khép cảnh bằng hậu quả cụ thể, giữ đúng canon và điểm nhìn.
 
 [BÁO CÁO KEY 2]
 ${JSON.stringify(review, null, 2)}
@@ -2275,35 +2311,52 @@ ${lastChapter ? `${lastChapter.title}: ${lastChapter.summary}` : "Không có."}
 [NỘI DUNG CHƯƠNG MỚI]
 ${chapterAuditText}
 
-CÂU HỎI KIỂM ĐỊNH:
-1. Chương có thực hiện đúng mục tiêu và beat chính không?
-2. Tên riêng, số liệu, thời gian, khoảng cách, cấp bậc, vật phẩm, địa danh có khớp Thiên Cơ Lục không?
-3. Tính cách, mục tiêu, quan hệ nhân vật có đổi vô cớ không?
-4. Có mở tuyến phụ, bí mật, nhiệm vụ hoặc nhân vật mới không phục vụ chương/Arc không?
-5. Có cảnh nào chỉ lan man giải thích, lặp ý, tả cảnh dài hoặc hồi tưởng mà không đổi trạng thái truyện không?
-6. Có lặp tình tiết chương trước mà không tạo biến chuyển mới không?
-7. Có kết thúc toàn truyện quá sớm không?
-8. Độ dài và nhịp chương có phù hợp mục tiêu không?
-9. Tên nhân vật có được dùng đúng thời điểm không? Nếu nhân vật mới sinh/bị bỏ rơi/chưa được đặt tên thì văn bản có gọi sai tên hồ sơ không?
-10. Nhân vật có biết điều họ chưa thể biết không: thân phận, mục tiêu, người thân, bí mật, tên riêng, luật thế giới, ký ức chưa xuất hiện?
-11. Lời nói/hành động có đúng tuổi, cơ thể, địa vị, quan hệ và tình trạng hiện tại không?
-12. Các bước chuyển như được nhận nuôi, đặt tên, lớn lên, đổi thân phận, nhớ lại quá khứ có cảnh nối nhân quả rõ không?
-13. Mỗi cảnh có điểm vào và điểm ra khác nhau không, hay chỉ miêu tả/trang trí mà không đổi trạng thái truyện?
-14. Văn phong có bị rỗng không: lặp cụm sáo, than thở, giải thích đạo lý, tả cảm xúc chung chung, hoặc dùng đoạn dài không có hành động/vật chứng/đối thoại?
-15. Có dùng may mắn, nhân vật mới, năng lực mới hoặc lời kể toàn tri để giải quyết xung đột không?
+CỤM 2 PHẢI ĐỌC BẢN CHƯƠNG KEY 1 NHƯ MỘT BẢN THẢO THẬT.
+Không viết lại chương. Hãy soi đủ các lớp sau và đưa báo cáo để Key 3 sửa:
+1. Bám sát truyện: chương có đi đúng Đại cục, Arc, kế hoạch chương, beat và trạng thái đầu/cuối không.
+2. Nội dung và logic: mỗi cảnh có mục tiêu, va chạm, lựa chọn/hành động, hậu quả; biến cố có nguyên nhân; nhân vật không hành động/nói vô cớ.
+3. Thiên Cơ Lục và canon: timeline, số liệu, địa danh, cấp bậc, vật phẩm, quan hệ, luật thế giới, bí mật, mâu thuẫn mở có khớp không.
+4. Thông số chương: đúng số chương, đúng mục tiêu chữ, không kết sớm, không mất đoạn cuối, không bỏ beat bắt buộc.
+5. Nhập vai và điểm nhìn: nhân vật chỉ biết điều họ có thể biết; tên gọi chỉ dùng sau khi được đặt/gọi/nhận biết; tuổi, cơ thể, vị thế và quan hệ phải khớp hoàn cảnh.
+6. Văn phong: nhịp đoạn, độ dài câu, cách ngắt dòng, độ hiện đại/chuyên nghiệp, mức “kể thay cảnh”, độ sáo rỗng hoặc giảng giải.
+7. Lặp chữ/lặp ý: cụm từ, hình ảnh, cảm xúc, mô-típ câu, thông tin hoặc cảnh có bị nhắc lại nhiều lần mà không thêm tác dụng mới không.
+8. Ngôn từ: từ yếu, mỹ từ rỗng, câu trừu tượng, thoại sai sắc thái, xưng hô sai, từ làm lệch tính cách hoặc thời điểm.
+
+QUY TẮC BÁO LỖI:
+- Mỗi lỗi phải nói rõ vì sao ảnh hưởng truyện và Key 3 cần sửa theo hướng nào.
+- Nếu có thể, ghi dấu hiệu nhận diện ngắn 5-12 chữ hoặc vị trí kiểu “đầu chương/giữa cảnh 2/cuối chương”; không chép dài bản thảo.
+- Không bắt lỗi theo sở thích cá nhân. Chỉ bắt lỗi làm sai logic, canon, văn phong, nhịp đọc hoặc khả năng viết tiếp.
+- Nếu chương tốt, vẫn nêu preserveStrengths để Key 3 biết phần nào cần giữ.
 
 Chỉ chấp nhận nếu chương vừa đúng canon, đúng điểm nhìn, đúng logic nhập vai, đúng kiến trúc cảnh và tập trung vào mục tiêu chương. Nếu có lỗi tên gọi, tuổi/nhận thức, thông tin nhân vật chưa thể biết, hành động/lời nói vô lý, canon, văn phong rỗng hoặc lan man đáng kể, isValid=false.
-Trả về JSON: { "isValid": boolean, "reason": string, "canonIssues": string[], "povIssues": string[], "ramblingIssues": string[], "fixPlan": string }.`;
+Trả về JSON đúng schema:
+{
+  "isValid": boolean,
+  "reason": "kết luận ngắn, nêu lỗi chính hoặc vì sao đạt",
+  "structureIssues": ["lỗi bám Đại cục/Arc/bản đồ chương/cấu trúc cảnh"],
+  "logicIssues": ["lỗi nhân quả, động cơ, hành động, chuyển cảnh"],
+  "canonIssues": ["lỗi Thiên Cơ Lục, timeline, số liệu, quan hệ, cấp bậc, vật phẩm, luật thế giới"],
+  "povIssues": ["lỗi điểm nhìn, tên gọi, tuổi/nhận thức, nhân vật biết điều chưa thể biết"],
+  "metricIssues": ["lỗi số chữ, số chương, thiếu beat, kết sớm, mất đoạn cuối"],
+  "ramblingIssues": ["lỗi lan man, kể lướt, hồi tưởng/thuyết minh không đổi trạng thái truyện"],
+  "styleIssues": ["lỗi nhịp đoạn, ngắt dòng, câu sáo, văn phong chưa chuyên nghiệp"],
+  "repetitionIssues": ["lỗi lặp chữ, lặp cụm, lặp ý, lặp cảnh"],
+  "dictionIssues": ["lỗi ngôn từ, xưng hô, thoại, sắc thái từ"],
+  "preserveStrengths": ["điểm mạnh cần giữ khi Key 3 viết lại"],
+  "suggestions": ["đề xuất sửa cụ thể"],
+  "rewriteDirectives": ["mệnh lệnh viết lại trực tiếp cho Key 3"],
+  "fixPlan": "kế hoạch sửa ngắn gọn theo thứ tự ưu tiên"
+}.`;
 
   try {
-    return normalizeChapterValidationResult(await chatJson(PLAN_MODEL, EDITOR_SYSTEM_INSTRUCTION, prompt, 0.2, 2500, "reviewer"));
+    return normalizeChapterValidationResult(await chatJson(PLAN_MODEL, EDITOR_SYSTEM_INSTRUCTION, prompt, 0.2, 5600, "reviewer"));
   } catch (error) {
     if (!isAIJsonFormatError(error)) throw error;
     console.warn("AI trả thẩm định không đúng JSON; giữ bản thảo nếu đã qua kiểm tra cục bộ số chữ và đoạn cuối:", error);
     return {
       isValid: true,
       reason: "Key 2 trả thẩm định không đúng JSON. App đã bỏ qua lớp thẩm định AI cho lượt này và vẫn giữ các kiểm tra cục bộ về số chữ, bản đồ chương, Thiên Cơ Lục và đoạn cuối.",
-      suggestions: ["Nên bấm Kiểm tra logic sau khi chương được lưu nếu muốn rà canon sâu hơn."],
+      preserveStrengths: ["Giữ bản thảo Key 1 vì báo cáo Key 2 không đọc được và kiểm tra cục bộ đã đạt."],
     };
   }
 };
