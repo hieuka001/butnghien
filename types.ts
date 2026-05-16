@@ -61,6 +61,9 @@ export interface Volume {
   index: number;
   title: string;
   summary: string;
+  content?: string;
+  theme?: string;
+  objective?: string;
   purpose?: string;
   chapterStart?: number;
   chapterEnd?: number;

@@ -980,12 +980,40 @@ const App: React.FC = () => {
     return /^(arc \d+ phu trach|arc \d+ tiep tuc|tom tat arc|khong co|khai cuc ngan|hoi nhap va khoa quy tac|day nhan vat)/.test(normalized);
   };
 
+  const isWeakArcTitleText = (value: string) => {
+    const normalized = planFingerprint(value);
+    if (!normalized) return true;
+    return /^(arc|arc \d+|khai cuc|phat trien|cao trao|ket cuc|hoi nhap|chuyen tiep|mo dau)$/.test(normalized);
+  };
+
+  const getArcDisplayTitle = (volume: Volume) => {
+    if (!isWeakArcTitleText(volume.title || '')) return volume.title;
+    const phase = volume.index === 1
+      ? 'Lời Hứa Mở Đầu'
+      : volume.index === volumes.length
+        ? 'Cánh Cửa Kết Cục'
+        : volume.index > volumes.length * 0.65
+          ? 'Cái Giá Dâng Cao'
+          : 'Dấu Vết Đổi Hướng';
+    const detail = titleFromPlanPhrase(volume.content || volume.summary || params.directionLock || params.seed || params.character.goal || '');
+    return detail ? `${phase}: ${detail}` : phase;
+  };
+
   const getArcSynopsis = (volume: Volume) => {
-    if (!isWeakArcSummaryText(volume.summary || '')) return volume.summary;
+    const content = volume.content || volume.summary || '';
+    if (!isWeakArcSummaryText(content)) return content;
     const seed = (params.seed || params.directionLock || '').replace(/\s+/g, ' ').trim();
     const premise = seed ? `xuất phát từ mâu thuẫn "${seed.slice(0, 120)}"` : `xoay quanh mục tiêu "${params.character.goal || 'đã khóa'}"`;
-    return `Trong ${volume.title}, ${params.character.name || 'nhân vật chính'} đi qua chương ${volume.chapterStart || '?'}-${volume.chapterEnd || '?'}, ${premise}. Arc này cần tạo một biến chuyển riêng, khóa thêm dữ kiện canon và để lại hậu quả nối sang Arc sau.`;
+    return `Trong ${getArcDisplayTitle(volume)}, ${params.character.name || 'nhân vật chính'} đi qua chương ${volume.chapterStart || '?'}-${volume.chapterEnd || '?'}, ${premise}. Arc này cần tạo một biến chuyển riêng, khóa thêm dữ kiện canon và để lại hậu quả nối sang Arc sau.`;
   };
+
+  const getArcTheme = (volume: Volume) =>
+    volume.theme || (volume.index === 1
+      ? `Khởi điểm của ${params.character.goal || 'mục tiêu trung tâm'} và cái giá đầu tiên phải trả.`
+      : `Một tầng thử thách mới buộc nhân vật đổi cách hiểu về ${params.character.goal || 'mục tiêu trung tâm'}.`);
+
+  const getArcObjective = (volume: Volume) =>
+    volume.objective || volume.purpose || `Đưa ${params.character.name || 'nhân vật chính'} qua một biến chuyển rõ trong chương ${volume.chapterStart || '?'}-${volume.chapterEnd || '?'}.`;
 
   const titleFromPlanPhrase = (value: string) => {
     const cleaned = stripChapterTitlePrefix(value)
@@ -2203,7 +2231,7 @@ const App: React.FC = () => {
                         <div className="w-10 h-10 bg-indigo-900 text-white rounded-xl flex items-center justify-center font-bold shadow-lg">{vol.index}</div>
                         <div>
                           <div className="flex items-center gap-2">
-                            <h3 className="font-black text-indigo-900 story-font text-xl uppercase tracking-tight">{vol.title}</h3>
+                            <h3 className="font-black text-indigo-900 story-font text-xl uppercase tracking-tight">{getArcDisplayTitle(vol)}</h3>
                             {vol.chapterStart && vol.chapterEnd && (
                               <>
                                 <span className="px-2 py-1 bg-slate-100 text-slate-400 rounded-md text-[8px] font-black uppercase">C.{vol.chapterStart}-{vol.chapterEnd}</span>
@@ -2212,10 +2240,25 @@ const App: React.FC = () => {
                             )}
                           </div>
                           <div className="mt-2">
-                            <span className="block text-[8px] font-black uppercase tracking-widest text-slate-400">Sơ lược Arc</span>
+                            <span className="block text-[8px] font-black uppercase tracking-widest text-slate-400">Nội dung Arc</span>
                             <p className="text-sm text-slate-500 italic mt-1 leading-relaxed">{getArcSynopsis(vol)}</p>
                           </div>
-                          {vol.purpose && <p className="text-[10px] text-indigo-500 font-bold mt-2 uppercase tracking-widest">{vol.purpose}</p>}
+                          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2">
+                            <div className="rounded-2xl bg-slate-50 border border-slate-100 p-3">
+                              <span className="block text-[8px] font-black uppercase tracking-widest text-slate-400">Chủ đề Arc</span>
+                              <p className="mt-1 text-[11px] leading-relaxed text-slate-600 font-semibold">{getArcTheme(vol)}</p>
+                            </div>
+                            <div className="rounded-2xl bg-indigo-50/60 border border-indigo-100 p-3">
+                              <span className="block text-[8px] font-black uppercase tracking-widest text-indigo-400">Mục tiêu sơ bộ</span>
+                              <p className="mt-1 text-[11px] leading-relaxed text-indigo-700 font-semibold">{getArcObjective(vol)}</p>
+                            </div>
+                          </div>
+                          {vol.purpose && (
+                            <div className="mt-2">
+                              <span className="block text-[8px] font-black uppercase tracking-widest text-slate-400">Vai trò Arc</span>
+                              <p className="text-[10px] text-indigo-500 font-bold mt-1 uppercase tracking-widest">{vol.purpose}</p>
+                            </div>
+                          )}
                         </div>
                       </div>
                       
