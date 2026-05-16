@@ -13,6 +13,35 @@ type ChapterValidationResult = {
   fixPlan?: string;
 };
 
+const WRITER_ROLE_BRIEF = `CỤM 1 - KIẾN TRÚC SƯ TRUYỆN VÀ CHẤP BÚT SƠ THẢO
+Vai trò: dựng nền tác phẩm và tạo bản nháp đầu tiên có thể thẩm định được.
+Tư duy bắt buộc:
+- Đặt cấu trúc trước cảm hứng: Đại cục, Arc, bản đồ chương, mục tiêu cảnh, điểm nhìn và canon phải dẫn đường cho câu chữ.
+- Không chia Arc/chương đều máy móc. Độ dài phải xuất phát từ trọng lượng xung đột, số lần đảo trạng thái, lượng nhân quả cần gieo/trả và vị trí trong toàn truyện.
+- Không viết theo kiểu kể lướt để lấp chữ. Mỗi chương phải là chuỗi cảnh có mục tiêu, va chạm, lựa chọn và hậu quả.
+- Khi viết, bản nháp chưa cần hoàn hảo tuyệt đối nhưng phải đủ nội dung, đủ số chữ tối thiểu, không cụt cuối chương, không phá dữ kiện đã khóa.
+Đầu ra tốt là bản có cấu trúc rõ để Key 2 có thể thẩm định và Key 3 có thể sửa chính xác nếu cần.`;
+
+const REVIEWER_ROLE_BRIEF = `CỤM 2 - THẨM ĐỊNH VIÊN LOGIC, CANON VÀ CHẤT LƯỢNG TRUYỆN
+Vai trò: kiểm tra như một biên tập viên phát triển truyện chuyên nghiệp, không viết thay Key 1.
+Tư duy bắt buộc:
+- Chỉ bắt lỗi thật sự ảnh hưởng logic, canon, điểm nhìn, nhân quả, cấu trúc Arc/chương, chất lượng văn phong hoặc khả năng viết tiếp.
+- Phân biệt lỗi nghiêm trọng với lựa chọn sáng tác hợp lệ. Không ép truyện chia đều, không bắt đổi vì sở thích cá nhân.
+- Luôn đặt mình vào vị trí nhân vật trong từng cảnh: nhân vật đang bao nhiêu tuổi, được gọi bằng tên gì, biết gì/chưa biết gì, cơ thể làm được gì, vì sao nói/hành động như vậy.
+- Đối chiếu từng dữ kiện với Thiên Cơ Lục: timeline, số liệu, quan hệ, luật thế giới, vật phẩm, cảnh giới, địa danh, mâu thuẫn mở.
+- Báo cáo phải đủ cụ thể để Key 3 sửa được: lỗi ở loại nào, vì sao sai, sửa theo hướng nào, phần nào nên giữ.
+Đầu ra tốt là JSON thẩm định ngắn, chặt, có reason, issues, suggestions và fixPlan rõ ràng.`;
+
+const REWRITER_ROLE_BRIEF = `CỤM 3 - BIÊN TẬP VIÊN SỬA BẢN THẢO VÀ KHÓA CHẤT LƯỢNG
+Vai trò: nhận bản nháp Key 1 và báo cáo Key 2, sau đó giữ nguyên nếu không có lỗi hoặc sửa lại trực tiếp nếu có lỗi.
+Tư duy bắt buộc:
+- Không sáng tác lại tùy hứng. Chỉ sửa những phần cần sửa, giữ ý tưởng, tuyến truyện, canon và điểm mạnh của bản nháp.
+- Nếu sửa chương, phải viết lại thành văn xuôi hoàn chỉnh đủ số chữ, không vá cục bộ làm đứt nhịp, không kết thúc cụt, không bỏ beat bắt buộc.
+- Nếu sửa lộ trình/bản đồ chương, phải trả JSON đúng schema, giữ tổng số chương, phạm vi Arc/chương và các dữ kiện đã khóa.
+- Mọi sửa đổi phải có nhân quả trong truyện: không dùng may mắn, nhân vật/năng lực mới, lời kể toàn tri hoặc số liệu tự đặt để giải quyết lỗi.
+- Khi Key 2 không có lỗi cần sửa, giữ nguyên bản gốc thay vì làm mới văn phong không cần thiết.
+Đầu ra tốt là bản cuối sạch lỗi chính, đủ nội dung, nhất quán và có thể lưu/viết tiếp.`;
+
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const normalizeGeminiModel = (model?: string) => {
@@ -34,7 +63,9 @@ const WRITE_MODEL = normalizeGeminiModel(process.env.GEMINI_WRITE_MODEL || proce
 const DEFAULT_MAX_OUTPUT_TOKENS = clamp(Number(process.env.GEMINI_MAX_OUTPUT_TOKENS) || 8192, 512, 65536);
 const USE_GEMINI_PROXY = process.env.GEMINI_SERVER_PROXY === "true";
 
-const SYSTEM_INSTRUCTION_ROADMAP = `Bạn là một biên kịch trưởng chuyên thiết kế truyện dài theo cấu trúc chương.
+const SYSTEM_INSTRUCTION_ROADMAP = `${WRITER_ROLE_BRIEF}
+
+Bạn là một biên kịch trưởng chuyên thiết kế truyện dài theo cấu trúc chương.
 Nhiệm vụ bắt buộc:
 1. Biến dữ liệu đầu vào thành hồ sơ tác phẩm có nhân quả rõ ràng.
 2. Lập lộ trình đủ từ chương 1 đến chương cuối, chia thành các Arc hợp lý.
@@ -59,7 +90,9 @@ Nhiệm vụ:
 5. Mỗi beat phải là một cảnh có nhân quả: ai đang ở đó, họ muốn gì, va chạm là gì, lựa chọn nào tạo hậu quả.
 6. Không viết văn xuôi truyện ở bước này. Chỉ trả về JSON hợp lệ.`;
 
-const WRITER_SYSTEM_INSTRUCTION = `Bạn là tiểu thuyết gia tiếng Việt hiện đại, có tư duy biên kịch chặt chẽ và gu văn chuyên nghiệp.
+const WRITER_SYSTEM_INSTRUCTION = `${WRITER_ROLE_BRIEF}
+
+Bạn là tiểu thuyết gia tiếng Việt hiện đại, có tư duy biên kịch chặt chẽ và gu văn chuyên nghiệp.
 Văn phong ưu tiên: giàu cảnh, ít sáo ngữ, câu văn linh hoạt, hình ảnh chính xác, thoại có hàm ý, nhịp đoạn kiểm soát tốt. Viết có chất văn nhưng không phô diễn; cảm xúc sâu nhưng không ủy mị; hiện đại nhưng không cộc.
 Luôn viết thành văn xuôi hoàn chỉnh, đặt nhân vật vào cảnh cụ thể rồi để hành động, lựa chọn, chi tiết vật lý và đối thoại bộc lộ tâm lý; không tóm tắt thay cho cảnh.
 Bạn phải bám lộ trình chương, giữ đúng tính cách và mục tiêu nhân vật, không nhảy cóc, không dùng markdown, không gạch đầu dòng.
@@ -120,16 +153,30 @@ ${SCENE_LOGIC_RULES}
 
 ${IMMERSIVE_LOGIC_RULES}`;
 
-const EDITOR_SYSTEM_INSTRUCTION = `Bạn là biên tập viên tuyến truyện khó tính.
-Chỉ chấp nhận chương nếu nó bám đúng đại cục, đúng Arc, đúng mục tiêu chương, không phá logic nhân vật, không lặp chương cũ và không kết thúc sớm khi chưa tới chương cuối.
-Thẩm định bắt buộc cả timeline, số liệu, tên riêng, quan hệ, cấp bậc/quy tắc thế giới, vật phẩm, khoảng cách, mục tiêu chương, nhịp độ, mức lan man, điểm nhìn, tên gọi theo thời điểm, tuổi/nhận thức, lời nói và hành động theo hoàn cảnh.`;
+const EDITOR_SYSTEM_INSTRUCTION = `${REVIEWER_ROLE_BRIEF}
 
-const PIPELINE_REVIEWER_SYSTEM_INSTRUCTION = `Bạn là Key 2 trong dây chuyền sáng tác: chuyên thẩm định logic lộ trình, bản đồ chương và bản nháp chương.
+Bạn là biên tập viên tuyến truyện khó tính.
+Chỉ chấp nhận chương nếu nó bám đúng đại cục, đúng Arc, đúng mục tiêu chương, không phá logic nhân vật, không lặp chương cũ và không kết thúc sớm khi chưa tới chương cuối.
+Thẩm định bắt buộc cả timeline, số liệu, tên riêng, quan hệ, cấp bậc/quy tắc thế giới, vật phẩm, khoảng cách, mục tiêu chương, nhịp độ, mức lan man, điểm nhìn, tên gọi theo thời điểm, tuổi/nhận thức, lời nói và hành động theo hoàn cảnh.
+Không được chỉ trả lời chung chung. Mọi lỗi nghiêm trọng phải có đề xuất sửa cụ thể cho Key 3.`;
+
+const PIPELINE_REVIEWER_SYSTEM_INSTRUCTION = `${REVIEWER_ROLE_BRIEF}
+
+Bạn là Key 2 trong dây chuyền sáng tác: chuyên thẩm định logic lộ trình, bản đồ chương và bản nháp chương.
 Nhiệm vụ của bạn không phải viết lại. Bạn chỉ báo lỗi, nêu mức độ rủi ro và đề xuất cách sửa đủ cụ thể để Key 3 xử lý.
-Luôn kiểm tra: nhân quả, điểm nhìn, tên gọi theo thời điểm, tuổi/nhận thức, điều nhân vật biết/chưa biết, hành động/lời nói có đúng hoàn cảnh, số liệu/canon, độ tập trung của cảnh, độ dài theo mục tiêu, và việc mỗi Arc/chương có chức năng riêng.
+Checklist bắt buộc:
+1. Nhân quả: mọi biến cố có nguyên nhân trước đó và hậu quả sau đó không.
+2. Điểm nhìn: người kể có làm lộ thông tin nhân vật chưa thể biết không.
+3. Tên gọi: tên hồ sơ chỉ được dùng sau khi có cảnh đặt/gọi/nhận biết tên.
+4. Cơ thể và tuổi: lời nói, hành động, nhận thức có đúng giai đoạn sống không.
+5. Canon: timeline, số liệu, quan hệ, vật phẩm, luật thế giới có khớp Thiên Cơ Lục không.
+6. Cấu trúc: Arc/chương có mục tiêu riêng, trạng thái đầu/cuối khác nhau và mốc nối tiếp không.
+7. Văn phong: có sáo, kể lướt, lan man, đoạn quá dài không chuyển trạng thái hoặc kết cụt không.
 Trả JSON hợp lệ, ngắn nhưng chặt chẽ.`;
 
-const PIPELINE_REWRITER_SYSTEM_INSTRUCTION = `Bạn là Key 3 trong dây chuyền sáng tác: nhận bản nháp từ Key 1 và báo cáo thẩm định từ Key 2.
+const PIPELINE_REWRITER_SYSTEM_INSTRUCTION = `${REWRITER_ROLE_BRIEF}
+
+Bạn là Key 3 trong dây chuyền sáng tác: nhận bản nháp từ Key 1 và báo cáo thẩm định từ Key 2.
 Nếu Key 2 không nêu lỗi hoặc không có đề xuất cần sửa, giữ nguyên nội dung/bản JSON gốc.
 Nếu Key 2 có lỗi, sửa trực tiếp theo đề xuất nhưng không tự ý đổi ý tưởng, không thêm tuyến mới, không phá dữ kiện đã khóa, không rút ngắn mục tiêu chữ.
 Khi sửa lộ trình hoặc bản đồ chương, chỉ trả JSON đúng schema được yêu cầu. Khi sửa chương, chỉ trả văn xuôi hoàn chỉnh, không markdown, không giải thích.`;
@@ -198,34 +245,48 @@ const getGeminiKeys = () => {
     process.env.GEMINI_API_KEY_3,
     process.env.GEMINI_API_KEY_4,
     process.env.GEMINI_API_KEY_5,
+    process.env.GEMINI_API_KEY_6,
+    process.env.GEMINI_WRITER_API_KEY,
+    process.env.GEMINI_WRITER_API_KEY_2,
+    process.env.GEMINI_REVIEWER_API_KEY,
+    process.env.GEMINI_REVIEWER_API_KEY_2,
+    process.env.GEMINI_REWRITER_API_KEY,
+    process.env.GEMINI_REWRITER_API_KEY_2,
   ];
   const listKeys = splitEnvList(process.env.GEMINI_API_KEYS);
   return uniqueKeys([...numberedKeys, ...listKeys]);
 };
 
 const getGeminiKeysForRole = (role: GeminiKeyRole) => {
+  const listKeys = splitEnvList(process.env.GEMINI_API_KEYS);
   const preferredByRole: Record<GeminiKeyRole, Array<string | undefined>> = {
     writer: [
       process.env.GEMINI_WRITER_API_KEY,
+      process.env.GEMINI_WRITER_API_KEY_2,
       process.env.GEMINI_API_KEY_1,
-      process.env.GEMINI_API_KEY,
+      process.env.GEMINI_API_KEY_2,
+      listKeys[0],
+      listKeys[1],
     ],
     reviewer: [
       process.env.GEMINI_REVIEWER_API_KEY,
-      process.env.GEMINI_API_KEY_2,
-      process.env.GEMINI_API_KEY_1,
-      process.env.GEMINI_API_KEY,
+      process.env.GEMINI_REVIEWER_API_KEY_2,
+      process.env.GEMINI_API_KEY_3,
+      process.env.GEMINI_API_KEY_4,
+      listKeys[2],
+      listKeys[3],
     ],
     rewriter: [
       process.env.GEMINI_REWRITER_API_KEY,
-      process.env.GEMINI_API_KEY_3,
-      process.env.GEMINI_API_KEY_2,
-      process.env.GEMINI_API_KEY_1,
-      process.env.GEMINI_API_KEY,
+      process.env.GEMINI_REWRITER_API_KEY_2,
+      process.env.GEMINI_API_KEY_5,
+      process.env.GEMINI_API_KEY_6,
+      listKeys[4],
+      listKeys[5],
     ],
   };
 
-  return uniqueKeys([...preferredByRole[role], ...getGeminiKeys()]);
+  return uniqueKeys(preferredByRole[role]);
 };
 
 export const getConfiguredGeminiKeyCount = () => getGeminiKeys().length || (USE_GEMINI_PROXY ? 1 : 0);
@@ -313,7 +374,12 @@ const requestGeminiProxy = (
 const withGeminiKeys = async <T,>(role: GeminiKeyRole, requester: (apiKey: string, keyIndex: number) => Promise<T>): Promise<T> => {
   const keys = getGeminiKeysForRole(role);
   if (!keys.length) {
-    throw new Error("Thiếu Gemini API key. Hãy cấu hình GEMINI_API_KEY trong .env.local.");
+    const helpByRole: Record<GeminiKeyRole, string> = {
+      writer: "GEMINI_API_KEY_1 và GEMINI_API_KEY_2",
+      reviewer: "GEMINI_API_KEY_3 và GEMINI_API_KEY_4",
+      rewriter: "GEMINI_API_KEY_5 và GEMINI_API_KEY_6",
+    };
+    throw new Error(`Thiếu Gemini API key cho cụm ${role}. Hãy cấu hình ${helpByRole[role]} trong .env.local hoặc Vercel Environment Variables.`);
   }
 
   let lastError: unknown;

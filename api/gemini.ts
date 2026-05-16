@@ -66,34 +66,48 @@ const getGeminiKeys = () => {
     process.env.GEMINI_API_KEY_3,
     process.env.GEMINI_API_KEY_4,
     process.env.GEMINI_API_KEY_5,
+    process.env.GEMINI_API_KEY_6,
+    process.env.GEMINI_WRITER_API_KEY,
+    process.env.GEMINI_WRITER_API_KEY_2,
+    process.env.GEMINI_REVIEWER_API_KEY,
+    process.env.GEMINI_REVIEWER_API_KEY_2,
+    process.env.GEMINI_REWRITER_API_KEY,
+    process.env.GEMINI_REWRITER_API_KEY_2,
   ];
   const listKeys = splitEnvList(process.env.GEMINI_API_KEYS);
   return uniqueKeys([...numberedKeys, ...listKeys]);
 };
 
 const getGeminiKeysForRole = (role: GeminiKeyRole) => {
+  const listKeys = splitEnvList(process.env.GEMINI_API_KEYS);
   const preferredByRole: Record<GeminiKeyRole, Array<string | undefined>> = {
     writer: [
       process.env.GEMINI_WRITER_API_KEY,
+      process.env.GEMINI_WRITER_API_KEY_2,
       process.env.GEMINI_API_KEY_1,
-      process.env.GEMINI_API_KEY,
+      process.env.GEMINI_API_KEY_2,
+      listKeys[0],
+      listKeys[1],
     ],
     reviewer: [
       process.env.GEMINI_REVIEWER_API_KEY,
-      process.env.GEMINI_API_KEY_2,
-      process.env.GEMINI_API_KEY_1,
-      process.env.GEMINI_API_KEY,
+      process.env.GEMINI_REVIEWER_API_KEY_2,
+      process.env.GEMINI_API_KEY_3,
+      process.env.GEMINI_API_KEY_4,
+      listKeys[2],
+      listKeys[3],
     ],
     rewriter: [
       process.env.GEMINI_REWRITER_API_KEY,
-      process.env.GEMINI_API_KEY_3,
-      process.env.GEMINI_API_KEY_2,
-      process.env.GEMINI_API_KEY_1,
-      process.env.GEMINI_API_KEY,
+      process.env.GEMINI_REWRITER_API_KEY_2,
+      process.env.GEMINI_API_KEY_5,
+      process.env.GEMINI_API_KEY_6,
+      listKeys[4],
+      listKeys[5],
     ],
   };
 
-  return uniqueKeys([...preferredByRole[role], ...getGeminiKeys()]);
+  return uniqueKeys(preferredByRole[role]);
 };
 
 const isRotatableStatus = (status: number) => [401, 402, 408, 429, 500, 502, 503].includes(status);
@@ -160,7 +174,12 @@ const pickKeyIndex = (keys: string[], role: GeminiKeyRole) => {
 const withGeminiKeys = async <T,>(role: GeminiKeyRole, requester: (apiKey: string, keyIndex: number) => Promise<T>) => {
   const keys = getGeminiKeysForRole(role);
   if (!keys.length) {
-    throw new GeminiProxyError("Thieu GEMINI_API_KEY trong Vercel Environment Variables.", 500);
+    const helpByRole: Record<GeminiKeyRole, string> = {
+      writer: "GEMINI_API_KEY_1 va GEMINI_API_KEY_2",
+      reviewer: "GEMINI_API_KEY_3 va GEMINI_API_KEY_4",
+      rewriter: "GEMINI_API_KEY_5 va GEMINI_API_KEY_6",
+    };
+    throw new GeminiProxyError(`Thieu Gemini API key cho cum ${role}. Hay cau hinh ${helpByRole[role]} trong Vercel Environment Variables.`, 500);
   }
 
   let lastError: unknown;
@@ -277,6 +296,11 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     res.status(200).json({
       configured: getGeminiKeys().length > 0,
       keyCount: getGeminiKeys().length,
+      roleKeyCounts: {
+        writer: getGeminiKeysForRole("writer").length,
+        reviewer: getGeminiKeysForRole("reviewer").length,
+        rewriter: getGeminiKeysForRole("rewriter").length,
+      },
       model: normalizeGeminiModel(process.env.GEMINI_MODEL || "gemini-2.5-flash"),
       fallbackModels: getFallbackModels(),
     });
