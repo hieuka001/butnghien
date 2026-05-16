@@ -319,6 +319,11 @@ const App: React.FC = () => {
     return message || 'Có lỗi không xác định.';
   };
 
+  const isGeminiKeyInfrastructureError = (error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error || '');
+    return /401|403|API key|GEMINI_API_KEY_|GEMINI_WRITER_API_KEY|GEMINI_REVIEWER_API_KEY|GEMINI_REWRITER_API_KEY|không hợp lệ|chưa được cấp quyền/i.test(message);
+  };
+
   const friendlyAuthError = (error: unknown) => {
     const message = error instanceof Error ? error.message : String(error || '');
     if (message.includes('EMAIL_NOT_FOUND') || message.includes('INVALID_LOGIN_CREDENTIALS')) return 'Email hoặc mật khẩu không đúng.';
@@ -701,6 +706,64 @@ const App: React.FC = () => {
     });
   };
 
+  const renderOutlineText = (text: string) => {
+    let source = text.replace(/\r\n/g, '\n').trim();
+    if (source && !/^\s*#{1,3}\s+/m.test(source) && source.length > 220) {
+      const sentences = source
+        .replace(/\s+/g, ' ')
+        .match(/[^.!?…]+[.!?…]+|[^.!?…]+$/g)
+        ?.map(sentence => sentence.trim())
+        .filter(Boolean) || [];
+      if (sentences.length >= 4) {
+        const first = sentences.slice(0, 2).join(' ');
+        const second = sentences.slice(2, Math.max(4, Math.ceil(sentences.length * 0.45))).join(' ');
+        const third = sentences.slice(Math.max(4, Math.ceil(sentences.length * 0.45)), Math.max(6, Math.ceil(sentences.length * 0.75))).join(' ');
+        const last = sentences.slice(Math.max(6, Math.ceil(sentences.length * 0.75))).join(' ');
+        source = [
+          '# Lời hứa truyện',
+          first,
+          '',
+          '# Trục nhân quả',
+          second,
+          '',
+          '# Cao trào và phản lực',
+          third,
+          '',
+          '# Kết cục dự kiến',
+          last,
+        ].join('\n');
+      }
+    }
+
+    const blocks = source
+      .replace(/\r\n/g, '\n')
+      .split(/\n{2,}/)
+      .map(block => block.trim())
+      .filter(Boolean);
+
+    if (!blocks.length) return null;
+
+    return blocks.map((block, index) => {
+      const headingMatch = block.match(/^#{1,3}\s+(.+)$/m);
+      if (headingMatch && block.trim().startsWith('#')) {
+        const [, heading] = headingMatch;
+        const body = block.replace(/^#{1,3}\s+.+\n?/, '').trim();
+        return (
+          <div key={`outline-${index}`} className="space-y-2">
+            <h4 className="text-[11px] font-black uppercase tracking-[0.18em] text-indigo-700">{heading}</h4>
+            {body && <p className="story-font text-base text-slate-700 leading-relaxed whitespace-pre-wrap">{body}</p>}
+          </div>
+        );
+      }
+
+      return (
+        <p key={`outline-${index}`} className="story-font text-base text-slate-700 leading-relaxed whitespace-pre-wrap">
+          {block}
+        </p>
+      );
+    });
+  };
+
   const buildOpeningWorldBible = (
     rawWorldBuilding: string,
     summary: string,
@@ -1046,7 +1109,17 @@ const App: React.FC = () => {
         }
 
         setGenerationStatus('Đang thẩm định số chữ, canon, logic và độ tập trung...');
-        const validation = await validateChapterLogic(finalContent, previousForValidation, worldBible, currentArc, generalSummary, params, currentChapterIndex);
+        let validation;
+        try {
+          validation = await validateChapterLogic(finalContent, previousForValidation, worldBible, currentArc, generalSummary, params, currentChapterIndex);
+        } catch (validationError) {
+          if (!isGeminiKeyInfrastructureError(validationError)) throw validationError;
+          console.warn('Key 2 thẩm định lỗi, giữ bản thảo Key 1 nếu qua kiểm tra cục bộ:', validationError);
+          validation = {
+            isValid: true,
+            reason: 'Key 2 thẩm định đang lỗi key/quyền API. App giữ bản thảo Key 1 nếu đủ số chữ và không cụt cuối chương.',
+          };
+        }
         
         if (validation.isValid) {
           isValid = true;
@@ -1056,18 +1129,26 @@ const App: React.FC = () => {
           lastValidationReason = validation.reason || 'Chưa đạt thẩm định logic.';
           setGenerationStatus(`Key 3 đang sửa theo thẩm định: ${validation.reason || 'cần chặt logic hơn.'}`);
           setStory('');
-          finalContent = await rewriteChapterWithReviewStream(
-            params,
-            writtenChapters,
-            currentChapterIndex,
-            worldBible,
-            chapterIdea,
-            generalSummary,
-            currentArc,
-            finalContent,
-            validation,
-            (chunk) => setStory(prev => prev + chunk),
-          );
+          try {
+            finalContent = await rewriteChapterWithReviewStream(
+              params,
+              writtenChapters,
+              currentChapterIndex,
+              worldBible,
+              chapterIdea,
+              generalSummary,
+              currentArc,
+              finalContent,
+              validation,
+              (chunk) => setStory(prev => prev + chunk),
+            );
+          } catch (rewriteError) {
+            if (!isGeminiKeyInfrastructureError(rewriteError)) throw rewriteError;
+            console.warn('Key 3 sửa bản thảo lỗi, giữ bản nháp Key 1 để tránh mất nội dung:', rewriteError);
+            finalContent = bestCandidate || finalContent;
+            isValid = true;
+            lastValidationReason = 'Key 3 sửa bản thảo đang lỗi key/quyền API, app giữ bản nháp Key 1 nếu đủ số chữ và không cụt cuối.';
+          }
           setStory(finalContent);
           const revisedScore = chapterCandidateScore(finalContent, targetWords);
           if (revisedScore > bestCandidateScore) {
@@ -1076,7 +1157,17 @@ const App: React.FC = () => {
           }
 
           setGenerationStatus('Key 2 đang thẩm định lại bản sửa của Key 3...');
-          const rewrittenValidation = await validateChapterLogic(finalContent, previousForValidation, worldBible, currentArc, generalSummary, params, currentChapterIndex);
+          let rewrittenValidation;
+          try {
+            rewrittenValidation = await validateChapterLogic(finalContent, previousForValidation, worldBible, currentArc, generalSummary, params, currentChapterIndex);
+          } catch (validationError) {
+            if (!isGeminiKeyInfrastructureError(validationError)) throw validationError;
+            console.warn('Key 2 thẩm định lại lỗi, giữ bản sửa nếu qua kiểm tra cục bộ:', validationError);
+            rewrittenValidation = {
+              isValid: true,
+              reason: 'Key 2 thẩm định lại đang lỗi key/quyền API. App giữ bản hiện tại nếu đủ số chữ và không cụt cuối chương.',
+            };
+          }
           if (rewrittenValidation.isValid) {
             isValid = true;
             bestCandidate = finalContent;
@@ -1950,7 +2041,7 @@ const App: React.FC = () => {
             <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in pb-20">
               <section className="p-6 bg-white border rounded-3xl shadow-sm border-l-4 border-l-indigo-600">
                 <h3 className="text-[10px] font-black text-indigo-600 uppercase mb-2">Đại cục Trường Thiên</h3>
-                <p className="story-font text-base italic text-slate-700 leading-relaxed">{generalSummary}</p>
+                <div className="space-y-4">{renderOutlineText(generalSummary)}</div>
               </section>
               <section className="grid grid-cols-1 md:grid-cols-4 gap-3">
                 <div className="p-4 bg-white border border-slate-100 rounded-2xl shadow-sm">

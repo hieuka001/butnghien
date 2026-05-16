@@ -237,6 +237,18 @@ const splitEnvList = (value?: string) => (value || "")
   .map(key => key.trim())
   .filter(Boolean);
 
+const roleKeyHelp: Record<GeminiKeyRole, string> = {
+  writer: "GEMINI_API_KEY_1 và GEMINI_API_KEY_2",
+  reviewer: "GEMINI_API_KEY_3 và GEMINI_API_KEY_4",
+  rewriter: "GEMINI_API_KEY_5 và GEMINI_API_KEY_6",
+};
+
+const roleLabel: Record<GeminiKeyRole, string> = {
+  writer: "Cụm 1 viết/lập khung",
+  reviewer: "Cụm 2 thẩm định",
+  rewriter: "Cụm 3 sửa bản thảo",
+};
+
 const getGeminiKeys = () => {
   const numberedKeys = [
     process.env.GEMINI_API_KEY_1,
@@ -373,33 +385,32 @@ const requestGeminiProxy = (
 const withGeminiKeys = async <T,>(role: GeminiKeyRole, requester: (apiKey: string, keyIndex: number) => Promise<T>): Promise<T> => {
   const keys = getGeminiKeysForRole(role);
   if (!keys.length) {
-    const helpByRole: Record<GeminiKeyRole, string> = {
-      writer: "GEMINI_API_KEY_1 và GEMINI_API_KEY_2",
-      reviewer: "GEMINI_API_KEY_3 và GEMINI_API_KEY_4",
-      rewriter: "GEMINI_API_KEY_5 và GEMINI_API_KEY_6",
-    };
-    throw new Error(`Thiếu Gemini API key cho cụm ${role}. Hãy cấu hình ${helpByRole[role]} trong .env.local hoặc Vercel Environment Variables.`);
+    throw new Error(`Thiếu Gemini API key cho ${roleLabel[role]}. Hãy cấu hình ${roleKeyHelp[role]} trong .env.local hoặc Vercel Environment Variables.`);
   }
 
   let lastError: unknown;
+  let lastStatus: number | undefined;
   for (let attempt = 0; attempt < keys.length; attempt++) {
     const keyIndex = pickKeyIndex(keys, role);
     try {
       return await requester(keys[keyIndex], keyIndex);
     } catch (error) {
       lastError = error;
-      if (error instanceof GeminiRequestError && error.rotatable && attempt < keys.length - 1) {
+      lastStatus = error instanceof GeminiRequestError ? error.status : undefined;
+      if (error instanceof GeminiRequestError && error.rotatable) {
         markKeyCooling(role, keyIndex, error.status);
-        continue;
+        if (attempt < keys.length - 1) continue;
+        break;
       }
       throw error;
     }
   }
 
-  if (lastError instanceof Error) {
-    throw lastError;
-  }
-  throw new Error("Tất cả Gemini API key đều không dùng được ở thời điểm này.");
+  const detail = lastError instanceof Error ? lastError.message : "Không rõ lỗi.";
+  const credentialHint = lastStatus === 401 || lastStatus === 403
+    ? `Gemini API key của ${roleLabel[role]} không hợp lệ hoặc chưa được cấp quyền dùng API. Kiểm tra ${roleKeyHelp[role]}, bật Generative Language API, bỏ giới hạn referrer/IP không phù hợp với Vercel Serverless, rồi redeploy.`
+    : `Tất cả Gemini API key của ${roleLabel[role]} đều đang lỗi. Kiểm tra ${roleKeyHelp[role]} hoặc thử lại sau.`;
+  throw new Error(`${credentialHint} Lỗi cuối: ${detail}`);
 };
 
 const cleanStoryText = (text: string): string => {
@@ -1288,12 +1299,67 @@ const buildFallbackWorldBuilding = (params: StoryParams, totalChapters: number) 
   "- Không kết thúc truyện khi chưa tới chương cuối.",
 ].join("\n");
 
+const splitSentences = (text: string) =>
+  text
+    .replace(/\s+/g, " ")
+    .match(/[^.!?…]+[.!?…]+|[^.!?…]+$/g)
+    ?.map(sentence => sentence.trim())
+    .filter(Boolean) || [];
+
+const formatGeneralSummary = (value: string, params?: StoryParams) => {
+  const cleaned = String(value || "")
+    .replace(/```[a-z]*\n?/gi, "")
+    .replace(/```/g, "")
+    .replace(/\*\*/g, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  if (!cleaned) return "";
+  if (/^\s*#{1,3}\s+/m.test(cleaned) || /\n\s*(Mở đầu|Trục|Cao trào|Kết cục|Luật truyện|Phản lực)\s*[:：]/i.test(cleaned)) {
+    return cleaned;
+  }
+
+  const sentences = splitSentences(cleaned);
+  if (sentences.length < 4) {
+    return [
+      "# Lời hứa truyện",
+      cleaned,
+      "",
+      "# Trục nhân quả",
+      `Nhân vật chính phải theo đuổi mục tiêu "${params?.character?.goal || "đã khóa"}" qua các lựa chọn có hậu quả rõ ràng, không thắng nhờ may mắn hoặc thông tin chưa được gieo trước.`,
+      "",
+      "# Kết cục dự kiến",
+      `Kết cục đi theo cấu trúc "${params?.mode || "đã chọn"}" và phải trả đủ các mâu thuẫn đã mở.`,
+    ].join("\n");
+  }
+
+  const first = sentences.slice(0, 2).join(" ");
+  const second = sentences.slice(2, Math.max(4, Math.ceil(sentences.length * 0.45))).join(" ");
+  const third = sentences.slice(Math.max(4, Math.ceil(sentences.length * 0.45)), Math.max(6, Math.ceil(sentences.length * 0.75))).join(" ");
+  const last = sentences.slice(Math.max(6, Math.ceil(sentences.length * 0.75))).join(" ");
+
+  return [
+    "# Lời hứa truyện",
+    first,
+    "",
+    "# Trục nhân quả",
+    second || `Mọi Arc phải đẩy ${params?.character?.name || "nhân vật chính"} tới lựa chọn khó hơn, làm thay đổi quan hệ, quyền lực, thông tin hoặc cái giá phải trả.`,
+    "",
+    "# Cao trào và phản lực",
+    third || "Phản lực chính phải tăng theo từng Arc, buộc nhân vật trả giá bằng hành động cụ thể thay vì lời kể tóm tắt.",
+    "",
+    "# Kết cục dự kiến",
+    last || `Kết cục đi theo cấu trúc "${params?.mode || "đã chọn"}", khép các mâu thuẫn trung tâm và giữ dư âm bằng hậu quả cụ thể.`,
+  ].join("\n");
+};
+
 const buildFallbackRoadmapData = (params: StoryParams) => {
   const totalChapters = clamp(Math.round(params.totalChapters || 1), 1, 1000);
   const directionTitle = directionTitleFromLock(params);
   return {
     title: fallbackTitleFromParams(params),
-    generalSummary: `Đại cục dự phòng: ${params.character.name || "nhân vật chính"} theo đuổi mục tiêu ${params.character.goal || "đã đặt"} qua ${totalChapters} chương${directionTitle ? ` theo hướng "${directionTitle}"` : ""}; mỗi Arc đẩy một tầng nhân quả mới và giữ kết cục theo cấu trúc "${params.mode}".`,
+    generalSummary: formatGeneralSummary(`Đại cục dự phòng: ${params.character.name || "nhân vật chính"} theo đuổi mục tiêu ${params.character.goal || "đã đặt"} qua ${totalChapters} chương${directionTitle ? ` theo hướng "${directionTitle}"` : ""}; mỗi Arc đẩy một tầng nhân quả mới và giữ kết cục theo cấu trúc "${params.mode}".`, params),
     worldBuilding: buildFallbackWorldBuilding(params, totalChapters),
     volumes: [],
   };
@@ -1503,7 +1569,7 @@ ${arcBudgetGuide}
 - Không được để chapter 1 gọi nhân vật bằng tên hồ sơ nếu trong logic cảnh chưa có người đặt hoặc gọi tên đó.
 - Nếu tổng số chương rất dài, chia Arc theo cụm 25-60 chương để sau này sinh bản đồ chương theo từng Arc; không bắt buộc Arc nào cũng bằng nhau.
 - Mỗi Arc phải nêu: chức năng trong toàn truyện, xung đột chính, biến chuyển cuối Arc, dữ kiện canon cần giữ, nguy cơ nếu Arc này bị bỏ qua.
-- General summary nêu rõ mở đầu, trung đoạn, cao trào, kết cục theo mode "${params.mode}" trong tối đa 120 từ.
+- General summary phải là Markdown ngắn, có ngắt phần rõ ràng, không dồn thành một đoạn. Bắt buộc dùng 4 mục đúng tên: "# Lời hứa truyện", "# Trục nhân quả", "# Cao trào và phản lực", "# Kết cục dự kiến". Mỗi mục 1-3 câu, có xuống dòng trống giữa các mục.
 - World building phải là Thiên Cơ Lục khởi tạo dạng Markdown, tối đa 320 từ, có đủ mục: # TIMELINE, # SỐ LIỆU VÀ QUY TẮC, # NHÂN VẬT VÀ QUAN HỆ, # ĐIỂM NHÌN VÀ TÊN GỌI, # ĐỊA DANH/VẬT PHẨM/HỆ THỐNG, # MÂU THUẪN ĐANG MỞ, # ĐIỀU CẤM PHÁ LOGIC.
 - Khóa rõ các dữ kiện định lượng đã có: số chương, mục tiêu chữ, số lượng nhân vật/địa điểm/vật phẩm quan trọng, cấp bậc, thời hạn, khoảng cách. Dữ kiện chưa chắc phải ghi "chưa khóa".
 - Không mở tuyến phụ nếu tuyến đó không có chức năng trong Arc hoặc không tạo hậu quả cho chương sau.
@@ -1513,7 +1579,7 @@ JSON bắt buộc:
 {
   "title": "tên tác phẩm",
   "worldBuilding": "Thiên Cơ Lục khởi tạo dạng markdown với các mục canon bắt buộc",
-  "generalSummary": "đại cục toàn truyện",
+  "generalSummary": "đại cục toàn truyện dạng Markdown 4 mục, có xuống dòng và đoạn rõ ràng",
   "volumes": [
     {
       "index": 1,
@@ -1538,7 +1604,7 @@ JSON bắt buộc:
       `{
   "title": "tên tác phẩm",
   "worldBuilding": "Thiên Cơ Lục dạng markdown",
-  "generalSummary": "đại cục toàn truyện",
+  "generalSummary": "đại cục toàn truyện dạng Markdown 4 mục, có xuống dòng và đoạn rõ ràng",
   "volumes": [{ "index": 1, "title": "tên Arc", "summary": "tóm tắt Arc", "purpose": "chức năng Arc và lý do dài/ngắn", "chapterStart": 1, "chapterEnd": ${Math.min(totalChapters, 40)}, "chapters": [] }]
 }`,
     );
@@ -1553,7 +1619,7 @@ JSON bắt buộc:
   return {
     ...data,
     title: asText(data.title, (params.seed || "Tác phẩm mới").slice(0, 40)),
-    generalSummary: asText(data.generalSummary, params.seed || "Đại cục chưa rõ."),
+    generalSummary: formatGeneralSummary(asText(data.generalSummary, params.seed || "Đại cục chưa rõ."), params),
     worldBuilding: countWords(worldBuilding) >= 45 ? worldBuilding : fallbackWorldBuilding,
     volumes,
     firstVolume: volumes[0],
@@ -2111,10 +2177,11 @@ Trả về JSON: { "isValid": boolean, "reason": string, "canonIssues": string[]
     return normalizeChapterValidationResult(await chatJson(PLAN_MODEL, EDITOR_SYSTEM_INSTRUCTION, prompt, 0.2, 2500, "reviewer"));
   } catch (error) {
     if (!isAIJsonFormatError(error)) throw error;
-    console.warn("AI trả thẩm định không đúng JSON, chặn lưu chương để tránh lọt lỗi logic:", error);
+    console.warn("AI trả thẩm định không đúng JSON; giữ bản thảo nếu đã qua kiểm tra cục bộ số chữ và đoạn cuối:", error);
     return {
-      isValid: false,
-      reason: "Không đọc được JSON thẩm định logic; app chưa lưu bản này để tránh lọt lỗi canon, điểm nhìn hoặc tên gọi.",
+      isValid: true,
+      reason: "Key 2 trả thẩm định không đúng JSON. App đã bỏ qua lớp thẩm định AI cho lượt này và vẫn giữ các kiểm tra cục bộ về số chữ, bản đồ chương, Thiên Cơ Lục và đoạn cuối.",
+      suggestions: ["Nên bấm Kiểm tra logic sau khi chương được lưu nếu muốn rà canon sâu hơn."],
     };
   }
 };

@@ -58,6 +58,18 @@ const uniqueKeys = (keys: Array<string | undefined>) => keys
   .filter(Boolean)
   .filter((key, index, all) => all.indexOf(key) === index);
 
+const roleKeyHelp: Record<GeminiKeyRole, string> = {
+  writer: "GEMINI_API_KEY_1 va GEMINI_API_KEY_2",
+  reviewer: "GEMINI_API_KEY_3 va GEMINI_API_KEY_4",
+  rewriter: "GEMINI_API_KEY_5 va GEMINI_API_KEY_6",
+};
+
+const roleLabel: Record<GeminiKeyRole, string> = {
+  writer: "Cum 1 viet/lap khung",
+  reviewer: "Cum 2 tham dinh",
+  rewriter: "Cum 3 sua ban thao",
+};
+
 const getGeminiKeys = () => {
   const numberedKeys = [
     process.env.GEMINI_API_KEY_1,
@@ -173,30 +185,32 @@ const pickKeyIndex = (keys: string[], role: GeminiKeyRole) => {
 const withGeminiKeys = async <T,>(role: GeminiKeyRole, requester: (apiKey: string, keyIndex: number) => Promise<T>) => {
   const keys = getGeminiKeysForRole(role);
   if (!keys.length) {
-    const helpByRole: Record<GeminiKeyRole, string> = {
-      writer: "GEMINI_API_KEY_1 va GEMINI_API_KEY_2",
-      reviewer: "GEMINI_API_KEY_3 va GEMINI_API_KEY_4",
-      rewriter: "GEMINI_API_KEY_5 va GEMINI_API_KEY_6",
-    };
-    throw new GeminiProxyError(`Thieu Gemini API key cho cum ${role}. Hay cau hinh ${helpByRole[role]} trong Vercel Environment Variables.`, 500);
+    throw new GeminiProxyError(`Thieu Gemini API key cho ${roleLabel[role]}. Hay cau hinh ${roleKeyHelp[role]} trong Vercel Environment Variables.`, 500);
   }
 
   let lastError: unknown;
+  let lastStatus = 500;
   for (let attempt = 0; attempt < keys.length; attempt++) {
     const keyIndex = pickKeyIndex(keys, role);
     try {
       return await requester(keys[keyIndex], keyIndex);
     } catch (error) {
       lastError = error;
-      if (error instanceof GeminiProxyError && error.rotatable && attempt < keys.length - 1) {
+      lastStatus = error instanceof GeminiProxyError ? error.status : 500;
+      if (error instanceof GeminiProxyError && error.rotatable) {
         markKeyCooling(role, keyIndex, error.status);
-        continue;
+        if (attempt < keys.length - 1) continue;
+        break;
       }
       throw error;
     }
   }
 
-  throw lastError instanceof Error ? lastError : new GeminiProxyError("Tat ca Gemini API key deu dang loi.", 500);
+  const detail = lastError instanceof Error ? lastError.message : "Khong ro loi.";
+  const credentialHint = lastStatus === 401 || lastStatus === 403
+    ? `Gemini API key cua ${roleLabel[role]} khong hop le hoac chua duoc cap quyen dung API. Kiem tra ${roleKeyHelp[role]}, bat Generative Language API, bo gioi han referrer/IP khong phu hop voi Vercel Serverless, roi redeploy.`
+    : `Tat ca Gemini API key cua ${roleLabel[role]} deu dang loi. Kiem tra ${roleKeyHelp[role]} hoac thu lai sau.`;
+  throw new GeminiProxyError(`${credentialHint} Loi cuoi: ${detail}`, lastStatus, isRotatableStatus(lastStatus));
 };
 
 const parseBody = async (req: ApiRequest): Promise<GeminiProxyBody> => {
