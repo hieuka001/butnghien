@@ -1019,10 +1019,10 @@ const App: React.FC = () => {
   };
 
   const isWeakArcSummaryText = (value: string) => {
-    if (/(HƯỚNG TRUYỆN ĐÃ CHỌN|HUONG TRUYEN DA CHON|Logic cốt truyện|Logic cot truyen|Nhịp Arc|Nhip Arc)/i.test(value)) return true;
+    if (/(HƯỚNG TRUYỆN ĐÃ CHỌN|HUONG TRUYEN DA CHON|Logic cốt truyện|Logic cot truyen|Nhịp Arc|Nhip Arc|Truyện chỉ sử dụng|Truyen chi su dung|Bắt buộc khi lập lộ trình|Bat buoc khi lap lo trinh)/i.test(value)) return true;
     const normalized = planFingerprint(value);
     if (!normalized || normalized.split(/\s+/).length < 10) return true;
-    return /(?:huong truyen da chon|arc cau noi ngan|arc nhip vua|arc trong tam dai)|^(arc \d+ phu trach|arc \d+ tiep tuc|tom tat arc|khong co|khai cuc ngan|hoi nhap va khoa quy tac|day nhan vat)/.test(normalized);
+    return /(?:huong truyen da chon|arc cau noi ngan|arc nhip vua|arc trong tam dai|truyen chi su dung|khong su dung tuyen|xuat phat tu mau thuan|buoc nhan vat doi trang thai|de lai moc noi|phuc vu huong|dung \d+ chuong de)|^(arc \d+ phu trach|arc \d+ tiep tuc|tom tat arc|khong co|khai cuc ngan|hoi nhap va khoa quy tac|day nhan vat)/.test(normalized);
   };
 
   const isWeakArcTitleText = (value: string) => {
@@ -1060,13 +1060,27 @@ const App: React.FC = () => {
   };
 
   const getArcSynopsis = (volume: Volume) => {
-    const originalContent = volume.content || volume.summary || '';
-    const content = stripDirectionLabels(volume.content || volume.summary || '');
-    if (!isWeakArcSummaryText(originalContent) && !isWeakArcSummaryText(content)) return content;
+    const candidates = [volume.content, volume.summary]
+      .map(item => ({ original: item || '', clean: stripDirectionLabels(item || '') }))
+      .filter(item => item.clean);
+    const strongCandidate = candidates.find(item => !isWeakArcSummaryText(item.original) && !isWeakArcSummaryText(item.clean));
+    if (strongCandidate) return strongCandidate.clean;
+
     const seed = stripDirectionLabels(params.seed || '') || directionTitleFromLock(params.directionLock || '');
-    const premise = seed ? `xuất phát từ mâu thuẫn "${seed.slice(0, 120)}"` : `xoay quanh mục tiêu "${params.character.goal || 'đã khóa'}"`;
-    return `Trong ${getArcDisplayTitle(volume)}, ${params.character.name || 'nhân vật chính'} đi qua chương ${volume.chapterStart || '?'}-${volume.chapterEnd || '?'}, ${premise}. Arc này cần tạo một biến chuyển riêng, khóa thêm dữ kiện canon và để lại hậu quả nối sang Arc sau.`;
+    const premise = seed ? `mâu thuẫn "${seed.slice(0, 120)}"` : `mục tiêu "${params.character.goal || 'đã khóa'}"`;
+    const name = params.character.name || 'nhân vật chính';
+    return `${getArcDisplayTitle(volume)} mở trong chương ${volume.chapterStart || '?'}-${volume.chapterEnd || '?'}, khi ${name} phải bước vào một tầng mới của ${premise}. Phần giữa Arc cần có các biến cố cụ thể làm thay đổi thông tin, quan hệ hoặc quyền lực, thay vì chỉ nhắc lại tiền đề. Lực cản chính phải buộc ${name} lựa chọn và trả giá, đồng thời khóa thêm dữ kiện canon cho truyện dài. Cuối Arc phải có kết quả khác trạng thái ban đầu và để lại hậu quả hoặc bí mật nối sang Arc sau.`;
   };
+
+  const getArcSynopsisLines = (volume: Volume) => {
+    const text = getArcSynopsis(volume).replace(/\s+/g, ' ').trim();
+    const sentences = (text.match(/[^.!?…]+[.!?…]?/g) || [text])
+      .map(sentence => sentence.trim())
+      .filter(Boolean);
+    return sentences.length >= 3 ? sentences.slice(0, 6) : [text];
+  };
+
+  const arcSynopsisLineLabels = ['Mở Arc', 'Biến cố', 'Sức ép', 'Biến chuyển', 'Móc nối', 'Dư âm'];
 
   const getArcTheme = (volume: Volume) =>
     volume.theme || (volume.index === 1
@@ -2336,7 +2350,14 @@ const App: React.FC = () => {
                           </div>
                           <div className="mt-2">
                             <span className="block text-[8px] font-black uppercase tracking-widest text-slate-400">Nội dung Arc</span>
-                            <p className="text-sm text-slate-500 italic mt-1 leading-relaxed">{getArcSynopsis(vol)}</p>
+                            <div className="mt-2 grid gap-2">
+                              {getArcSynopsisLines(vol).map((line, lineIndex) => (
+                                <div key={`${vol.index}-arc-line-${lineIndex}`} className="rounded-2xl border border-slate-100 bg-slate-50/70 px-3 py-2">
+                                  <span className="block text-[8px] font-black uppercase tracking-widest text-indigo-400">{arcSynopsisLineLabels[lineIndex] || `Ý ${lineIndex + 1}`}</span>
+                                  <p className="mt-1 text-[12px] leading-relaxed text-slate-600 font-medium">{line}</p>
+                                </div>
+                              ))}
+                            </div>
                           </div>
                           <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2">
                             <div className="rounded-2xl bg-slate-50 border border-slate-100 p-3">
