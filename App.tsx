@@ -919,6 +919,8 @@ const App: React.FC = () => {
     ...(draftReview.styleIssues || []),
     ...(draftReview.repetitionIssues || []),
     ...(draftReview.dictionIssues || []),
+    ...(draftReview.suggestions || []),
+    ...(draftReview.rewriteDirectives || []),
   ] : [];
   const planCompletenessPercent = params.projectType === 'Trường Thiên'
     ? Math.min(100, Math.round((plannedChapterIndexes.size / Math.max(1, params.totalChapters)) * 100))
@@ -1022,7 +1024,7 @@ const App: React.FC = () => {
     if (/(HƯỚNG TRUYỆN ĐÃ CHỌN|HUONG TRUYEN DA CHON|Logic cốt truyện|Logic cot truyen|Nhịp Arc|Nhip Arc|Truyện chỉ sử dụng|Truyen chi su dung|Bắt buộc khi lập lộ trình|Bat buoc khi lap lo trinh)/i.test(value)) return true;
     const normalized = planFingerprint(value);
     if (!normalized || normalized.split(/\s+/).length < 10) return true;
-    return /(?:huong truyen da chon|arc cau noi ngan|arc nhip vua|arc trong tam dai|truyen chi su dung|khong su dung tuyen|xuat phat tu mau thuan|buoc nhan vat doi trang thai|de lai moc noi|phuc vu huong|dung \d+ chuong de)|^(arc \d+ phu trach|arc \d+ tiep tuc|tom tat arc|khong co|khai cuc ngan|hoi nhap va khoa quy tac|day nhan vat)/.test(normalized);
+    return /(?:huong truyen da chon|arc cau noi ngan|arc nhip vua|arc trong tam dai|truyen chi su dung|khong su dung tuyen|xuat phat tu mau thuan|buoc nhan vat doi trang thai|de lai moc noi|phuc vu huong|dung \d+ chuong de|trong .+ buoc qua chuong|arc nay khai cuc|arc nay hoi nhap|arc nay phuc vu)|^(arc \d+ phu trach|arc \d+ tiep tuc|tom tat arc|khong co|khai cuc ngan|hoi nhap va khoa quy tac|day nhan vat)/.test(normalized);
   };
 
   const isWeakArcTitleText = (value: string) => {
@@ -1071,16 +1073,6 @@ const App: React.FC = () => {
     const name = params.character.name || 'nhân vật chính';
     return `${getArcDisplayTitle(volume)} mở trong chương ${volume.chapterStart || '?'}-${volume.chapterEnd || '?'}, khi ${name} phải bước vào một tầng mới của ${premise}. Phần giữa Arc cần có các biến cố cụ thể làm thay đổi thông tin, quan hệ hoặc quyền lực, thay vì chỉ nhắc lại tiền đề. Lực cản chính phải buộc ${name} lựa chọn và trả giá, đồng thời khóa thêm dữ kiện canon cho truyện dài. Cuối Arc phải có kết quả khác trạng thái ban đầu và để lại hậu quả hoặc bí mật nối sang Arc sau.`;
   };
-
-  const getArcSynopsisLines = (volume: Volume) => {
-    const text = getArcSynopsis(volume).replace(/\s+/g, ' ').trim();
-    const sentences = (text.match(/[^.!?…]+[.!?…]?/g) || [text])
-      .map(sentence => sentence.trim())
-      .filter(Boolean);
-    return sentences.length >= 3 ? sentences.slice(0, 6) : [text];
-  };
-
-  const arcSynopsisLineLabels = ['Mở Arc', 'Biến cố', 'Sức ép', 'Biến chuyển', 'Móc nối', 'Dư âm'];
 
   const getArcTheme = (volume: Volume) =>
     volume.theme || (volume.index === 1
@@ -1373,21 +1365,26 @@ const App: React.FC = () => {
         (chunk) => setStory(prev => prev + chunk),
         false,
       );
-      setStory(finalContent);
       if (!finalContent.trim()) throw new Error('Gemini chưa trả về nội dung chương. Hãy thử lại hoặc giảm mục tiêu số chữ.');
 
       const draftWords = countDraftWords(finalContent);
       const draftMinimumWords = Math.max(650, Math.floor(targetWords * 0.95));
       if (draftWords < draftMinimumWords || draftLooksCutOff(finalContent)) {
+        setStory('');
         throw new Error(`Bản nháp Cụm 1 đang thiếu phần cuối hoặc chưa đủ chữ: hiện khoảng ${draftWords}/${targetWords} chữ. App chưa gọi Cụm 2/3 và chưa lưu bản này.`);
       }
 
+      setStory(finalContent);
       setPendingDraftMeta({ chapterIndex: currentChapterIndex, arcIndex: currentArc.index });
       setDraftReview(null);
       setRevisionRequest('');
       setGenerationStatus('Bản nháp Cụm 1 đã sẵn sàng. Tác giả có thể đọc, ghi yêu cầu thêm, rồi bấm thẩm định nếu cần.');
     } catch (e) { 
         console.error(e);
+        const message = e instanceof Error ? e.message : '';
+        if (/chưa hoàn tất|cụt|thiếu phần cuối|chưa đủ chữ|không trả về nội dung|chưa trả về nội dung/i.test(message)) {
+          setStory('');
+        }
         alert(friendlyError(e)); 
     }
     finally { setIsGenerating(false); setGenerationStatus(''); }
@@ -1435,7 +1432,7 @@ const App: React.FC = () => {
     }
   };
 
-  const handleReviewAndRewriteDraft = async () => {
+  const handleReviewDraft = async () => {
     if (!story.trim()) {
       alert('Chưa có bản nháp Cụm 1 để thẩm định.');
       return;
@@ -1447,7 +1444,6 @@ const App: React.FC = () => {
     }
 
     const originalDraft = story;
-    const authorNote = revisionRequest.trim();
     const previousForValidation = writtenChapters.filter(ch => ch.index !== currentChapterIndex);
     setIsGenerating(true);
 
@@ -1455,14 +1451,41 @@ const App: React.FC = () => {
       setGenerationStatus('Cụm 2 đang thẩm định bản nháp Cụm 1...');
       const validation = await validateChapterLogic(originalDraft, previousForValidation, worldBible, currentArc, generalSummary, params, currentChapterIndex);
       setDraftReview(validation);
+      setGenerationStatus('Cụm 2 đã thẩm định xong. Tác giả đọc báo cáo rồi quyết định lưu hoặc gọi Cụm 3.');
+    } catch (error) {
+      console.error(error);
+      alert(friendlyError(error));
+    } finally {
+      setIsGenerating(false);
+      setGenerationStatus('');
+    }
+  };
 
-      if (!chapterReviewNeedsRewrite(validation, authorNote)) {
-        setGenerationStatus('Cụm 2 không thấy lỗi lớn. Đang lưu bản nháp hiện tại...');
-        await persistChapterContent(originalDraft, currentArc);
-        return;
-      }
+  const handleRewriteReviewedDraft = async () => {
+    if (!story.trim()) {
+      alert('Chưa có bản nháp để Cụm 3 viết lại.');
+      return;
+    }
+    if (!draftReview) {
+      alert('Hãy cho Cụm 2 thẩm định trước, rồi Cụm 3 mới viết lại theo báo cáo.');
+      return;
+    }
+    const currentArc = getArcByChapterIndex(currentChapterIndex) || getActiveArc();
+    if (!currentArc) {
+      alert('Không tìm thấy Arc của chương hiện tại.');
+      return;
+    }
 
-      setGenerationStatus('Cụm 3 đang viết lại theo thẩm định và yêu cầu tác giả...');
+    const originalDraft = story;
+    const authorNote = revisionRequest.trim();
+    if (!chapterReviewNeedsRewrite(draftReview, authorNote)) {
+      alert('Cụm 2 chưa thấy lỗi cần sửa. Bạn có thể lưu bản nháp này, hoặc nhập yêu cầu thêm rồi bấm Cụm 3 viết lại.');
+      return;
+    }
+
+    setIsGenerating(true);
+    try {
+      setGenerationStatus('Cụm 3 đang viết lại theo báo cáo Cụm 2 và yêu cầu tác giả...');
       setStory('');
       const rewritten = await rewriteChapterWithReviewStream(
         params,
@@ -1473,11 +1496,19 @@ const App: React.FC = () => {
         generalSummary,
         currentArc,
         originalDraft,
-        validation,
+        draftReview,
         (chunk) => setStory(prev => prev + chunk),
       );
+      const targetWords = currentArc.chapters?.find(ch => ch.index === currentChapterIndex)?.targetWords || params.length;
+      const rewrittenWords = countDraftWords(rewritten);
+      if (rewrittenWords < Math.max(650, Math.floor(targetWords * 0.95)) || draftLooksCutOff(rewritten)) {
+        setStory(originalDraft);
+        throw new Error(`Bản sửa Cụm 3 vẫn thiếu phần cuối hoặc chưa đủ chữ: hiện khoảng ${rewrittenWords}/${targetWords} chữ. App chưa lưu bản này.`);
+      }
       setStory(rewritten);
-      await persistChapterContent(rewritten, currentArc);
+      setPendingDraftMeta({ chapterIndex: currentChapterIndex, arcIndex: currentArc.index });
+      setDraftReview(null);
+      setRevisionRequest('');
     } catch (error) {
       console.error(error);
       setStory(originalDraft);
@@ -2349,15 +2380,10 @@ const App: React.FC = () => {
                             )}
                           </div>
                           <div className="mt-2">
-                            <span className="block text-[8px] font-black uppercase tracking-widest text-slate-400">Nội dung Arc</span>
-                            <div className="mt-2 grid gap-2">
-                              {getArcSynopsisLines(vol).map((line, lineIndex) => (
-                                <div key={`${vol.index}-arc-line-${lineIndex}`} className="rounded-2xl border border-slate-100 bg-slate-50/70 px-3 py-2">
-                                  <span className="block text-[8px] font-black uppercase tracking-widest text-indigo-400">{arcSynopsisLineLabels[lineIndex] || `Ý ${lineIndex + 1}`}</span>
-                                  <p className="mt-1 text-[12px] leading-relaxed text-slate-600 font-medium">{line}</p>
-                                </div>
-                              ))}
-                            </div>
+                            <span className="block text-[8px] font-black uppercase tracking-widest text-slate-400">Nội dung hướng tới Arc</span>
+                            <p className="mt-2 rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3 text-[13px] leading-relaxed text-slate-600 font-medium">
+                              {getArcSynopsis(vol)}
+                            </p>
                           </div>
                           <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2">
                             <div className="rounded-2xl bg-slate-50 border border-slate-100 p-3">
@@ -2584,9 +2610,11 @@ const App: React.FC = () => {
                           <span className="inline-flex px-3 py-1 bg-amber-50 text-amber-700 rounded-full text-[9px] font-black uppercase tracking-widest border border-amber-100">
                             Bản nháp Cụm 1
                           </span>
-                          <h3 className="mt-3 text-lg font-black text-slate-900">Chưa gọi Cụm 2/3, chưa lưu vào bản thảo chính</h3>
+                          <h3 className="mt-3 text-lg font-black text-slate-900">
+                            {draftReview ? 'Cụm 2 đã báo cáo, chờ tác giả quyết định' : 'Chưa gọi Cụm 2/3, chưa lưu vào bản thảo chính'}
+                          </h3>
                           <p className="mt-1 text-xs text-slate-500 leading-5">
-                            Đọc bản nháp bên dưới. Nếu ổn, có thể lưu ngay. Nếu cần biên tập, nhập yêu cầu rồi bấm thẩm định để Cụm 2 đọc và Cụm 3 viết lại.
+                            Đọc bản nháp bên dưới. Nếu ổn, có thể lưu ngay. Nếu cần biên tập, bấm Cụm 2 để chỉ nhận báo cáo lỗi; sau đó nhập yêu cầu thêm rồi mới gọi Cụm 3 viết lại.
                           </p>
                         </div>
                         <button onClick={handleSaveCurrentDraft} disabled={isGenerating} className="px-5 py-3 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-2xl text-[10px] font-black uppercase hover:bg-emerald-600 hover:text-white transition-all disabled:opacity-50">
@@ -2605,14 +2633,28 @@ const App: React.FC = () => {
                           <p className="mt-1 text-xs leading-5">{draftReview.reason}</p>
                           {draftReviewIssues.length > 0 && (
                             <ul className="mt-3 space-y-1 text-xs leading-5 list-disc pl-4">
-                              {draftReviewIssues.slice(0, 5).map((issue, idx) => <li key={idx}>{issue}</li>)}
+                              {draftReviewIssues.slice(0, 8).map((issue, idx) => <li key={idx}>{issue}</li>)}
                             </ul>
+                          )}
+                          {draftReview.fixPlan && (
+                            <p className="mt-3 text-xs leading-5 font-semibold">Kế hoạch sửa: {draftReview.fixPlan}</p>
                           )}
                         </div>
                       )}
-                      <button onClick={handleReviewAndRewriteDraft} disabled={isGenerating} className="w-full py-4 bg-indigo-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all disabled:opacity-50">
-                        {isGenerating ? (generationStatus || 'Đang xử lý...') : 'Cụm 2 thẩm định, Cụm 3 viết lại'}
-                      </button>
+                      {!draftReview ? (
+                        <button onClick={handleReviewDraft} disabled={isGenerating} className="w-full py-4 bg-indigo-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all disabled:opacity-50">
+                          {isGenerating ? (generationStatus || 'Đang xử lý...') : 'Cụm 2 thẩm định bản nháp'}
+                        </button>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                          <button onClick={handleReviewDraft} disabled={isGenerating} className="w-full py-4 bg-indigo-50 text-indigo-700 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-100 transition-all disabled:opacity-50">
+                            {isGenerating ? (generationStatus || 'Đang xử lý...') : 'Thẩm định lại'}
+                          </button>
+                          <button onClick={handleRewriteReviewedDraft} disabled={isGenerating} className="w-full py-4 bg-indigo-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all disabled:opacity-50">
+                            {isGenerating ? (generationStatus || 'Đang xử lý...') : 'Cụm 3 viết lại theo báo cáo'}
+                          </button>
+                        </div>
+                      )}
                     </section>
                   )}
                   <article className="manuscript-reader story-font text-lg md:text-2xl text-slate-800 text-left shadow-2xl p-6 md:p-20 bg-white/95 rounded-[2rem] md:rounded-[3rem] border border-slate-50 relative">

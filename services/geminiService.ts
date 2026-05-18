@@ -143,8 +143,9 @@ const SCENE_LOGIC_RULES = `Luật logic cảnh bắt buộc:
 - Mỗi cảnh phải có điểm vào và điểm ra khác nhau. Nếu kết cảnh không đổi thông tin, quan hệ, rủi ro hoặc cảm xúc chiến lược, cảnh đó là thừa.`;
 
 const ARC_SYNOPSIS_REQUIREMENTS = `Yêu cầu sơ lược Arc bắt buộc:
-- "content" và "summary" của mỗi Arc phải là sơ lược nội dung thật 4-6 câu, đủ để tác giả hiểu Arc này kể chuyện gì và sửa được ý đồ Arc mà không cần mở bản đồ chương.
-- Bắt buộc có đủ 4 lớp: Mở Arc nêu trạng thái nhân vật/bối cảnh/câu hỏi đang mở; Thân Arc nêu 2-4 biến cố chính và lực cản; Cuối Arc nêu lựa chọn/cái giá/kết quả làm thay đổi canon; Móc nối nêu hậu quả hoặc bí mật đẩy sang Arc sau.
+- "content" của mỗi Arc phải là một đoạn văn ngắn tên là nội dung hướng tới của Arc, dài 4-6 câu liền mạch, đủ để tác giả hiểu Arc này sẽ kể chuyện gì và sửa được ý đồ Arc mà không cần mở bản đồ chương.
+- Đoạn content bắt buộc có đủ 4 lớp trong cùng một đoạn văn: Mở Arc nêu trạng thái nhân vật/bối cảnh/câu hỏi đang mở; Thân Arc nêu 2-4 biến cố chính và lực cản; Cuối Arc nêu lựa chọn/cái giá/kết quả làm thay đổi canon; Móc nối nêu hậu quả hoặc bí mật đẩy sang Arc sau.
+- "summary" chỉ là bản rút gọn 2-3 câu của content, không được thay thế content.
 - Không được chỉ ghi chức năng quản trị như "khai cục", "hội nhập", "đẩy nhân vật vào xung đột", "phục vụ hướng truyện"; không được chép lại nguyên ý tưởng khởi nguồn/hướng truyện rồi gọi đó là nội dung Arc.
 - "theme" chỉ nêu chủ đề cảm xúc/tư tưởng; "objective" nêu mục tiêu cần đạt; "purpose" nêu vai trò và lý do dài/ngắn. Ba trường này không được thay thế cho sơ lược nội dung Arc.`;
 
@@ -549,6 +550,15 @@ const detectDraftRepetition = (text: string, maxIssues = 6) => {
 };
 
 const normalizeGeneratedDraft = (text: string) => removeDuplicateLongBlocks(normalizeDraftWhitespace(text));
+
+const assertCompleteGeneratedDraft = (text: string, minWords: number, targetWords: number, label: string) => {
+  const draft = normalizeGeneratedDraft(text);
+  const words = countWords(draft);
+  if (chapterNeedsContinuation(draft, minWords)) {
+    throw new Error(`${label} chưa hoàn tất hoặc bị cụt phần cuối: hiện khoảng ${words}/${targetWords} chữ, tối thiểu cần ${minWords} chữ. App chưa lưu bản này; hãy thử lại để AI viết đủ chương.`);
+  }
+  return draft;
+};
 
 const cleanContinuationText = (text: string) => normalizeGeneratedDraft(text)
   .replace(/^\s*(?:Tên chương|Tên truyện)\s*:\s*.+(?:\n+|$)/i, "")
@@ -1277,7 +1287,7 @@ const isWeakArcSummary = (value: string) => {
   if (/(HƯỚNG TRUYỆN ĐÃ CHỌN|HUONG TRUYEN DA CHON|Logic cốt truyện|Logic cot truyen|Nhịp Arc|Nhip Arc|Truyện chỉ sử dụng|Truyen chi su dung|Bắt buộc khi lập lộ trình|Bat buoc khi lap lo trinh)/i.test(value)) return true;
   const normalized = textFingerprint(value);
   if (!normalized || normalized.split(/\s+/).length < 10) return true;
-  return /(?:huong truyen da chon|arc cau noi ngan|arc nhip vua|arc trong tam dai|truyen chi su dung|khong su dung tuyen|xuat phat tu mau thuan|buoc nhan vat doi trang thai|de lai moc noi|phuc vu huong|dung \d+ chuong de)|^(arc \d+ phu trach|arc \d+ tiep tuc|tom tat arc|khong co|khai cuc ngan|hoi nhap va khoa quy tac|day nhan vat)/.test(normalized);
+  return /(?:huong truyen da chon|arc cau noi ngan|arc nhip vua|arc trong tam dai|truyen chi su dung|khong su dung tuyen|xuat phat tu mau thuan|buoc nhan vat doi trang thai|de lai moc noi|phuc vu huong|dung \d+ chuong de|trong .+ buoc qua chuong|arc nay khai cuc|arc nay hoi nhap|arc nay phuc vu)|^(arc \d+ phu trach|arc \d+ tiep tuc|tom tat arc|khong co|khai cuc ngan|hoi nhap va khoa quy tac|day nhan vat)/.test(normalized);
 };
 
 const isWeakArcTitle = (value: string) => {
@@ -1847,7 +1857,7 @@ Hãy thẩm định như Cụm 2:
 - Chỉ đánh dấu lỗi thật sự ảnh hưởng logic, canon, điểm nhìn, độ dài Arc/chương, hoặc khả năng viết chương sau.
 - Với lộ trình dài, không yêu cầu chia đều; chỉ bắt lỗi nếu độ dài Arc không có lý do nội dung.
 - Với lộ trình Arc, thiếu mục "# Sơ lược truyện" trong generalSummary là lỗi phải sửa.
-- Với lộ trình Arc, mỗi Arc phải có summary/content là sơ lược Arc cụ thể 4-6 câu: mở Arc, 2-4 biến cố chính, lực cản, lựa chọn/cái giá, biến chuyển cuối Arc và móc nối sang Arc sau. Summary kiểu "Arc 1 phụ trách chương...", chép lại seed/hướng truyện hoặc chỉ nêu chức năng là chưa đạt.
+- Với lộ trình Arc, mỗi Arc phải có content là một đoạn "nội dung hướng tới" cụ thể 4-6 câu: mở Arc, 2-4 biến cố chính, lực cản, lựa chọn/cái giá, biến chuyển cuối Arc và móc nối sang Arc sau. Summary chỉ được là bản rút gọn. Summary/content kiểu "Arc 1 phụ trách chương...", chép lại seed/hướng truyện hoặc chỉ nêu chức năng là chưa đạt.
 - Với lộ trình Arc, mỗi Arc bắt buộc có title riêng, content/nội dung Arc, theme/chủ đề Arc, objective/mục tiêu sơ bộ Arc và purpose/vai trò Arc. Thiếu một trong các trường này là lỗi phải sửa.
 - Với bản đồ chương, mỗi chapter bắt buộc có title riêng 3-8 từ, gắn với biến cố cụ thể, không lặp tên Arc, không lặp title chương khác, không để "Chương X" làm tên thật.
 - Nếu hợp lý, isValid=true và shouldRewrite=false.
@@ -1913,7 +1923,7 @@ Hãy đóng vai Cụm 3:
 - Không tự ý đổi tên riêng, tổng số chương, mục tiêu chữ, mode, hướng truyện đã khóa.
 - Không viết văn xuôi truyện ở bước lộ trình/bản đồ.
 - Nếu đang sửa lộ trình Arc, phải giữ/khôi phục mục "# Sơ lược truyện" trong generalSummary.
-- Nếu đang sửa Arc, phải viết đủ title/content/theme/objective/purpose. Summary/content phải là sơ lược Arc thật 4-6 câu, có tình thế mở, các biến cố chính, xung đột, lựa chọn/cái giá, biến chuyển cuối và móc nối; không chỉ ghi chức năng, phạm vi chương hoặc chép lại ý tưởng khởi nguồn.
+- Nếu đang sửa Arc, phải viết đủ title/content/theme/objective/purpose. Content phải là đoạn nội dung hướng tới thật 4-6 câu, có tình thế mở, các biến cố chính, xung đột, lựa chọn/cái giá, biến chuyển cuối và móc nối; summary chỉ rút gọn content; không chỉ ghi chức năng, phạm vi chương hoặc chép lại ý tưởng khởi nguồn.
 - Nếu đang sửa bản đồ chương, mọi chapter phải có title riêng 3-8 từ, không lặp và không bắt đầu bằng "Chương", "C.", "Chapter".
 - Trả về đúng JSON, không markdown, không giải thích.
 
@@ -1976,9 +1986,9 @@ ${arcBudgetGuide}
 - Nếu mở đầu nhân vật chưa có tên, chưa có nhận thức, bị bỏ rơi, mất trí nhớ hoặc đang ở trạng thái bất lực, Đại cục phải ghi rõ ai biết gì, ai đặt tên/gọi tên, khi nào nhân vật có thể biết tên/mục tiêu của mình.
 - Không được để chapter 1 gọi nhân vật bằng tên hồ sơ nếu trong logic cảnh chưa có người đặt hoặc gọi tên đó.
 - Nếu tổng số chương rất dài, chia Arc theo cụm 25-60 chương để sau này sinh bản đồ chương theo từng Arc; không bắt buộc Arc nào cũng bằng nhau.
-- Mỗi Arc phải nêu: nội dung sơ lược đủ hiểu, chức năng trong toàn truyện, xung đột chính, biến chuyển cuối Arc, dữ kiện canon cần giữ, nguy cơ nếu Arc này bị bỏ qua.
+- Mỗi Arc phải nêu: đoạn nội dung hướng tới đủ hiểu, chức năng trong toàn truyện, xung đột chính, biến chuyển cuối Arc, dữ kiện canon cần giữ, nguy cơ nếu Arc này bị bỏ qua.
 - Mỗi Arc bắt buộc có đủ 5 trường riêng: title, content, theme, objective, purpose.
-- title = tên Arc riêng; content = nội dung sơ lược Arc 4-6 câu có mở/thân/cuối/móc nối; summary = bản rút gọn 2-3 câu của content; theme = chủ đề tư tưởng/cảm xúc của Arc; objective = mục tiêu sơ bộ cần đạt trước khi sang Arc sau; purpose = vai trò/chức năng của Arc trong toàn truyện và lý do dài/ngắn.
+- title = tên Arc riêng; content = đoạn văn ngắn "nội dung hướng tới của Arc" 4-6 câu có mở/thân/cuối/móc nối; summary = bản rút gọn 2-3 câu của content; theme = chủ đề tư tưởng/cảm xúc của Arc; objective = mục tiêu sơ bộ cần đạt trước khi sang Arc sau; purpose = vai trò/chức năng của Arc trong toàn truyện và lý do dài/ngắn.
 - General summary phải là Markdown ngắn, có ngắt phần rõ ràng, không dồn thành một đoạn. Bắt buộc dùng 5 mục đúng tên: "# Sơ lược truyện", "# Lời hứa truyện", "# Trục nhân quả", "# Cao trào và phản lực", "# Kết cục dự kiến". Mỗi mục 1-3 câu, có xuống dòng trống giữa các mục.
 - "# Sơ lược truyện" phải kể rõ truyện nói về ai, khởi điểm nào, mục tiêu nào, lực cản trung tâm nào và hướng phát triển toàn bộ tác phẩm. Không được thay bằng câu quản trị kiểu "Đại cục dự phòng".
 - World building phải là Thiên Cơ Lục khởi tạo dạng Markdown, tối đa 320 từ, có đủ mục: # TIMELINE, # SỐ LIỆU VÀ QUY TẮC, # NHÂN VẬT VÀ QUAN HỆ, # ĐIỂM NHÌN VÀ TÊN GỌI, # ĐỊA DANH/VẬT PHẨM/HỆ THỐNG, # MÂU THUẪN ĐANG MỞ, # ĐIỀU CẤM PHÁ LOGIC.
@@ -1996,7 +2006,7 @@ JSON bắt buộc:
       "index": 1,
       "title": "tên Arc riêng 3-8 từ, không chứa nhãn HƯỚNG TRUYỆN ĐÃ CHỌN/Tiền đề/Logic cốt truyện",
       "summary": "bản rút gọn 2-3 câu: tình thế đầu Arc, xung đột chính, biến chuyển cuối Arc; không dùng nhãn quản trị",
-      "content": "nội dung sơ lược Arc 4-6 câu: mở Arc, 2-4 biến cố chính, lực cản, lựa chọn/cái giá, kết quả cuối Arc và móc nối; không dùng nhãn quản trị",
+      "content": "một đoạn văn ngắn về nội dung hướng tới của Arc 4-6 câu: mở Arc, 2-4 biến cố chính, lực cản, lựa chọn/cái giá, kết quả cuối Arc và móc nối; không dùng nhãn quản trị",
       "theme": "chủ đề Arc",
       "objective": "mục tiêu sơ bộ Arc",
       "purpose": "chức năng của Arc trong toàn truyện, kèm lý do Arc này cần dài/ngắn",
@@ -2019,7 +2029,7 @@ JSON bắt buộc:
   "title": "tên tác phẩm",
   "worldBuilding": "Thiên Cơ Lục dạng markdown",
   "generalSummary": "đại cục toàn truyện dạng Markdown 5 mục, bắt buộc có # Sơ lược truyện",
-  "volumes": [{ "index": 1, "title": "tên Arc riêng 3-8 từ, không chứa nhãn quản trị", "summary": "bản rút gọn nội dung Arc", "content": "sơ lược Arc 4-6 câu có mở/thân/cuối/móc nối", "theme": "chủ đề Arc", "objective": "mục tiêu sơ bộ Arc", "purpose": "chức năng Arc và lý do dài/ngắn", "chapterStart": 1, "chapterEnd": ${Math.min(totalChapters, 40)}, "chapters": [] }]
+  "volumes": [{ "index": 1, "title": "tên Arc riêng 3-8 từ, không chứa nhãn quản trị", "summary": "bản rút gọn nội dung Arc", "content": "đoạn nội dung hướng tới của Arc 4-6 câu có mở/thân/cuối/móc nối", "theme": "chủ đề Arc", "objective": "mục tiêu sơ bộ Arc", "purpose": "chức năng Arc và lý do dài/ngắn", "chapterStart": 1, "chapterEnd": ${Math.min(totalChapters, 40)}, "chapters": [] }]
 }`,
     );
   } catch (error) {
@@ -2087,8 +2097,8 @@ ${history || "Chưa có chương đã viết."}
 
 Hãy lập Arc ${safeVolumes.length + 1}, phủ chương ${start}-${end}.
 Arc mới phải nối logic với các Arc đã có, có mục tiêu riêng, có chapterStart/chapterEnd rõ ràng, chưa cần bản đồ chương chi tiết.
-Viết JSON gọn nhưng đủ ý: title là tên Arc riêng 3-8 từ như tiêu đề truyện thật, không chứa nhãn quản trị; content là sơ lược Arc 4-6 câu có mở/thân/cuối/móc nối; summary là bản rút gọn 2-3 câu; theme là chủ đề Arc; objective là mục tiêu sơ bộ Arc; purpose tối đa 42 từ.
-Summary/content phải nói rõ tình thế đầu Arc, 2-4 biến cố chính, xung đột chính, biến chuyển cuối Arc và móc nối sang Arc sau; không được chỉ ghi "Arc này phụ trách chương...", không chỉ nêu chức năng và không chép lại seed/hướng truyện.
+Viết JSON gọn nhưng đủ ý: title là tên Arc riêng 3-8 từ như tiêu đề truyện thật, không chứa nhãn quản trị; content là đoạn văn ngắn "nội dung hướng tới của Arc" 4-6 câu có mở/thân/cuối/móc nối; summary là bản rút gọn 2-3 câu; theme là chủ đề Arc; objective là mục tiêu sơ bộ Arc; purpose tối đa 42 từ.
+Content phải nói rõ tình thế đầu Arc, 2-4 biến cố chính, xung đột chính, biến chuyển cuối Arc và móc nối sang Arc sau; summary chỉ rút gọn content; không được chỉ ghi "Arc này phụ trách chương...", không chỉ nêu chức năng và không chép lại seed/hướng truyện.
 Ghi rõ dữ kiện canon cần giữ và hậu quả cuối Arc nối sang Arc sau.
 Ghi rõ trạng thái nhận thức/tên gọi của nhân vật ở đầu Arc nếu Arc có đổi tên, đổi tuổi, đổi người chăm sóc, đổi thân phận hoặc mất/khôi phục ký ức.
 Không thêm nhân vật, vật phẩm, địa danh, cấp bậc hoặc số liệu mới nếu không ghi rõ chức năng trong Arc và không mâu thuẫn Thiên Cơ Lục.
@@ -2103,7 +2113,7 @@ Trả về JSON của một Volume có index, title, summary, content, theme, ob
       `Arc ${safeVolumes.length + 1} mở rộng`,
       `Arc mới phải phủ chương ${start}-${end}, nối tiếp ${safeVolumes.length} Arc đã có và không phá Thiên Cơ Lục.`,
       data,
-      `{ "index": ${safeVolumes.length + 1}, "title": "tên Arc riêng 3-8 từ, không chứa nhãn quản trị", "summary": "bản rút gọn nội dung Arc", "content": "sơ lược Arc 4-6 câu có mở/thân/cuối/móc nối", "theme": "chủ đề Arc", "objective": "mục tiêu sơ bộ Arc", "purpose": "chức năng Arc", "chapterStart": ${start}, "chapterEnd": ${end}, "chapters": [] }`,
+      `{ "index": ${safeVolumes.length + 1}, "title": "tên Arc riêng 3-8 từ, không chứa nhãn quản trị", "summary": "bản rút gọn nội dung Arc", "content": "đoạn nội dung hướng tới của Arc 4-6 câu có mở/thân/cuối/móc nối", "theme": "chủ đề Arc", "objective": "mục tiêu sơ bộ Arc", "purpose": "chức năng Arc", "chapterStart": ${start}, "chapterEnd": ${end}, "chapters": [] }`,
     );
   } catch (error) {
     if (!isAIJsonFormatError(error)) throw error;
@@ -2169,7 +2179,7 @@ ${worldBible.slice(0, 7000)}
 [ARC CẦN LẬP BẢN ĐỒ CHƯƠNG]
 - Arc ${currentArc.index}: ${currentArc.title}
 - Phạm vi: chương ${start}-${end} (${chapterCount} chương)
-- Nội dung Arc: ${currentArc.content || currentArc.summary}
+- Nội dung hướng tới của Arc: ${currentArc.content || currentArc.summary}
 - Chủ đề Arc: ${currentArc.theme || "Chưa khóa, hãy suy ra từ Đại cục và nội dung Arc."}
 - Mục tiêu sơ bộ Arc: ${currentArc.objective || currentArc.purpose || "Đẩy nhân vật qua một biến chuyển có hậu quả rõ."}
 - Chức năng Arc: ${currentArc.purpose || currentArc.summary}
@@ -2180,6 +2190,9 @@ ${nearbyHistory || "Chưa có chương đã viết trong vùng này."}
 
 Hãy lập bản đồ chi tiết cho đúng các chương ${start}-${end}.
 Yêu cầu:
+- Đoạn "Nội dung hướng tới của Arc" là xương sống bắt buộc. Chia các chương thành từng lát cắt cụ thể đi từ tình thế mở, các biến cố chính, lực cản, lựa chọn/cái giá, biến chuyển cuối đến móc nối sang Arc sau; không được chỉ rải đều số chương.
+- Mỗi title/summary/objective phải cho thấy chương đó phục vụ phần nào của nội dung hướng tới. Không dùng câu mẫu chung như "dùng một cảnh quyết định", "giữ đúng tính cách", "không giải quyết mâu thuẫn trung tâm quá sớm", "mở cảnh bằng áp lực cụ thể" làm tên hoặc tóm tắt chương.
+- Nếu nội dung hướng tới của Arc có nhiều tầng, chapter đầu phải mở đúng tình thế, chapter giữa phải tạo biến cố và lực cản mới, chapter cuối phải trả giá/đổi trạng thái và để lại móc nối; không gom toàn bộ ý đồ vào một chương rồi lặp lại ở các chương sau.
 - Trả đúng ${chapterCount} chapter object, index liên tục từ ${start} đến ${end}; không thiếu, không trùng.
 - Mỗi chương chỉ là kế hoạch, chưa viết văn xuôi.
 - Mỗi chương có title, summary, objective, đúng 3 beats dạng cảnh, 2 mustInclude, cliffhanger, targetWords=${params.length}, pacing.
@@ -2281,7 +2294,7 @@ ${generalSummary}
 
 [ARC HIỆN TẠI]
 - Tên Arc: ${currentArc.title}
-- Nội dung Arc: ${currentArc.content || currentArc.summary}
+- Nội dung hướng tới của Arc: ${currentArc.content || currentArc.summary}
 - Chủ đề Arc: ${currentArc.theme || "Chưa khóa rõ, suy ra từ Đại cục."}
 - Mục tiêu sơ bộ Arc: ${currentArc.objective || currentArc.purpose || "Đẩy truyện qua một biến chuyển có hậu quả."}
 - Vai trò Arc: ${currentArc.purpose || currentArc.summary}
@@ -2328,6 +2341,8 @@ ${userIdea || "Không có bổ sung. Hãy phát triển tự nhiên theo lộ tr
 
 YÊU CẦU VIẾT:
 - Mục tiêu độ dài: khoảng ${targetWords} chữ. Không được dừng dưới ${minWords} chữ; không vượt quá ${maxWords} chữ nếu không cần để khép cảnh.
+- Chỉ được coi là hoàn tất khi chương đã đủ tối thiểu ${minWords} chữ, câu cuối có dấu kết, cảnh cuối khép bằng một hậu quả/móc nối cụ thể. Không dừng giữa câu, giữa đoạn hoặc sau một từ nối như "và", "nhưng", "của", "trong".
+- Nội dung hướng tới của Arc là trục chính; chương này phải là một lát cắt cụ thể trong trục đó, không lặp lại ý đồ Arc bằng lời kể chung.
 - Bắt đầu bằng đúng mẫu: "Tên chương: [tên chương]".
 - Sau dòng tên chương, viết văn xuôi liền mạch bằng tiếng Việt.
 - Mỗi beat phải được viết thành cảnh có hành động, cảm giác, đối thoại hoặc quyết định cụ thể; không tóm tắt thay cho cảnh.
@@ -2400,7 +2415,24 @@ ${fullText.slice(-2200)}`;
     fullText = appendDraftPart(fullText, closingText);
   }
 
-  return normalizeGeneratedDraft(fullText);
+  let finalDraft = normalizeGeneratedDraft(fullText);
+  if (chapterNeedsContinuation(finalDraft, minWords)) {
+    const currentWords = countWords(finalDraft);
+    const rescueWords = Math.max(600, Math.min(1800, minWords - currentWords + 260));
+    const rescuePrompt = `Chương ${newIndex} vẫn chưa hoàn tất: hiện khoảng ${currentWords}/${targetWords} chữ hoặc đoạn cuối còn cụt.
+Hãy viết tiếp ngay ${rescueWords} chữ từ đoạn cuối dưới đây để hoàn tất chương, đủ tối thiểu ${minWords} chữ, khép câu và khép cảnh.
+Không lặp tiêu đề, không tóm tắt, không viết lại từ đầu, không mở tuyến mới, không đổi canon. Phần viết tiếp phải nối trực tiếp câu/cảnh đang dở và kết bằng một hậu quả hoặc móc nối cụ thể cho chương sau.
+
+[ĐOẠN CUỐI ĐỂ NỐI MẠCH]
+${finalDraft.slice(-2600)}`;
+    onChunk("\n\n");
+    fullText += "\n\n";
+    const rescueText = await streamChat(WRITE_MODEL, ACTIVE_WRITER_SYSTEM_INSTRUCTION, rescuePrompt, onChunk, 0.62, estimateMaxTokens(rescueWords, 1800), "writer");
+    fullText = appendDraftPart(fullText, rescueText);
+    finalDraft = normalizeGeneratedDraft(fullText);
+  }
+
+  return assertCompleteGeneratedDraft(finalDraft, minWords, targetWords, "Bản nháp Cụm 1");
 };
 
 export const rewriteChapterWithReviewStream = async (
@@ -2462,7 +2494,7 @@ ${generalSummary}
 
 [ARC HIỆN TẠI]
 - Tên Arc: ${currentArc.title}
-- Nội dung Arc: ${currentArc.content || currentArc.summary}
+- Nội dung hướng tới của Arc: ${currentArc.content || currentArc.summary}
 - Chủ đề Arc: ${currentArc.theme || "Chưa khóa rõ, suy ra từ Đại cục."}
 - Mục tiêu sơ bộ Arc: ${currentArc.objective || currentArc.purpose || "Đẩy truyện qua một biến chuyển có hậu quả."}
 - Vai trò Arc: ${currentArc.purpose || currentArc.summary}
@@ -2497,6 +2529,7 @@ YÊU CẦU KEY 3:
 - Không chỉ thay vài câu. Hãy viết lại thành một bản chương liền mạch, đã tự sửa lặp chữ, lặp ý, câu sáo, đoạn quá dài, thoại sai quan hệ và các chỗ nhân vật biết/làm điều không hợp logic.
 - Nếu báo cáo Cụm 2 nêu lặp đoạn/câu dài, tuyệt đối không giữ lại hai đoạn giống nhau. Chỉ giữ một lần thông tin cần thiết, phần còn lại phải thay bằng diễn biến mới có mục tiêu, va chạm và hậu quả riêng.
 - Không rút ngắn: mục tiêu khoảng ${targetWords} chữ, không dừng dưới ${minWords} chữ, không vượt quá ${maxWords} chữ nếu không cần để khép cảnh.
+- Chỉ được coi là hoàn tất khi bản sửa đã đủ tối thiểu ${minWords} chữ, câu cuối có dấu kết, cảnh cuối khép bằng một hậu quả/móc nối cụ thể. Không dừng giữa câu, giữa đoạn hoặc sau một từ nối như "và", "nhưng", "của", "trong".
 - Không đổi tổng hướng truyện, không thêm tuyến mới, không đổi canon, không tự đặt số liệu nếu Thiên Cơ Lục chưa khóa.
 - Nếu lỗi liên quan tên nhân vật/nhận thức, phải sửa bằng cách đặt người đọc vào đúng vị trí nhân vật trong cảnh: ai biết gì, ai gọi tên, khi nào được đặt tên, cơ thể có thể làm gì.
 - Mỗi cảnh phải có mục tiêu, va chạm, lựa chọn/hành động và hậu quả. Không tóm tắt thay cảnh.
@@ -2539,7 +2572,27 @@ ${fullText.slice(-2200)}`;
     fullText = appendDraftPart(fullText, closingText);
   }
 
-  return normalizeGeneratedDraft(fullText);
+  let finalDraft = normalizeGeneratedDraft(fullText);
+  if (chapterNeedsContinuation(finalDraft, minWords)) {
+    const currentWords = countWords(finalDraft);
+    const rescueWords = Math.max(600, Math.min(1800, minWords - currentWords + 260));
+    const rescuePrompt = `Bản sửa Cụm 3 của chương ${newIndex} vẫn chưa hoàn tất: hiện khoảng ${currentWords}/${targetWords} chữ hoặc đoạn cuối còn cụt.
+Hãy viết tiếp ngay ${rescueWords} chữ từ đoạn cuối dưới đây để hoàn tất chương, đủ tối thiểu ${minWords} chữ, khép câu và khép cảnh.
+Không lặp tiêu đề, không tóm tắt, không viết lại từ đầu, không mở tuyến mới, không đổi canon. Phần viết tiếp phải xử lý nốt lỗi Cụm 2 còn liên quan và kết bằng một hậu quả hoặc móc nối cụ thể.
+
+[BÁO CÁO KEY 2]
+${JSON.stringify(review, null, 2)}
+
+[ĐOẠN CUỐI ĐỂ NỐI MẠCH]
+${finalDraft.slice(-2600)}`;
+    onChunk("\n\n");
+    fullText += "\n\n";
+    const rescueText = await streamChat(WRITE_MODEL, PIPELINE_REWRITER_SYSTEM_INSTRUCTION, rescuePrompt, onChunk, 0.6, estimateMaxTokens(rescueWords, 1800), "rewriter");
+    fullText = appendDraftPart(fullText, rescueText);
+    finalDraft = normalizeGeneratedDraft(fullText);
+  }
+
+  return assertCompleteGeneratedDraft(finalDraft, minWords, targetWords, "Bản sửa Cụm 3");
 };
 
 export const validateChapterLogic = async (
@@ -2614,7 +2667,7 @@ ${generalSummary}
 
 [ARC HIỆN TẠI]
 - Tên Arc: ${currentArc.title}
-- Nội dung Arc: ${currentArc.content || currentArc.summary}
+- Nội dung hướng tới của Arc: ${currentArc.content || currentArc.summary}
 - Chủ đề Arc: ${currentArc.theme || "Chưa khóa rõ, suy ra từ Đại cục."}
 - Mục tiêu sơ bộ Arc: ${currentArc.objective || currentArc.purpose || "Đẩy truyện qua một biến chuyển có hậu quả."}
 - Vai trò Arc: ${currentArc.purpose || currentArc.summary}
