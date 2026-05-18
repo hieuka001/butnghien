@@ -36,8 +36,7 @@ Mặc định app dùng `gemini-2.5-flash`, phù hợp hơn cho viết truyện 
 - Cụm 2 thẩm định logic/canon: `GEMINI_API_KEY_3`, `GEMINI_API_KEY_4`.
 - Cụm 3 sửa lại theo báo cáo thẩm định: `GEMINI_API_KEY_5`, `GEMINI_API_KEY_6`.
 - Khi một key lỗi quota/rate-limit, app chỉ đổi sang key còn lại trong cùng cụm nhiệm vụ, không lấy key của cụm khác.
-- Tên biến rõ vai trò cũng được hỗ trợ và ưu tiên hơn key đánh số: `GEMINI_WRITER_API_KEY`, `GEMINI_WRITER_API_KEY_2`, `GEMINI_REVIEWER_API_KEY`, `GEMINI_REVIEWER_API_KEY_2`, `GEMINI_REWRITER_API_KEY`, `GEMINI_REWRITER_API_KEY_2`.
-- `GEMINI_API_KEYS`: có thể chứa 6 key cách nhau bằng dấu phẩy; app chia theo cặp 1-2, 3-4, 5-6.
+- Chỉ dùng đúng 6 biến đánh số: `GEMINI_API_KEY_1` đến `GEMINI_API_KEY_6`; không dùng biến key gộp hoặc biến đặt theo vai trò để tránh app gọi nhầm cụm.
 - `GEMINI_MODEL`: model mặc định.
 - `GEMINI_PLAN_MODEL`: model lập lộ trình và kiểm tra logic.
 - `GEMINI_WRITE_MODEL`: model viết chương.

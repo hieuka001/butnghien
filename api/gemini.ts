@@ -48,11 +48,6 @@ class GeminiProxyError extends Error {
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
-const splitEnvList = (value?: string) => (value || "")
-  .split(",")
-  .map(item => item.trim())
-  .filter(Boolean);
-
 const uniqueKeys = (keys: Array<string | undefined>) => keys
   .map(key => key?.trim() || "")
   .filter(Boolean)
@@ -71,50 +66,29 @@ const roleLabel: Record<GeminiKeyRole, string> = {
 };
 
 const getGeminiKeys = () => {
-  const numberedKeys = [
+  return uniqueKeys([
     process.env.GEMINI_API_KEY_1,
     process.env.GEMINI_API_KEY_2,
     process.env.GEMINI_API_KEY_3,
     process.env.GEMINI_API_KEY_4,
     process.env.GEMINI_API_KEY_5,
     process.env.GEMINI_API_KEY_6,
-    process.env.GEMINI_WRITER_API_KEY,
-    process.env.GEMINI_WRITER_API_KEY_2,
-    process.env.GEMINI_REVIEWER_API_KEY,
-    process.env.GEMINI_REVIEWER_API_KEY_2,
-    process.env.GEMINI_REWRITER_API_KEY,
-    process.env.GEMINI_REWRITER_API_KEY_2,
-  ];
-  const listKeys = splitEnvList(process.env.GEMINI_API_KEYS);
-  return uniqueKeys([...numberedKeys, ...listKeys]);
+  ]);
 };
 
 const getGeminiKeysForRole = (role: GeminiKeyRole) => {
-  const listKeys = splitEnvList(process.env.GEMINI_API_KEYS);
   const preferredByRole: Record<GeminiKeyRole, Array<string | undefined>> = {
     writer: [
-      process.env.GEMINI_WRITER_API_KEY,
-      process.env.GEMINI_WRITER_API_KEY_2,
       process.env.GEMINI_API_KEY_1,
       process.env.GEMINI_API_KEY_2,
-      listKeys[0],
-      listKeys[1],
     ],
     reviewer: [
-      process.env.GEMINI_REVIEWER_API_KEY,
-      process.env.GEMINI_REVIEWER_API_KEY_2,
       process.env.GEMINI_API_KEY_3,
       process.env.GEMINI_API_KEY_4,
-      listKeys[2],
-      listKeys[3],
     ],
     rewriter: [
-      process.env.GEMINI_REWRITER_API_KEY,
-      process.env.GEMINI_REWRITER_API_KEY_2,
       process.env.GEMINI_API_KEY_5,
       process.env.GEMINI_API_KEY_6,
-      listKeys[4],
-      listKeys[5],
     ],
   };
 
@@ -141,7 +115,11 @@ const normalizeGeminiModel = (model?: string) => {
 
 const getFallbackModels = (requestedModel?: string) => {
   const primaryModel = normalizeGeminiModel(requestedModel || process.env.GEMINI_MODEL || "gemini-2.5-flash");
-  const envFallbacks = splitEnvList(process.env.GEMINI_FALLBACK_MODELS).map(normalizeGeminiModel);
+  const envFallbacks = (process.env.GEMINI_FALLBACK_MODELS || "")
+    .split(",")
+    .map(item => item.trim())
+    .filter(Boolean)
+    .map(normalizeGeminiModel);
   const defaultFallbacks = [
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",

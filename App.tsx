@@ -315,9 +315,6 @@ const App: React.FC = () => {
     const message = error instanceof Error ? error.message : String(error || '');
     if (
       message.includes('GEMINI_API_KEY_') ||
-      message.includes('GEMINI_WRITER_API_KEY') ||
-      message.includes('GEMINI_REVIEWER_API_KEY') ||
-      message.includes('GEMINI_REWRITER_API_KEY') ||
       message.includes('Gemini API key')
     ) return message;
     if (message.includes('429')) return 'Gemini đang bị giới hạn quota/rate limit. Hãy chờ một lúc, giảm số chữ/chương, hoặc dùng key khác.';
@@ -331,7 +328,7 @@ const App: React.FC = () => {
 
   const isGeminiKeyInfrastructureError = (error: unknown) => {
     const message = error instanceof Error ? error.message : String(error || '');
-    return /401|403|API key|GEMINI_API_KEY_|GEMINI_WRITER_API_KEY|GEMINI_REVIEWER_API_KEY|GEMINI_REWRITER_API_KEY|không hợp lệ|chưa được cấp quyền/i.test(message);
+    return /401|403|API key|GEMINI_API_KEY_|không hợp lệ|chưa được cấp quyền/i.test(message);
   };
 
   const friendlyAuthError = (error: unknown) => {
@@ -1014,6 +1011,9 @@ const App: React.FC = () => {
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
 
+  const sentenceCount = (value: string) =>
+    String(value || '').split(/[.!?…。！？]+/).map(item => item.trim()).filter(Boolean).length;
+
   const isWeakPlanPhrase = (value: string) => {
     const normalized = planFingerprint(value);
     if (!normalized || normalized.split(/\s+/).length < 3) return true;
@@ -1023,8 +1023,9 @@ const App: React.FC = () => {
   const isWeakArcSummaryText = (value: string) => {
     if (/(HƯỚNG TRUYỆN ĐÃ CHỌN|HUONG TRUYEN DA CHON|Logic cốt truyện|Logic cot truyen|Nhịp Arc|Nhip Arc|Truyện chỉ sử dụng|Truyen chi su dung|Bắt buộc khi lập lộ trình|Bat buoc khi lap lo trinh)/i.test(value)) return true;
     const normalized = planFingerprint(value);
-    if (!normalized || normalized.split(/\s+/).length < 10) return true;
-    return /(?:huong truyen da chon|arc cau noi ngan|arc nhip vua|arc trong tam dai|truyen chi su dung|khong su dung tuyen|xuat phat tu mau thuan|buoc nhan vat doi trang thai|de lai moc noi|phuc vu huong|dung \d+ chuong de|trong .+ buoc qua chuong|arc nay khai cuc|arc nay hoi nhap|arc nay phuc vu)|^(arc \d+ phu trach|arc \d+ tiep tuc|tom tat arc|khong co|khai cuc ngan|hoi nhap va khoa quy tac|day nhan vat)/.test(normalized);
+    const wordTotal = normalized ? normalized.split(/\s+/).length : 0;
+    if (!normalized || wordTotal < 28 || sentenceCount(value) < 2) return true;
+    return /(?:huong truyen da chon|arc cau noi ngan|arc nhip vua|arc trong tam dai|truyen chi su dung|khong su dung tuyen|xuat phat tu mau thuan|buoc nhan vat doi trang thai|de lai moc noi|phuc vu huong|dung \d+ chuong de|phan giua arc can|cuoi arc phai|trong .+ buoc qua chuong|arc nay khai cuc|arc nay hoi nhap|arc nay phuc vu)|^(arc \d+ phu trach|arc \d+ tiep tuc|tom tat arc|khong co|khai cuc ngan|hoi nhap va khoa quy tac|day nhan vat)/.test(normalized);
   };
 
   const isWeakArcTitleText = (value: string) => {
@@ -1061,18 +1062,23 @@ const App: React.FC = () => {
     return fallbackArcDisplayTitle(volume);
   };
 
-  const getArcSynopsis = (volume: Volume) => {
+  const getArcSynopsisState = (volume: Volume) => {
     const candidates = [volume.content, volume.summary]
       .map(item => ({ original: item || '', clean: stripDirectionLabels(item || '') }))
       .filter(item => item.clean);
     const strongCandidate = candidates.find(item => !isWeakArcSummaryText(item.original) && !isWeakArcSummaryText(item.clean));
-    if (strongCandidate) return strongCandidate.clean;
+    if (strongCandidate) return { text: strongCandidate.clean, isFallback: false };
 
     const seed = stripDirectionLabels(params.seed || '') || directionTitleFromLock(params.directionLock || '');
     const premise = seed ? `mâu thuẫn "${seed.slice(0, 120)}"` : `mục tiêu "${params.character.goal || 'đã khóa'}"`;
     const name = params.character.name || 'nhân vật chính';
-    return `${getArcDisplayTitle(volume)} mở trong chương ${volume.chapterStart || '?'}-${volume.chapterEnd || '?'}, khi ${name} phải bước vào một tầng mới của ${premise}. Phần giữa Arc cần có các biến cố cụ thể làm thay đổi thông tin, quan hệ hoặc quyền lực, thay vì chỉ nhắc lại tiền đề. Lực cản chính phải buộc ${name} lựa chọn và trả giá, đồng thời khóa thêm dữ kiện canon cho truyện dài. Cuối Arc phải có kết quả khác trạng thái ban đầu và để lại hậu quả hoặc bí mật nối sang Arc sau.`;
+    return {
+      text: `${getArcDisplayTitle(volume)} bắt đầu trong chương ${volume.chapterStart || '?'}-${volume.chapterEnd || '?'}, khi ${name} phải đối mặt một tầng mới của ${premise}. Ở phần giữa, một dấu hiệu bất thường, một lựa chọn khó, một lực cản có động cơ và một dữ kiện canon mới lần lượt làm mục tiêu của nhân vật đổi hướng. Đến cuối Arc, lựa chọn của ${name} phải làm thay đổi ít nhất một quan hệ, quyền lực, nhận thức hoặc món nợ đã khóa trong Thiên Cơ Lục. Arc khép bằng hậu quả còn mở, bí mật chưa giải hoặc cái giá mới để kéo sang Arc sau.`,
+      isFallback: true,
+    };
   };
+
+  const getArcSynopsis = (volume: Volume) => getArcSynopsisState(volume).text;
 
   const getArcTheme = (volume: Volume) =>
     volume.theme || (volume.index === 1
@@ -2364,7 +2370,9 @@ const App: React.FC = () => {
                 <p className="story-font text-base text-slate-700 leading-relaxed whitespace-pre-wrap line-clamp-4">{worldBible || 'Thiên Cơ Lục sẽ xuất hiện sau khi lập lộ trình Arc.'}</p>
               </section>
               <div className="grid grid-cols-1 gap-8">
-                {volumes && volumes.map((vol) => (
+                {volumes && volumes.map((vol) => {
+                  const arcSynopsis = getArcSynopsisState(vol);
+                  return (
                   <div key={`vol-${vol.index}`} className="space-y-4">
                     <div className="bg-white p-6 rounded-3xl border shadow-sm border-t-4 border-t-indigo-100 flex flex-col gap-4">
                       <div className="flex items-center gap-4">
@@ -2379,11 +2387,21 @@ const App: React.FC = () => {
                               </>
                             )}
                           </div>
-                          <div className="mt-2">
-                            <span className="block text-[8px] font-black uppercase tracking-widest text-slate-400">Nội dung hướng tới Arc</span>
-                            <p className="mt-2 rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3 text-[13px] leading-relaxed text-slate-600 font-medium">
-                              {getArcSynopsis(vol)}
+                          <div className="mt-3">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="block text-[8px] font-black uppercase tracking-widest text-slate-400">Nội dung Arc bắt buộc</span>
+                              <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase border ${arcSynopsis.isFallback ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-emerald-50 text-emerald-700 border-emerald-100'}`}>
+                                {arcSynopsis.isFallback ? 'Bản dự phòng' : 'Đã khóa'}
+                              </span>
+                            </div>
+                            <p className={`mt-2 rounded-2xl border px-4 py-3 text-[13px] leading-relaxed font-medium ${arcSynopsis.isFallback ? 'border-amber-100 bg-amber-50/70 text-amber-900' : 'border-slate-100 bg-slate-50/80 text-slate-600'}`}>
+                              {arcSynopsis.text}
                             </p>
+                            {arcSynopsis.isFallback && (
+                              <p className="mt-2 text-[10px] leading-relaxed text-amber-700 font-semibold">
+                                AI chưa tạo được nội dung Arc đủ cụ thể; hãy lập lại lộ trình trước khi viết chương để tránh chương bị chung chung.
+                              </p>
+                            )}
                           </div>
                           <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2">
                             <div className="rounded-2xl bg-slate-50 border border-slate-100 p-3">
@@ -2446,7 +2464,8 @@ const App: React.FC = () => {
                       </button>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
                 
                 <button onClick={handleAddNextArc} disabled={isGeneratingOutline} className="w-full py-8 bg-slate-50 border-2 border-dashed border-slate-200 text-slate-400 rounded-3xl font-black uppercase text-[10px] tracking-widest hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-300 transition-all flex flex-col items-center gap-3 shadow-inner">
                   {isGeneratingOutline ? (generationStatus || 'Đang lập Arc mới...') : (

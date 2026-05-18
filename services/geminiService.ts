@@ -142,12 +142,14 @@ const SCENE_LOGIC_RULES = `Luật logic cảnh bắt buộc:
 - Trước khi cho nhân vật nói hoặc làm, kiểm tra quyền lực thực tế của họ trong cảnh: họ có thân thể, tuổi, địa vị, tri thức và thời gian để làm việc đó không.
 - Mỗi cảnh phải có điểm vào và điểm ra khác nhau. Nếu kết cảnh không đổi thông tin, quan hệ, rủi ro hoặc cảm xúc chiến lược, cảnh đó là thừa.`;
 
-const ARC_SYNOPSIS_REQUIREMENTS = `Yêu cầu sơ lược Arc bắt buộc:
-- "content" của mỗi Arc phải là một đoạn văn ngắn tên là nội dung hướng tới của Arc, dài 4-6 câu liền mạch, đủ để tác giả hiểu Arc này sẽ kể chuyện gì và sửa được ý đồ Arc mà không cần mở bản đồ chương.
-- Đoạn content bắt buộc có đủ 4 lớp trong cùng một đoạn văn: Mở Arc nêu trạng thái nhân vật/bối cảnh/câu hỏi đang mở; Thân Arc nêu 2-4 biến cố chính và lực cản; Cuối Arc nêu lựa chọn/cái giá/kết quả làm thay đổi canon; Móc nối nêu hậu quả hoặc bí mật đẩy sang Arc sau.
+const ARC_SYNOPSIS_REQUIREMENTS = `Yêu cầu "nội dung bắt buộc của Arc":
+- Trường "content" của mỗi Arc là bản chỉ đạo nội dung bắt buộc để viết các chương trong Arc đó. Mọi chương thuộc Arc phải triển khai một phần của content này, không được viết lệch sang một mạch khác.
+- "content" phải là một đoạn văn 4-6 câu liền mạch, viết như người biên kịch tóm tắt nội dung Arc cho tác giả sửa: nêu rõ Arc này kể chuyện gì, bắt đầu ở tình thế nào, đi qua biến cố nào, kết thúc bằng thay đổi nào.
+- Đoạn content bắt buộc có đủ 5 lớp trong cùng một đoạn: tình thế đầu Arc; 2-4 biến cố/cảnh then chốt; lực cản hoặc phản lực có nguyên nhân; lựa chọn/cái giá/kết quả làm đổi canon; móc nối sang Arc sau.
+- Content phải có chi tiết riêng của truyện: tên nhân vật/địa danh/thế lực/vật chứng/luật thế giới/mâu thuẫn đã khóa khi có trong hồ sơ. Không được chỉ viết câu mẫu quản trị như "khai cục", "hội nhập", "đẩy nhân vật vào xung đột", "phục vụ hướng truyện", "dùng N chương để...".
+- Không được chép lại nguyên ý tưởng khởi nguồn, hướng truyện, danh sách cấm hoặc mô tả thể loại rồi gọi đó là content. Nếu dùng lại dữ kiện đầu vào, phải biến nó thành chuỗi sự kiện mới có nhân quả trong Arc.
 - "summary" chỉ là bản rút gọn 2-3 câu của content, không được thay thế content.
-- Không được chỉ ghi chức năng quản trị như "khai cục", "hội nhập", "đẩy nhân vật vào xung đột", "phục vụ hướng truyện"; không được chép lại nguyên ý tưởng khởi nguồn/hướng truyện rồi gọi đó là nội dung Arc.
-- "theme" chỉ nêu chủ đề cảm xúc/tư tưởng; "objective" nêu mục tiêu cần đạt; "purpose" nêu vai trò và lý do dài/ngắn. Ba trường này không được thay thế cho sơ lược nội dung Arc.`;
+- "theme" chỉ nêu chủ đề cảm xúc/tư tưởng; "objective" nêu mục tiêu cần đạt trước khi sang Arc sau; "purpose" nêu vai trò và lý do dài/ngắn. Ba trường này không được thay thế cho content.`;
 
 const IMMERSIVE_LOGIC_RULES = `Luật nhập vai và điểm nhìn bắt buộc:
 - Trước mỗi cảnh, tự xác định trạng thái hiện tại của nhân vật: tuổi/tầm nhận thức, tên đang được gọi trong cảnh, nơi ở, người đang có mặt, điều đã biết, điều chưa thể biết, năng lực thể chất, quyền lựa chọn và mục tiêu tức thời.
@@ -256,11 +258,6 @@ const uniqueKeys = (keys: Array<string | undefined>) => keys
   .filter(Boolean)
   .filter((key, index, all) => all.indexOf(key) === index);
 
-const splitEnvList = (value?: string) => (value || "")
-  .split(",")
-  .map(key => key.trim())
-  .filter(Boolean);
-
 const roleKeyHelp: Record<GeminiKeyRole, string> = {
   writer: "GEMINI_API_KEY_1 và GEMINI_API_KEY_2",
   reviewer: "GEMINI_API_KEY_3 và GEMINI_API_KEY_4",
@@ -274,50 +271,29 @@ const roleLabel: Record<GeminiKeyRole, string> = {
 };
 
 const getGeminiKeys = () => {
-  const numberedKeys = [
+  return uniqueKeys([
     process.env.GEMINI_API_KEY_1,
     process.env.GEMINI_API_KEY_2,
     process.env.GEMINI_API_KEY_3,
     process.env.GEMINI_API_KEY_4,
     process.env.GEMINI_API_KEY_5,
     process.env.GEMINI_API_KEY_6,
-    process.env.GEMINI_WRITER_API_KEY,
-    process.env.GEMINI_WRITER_API_KEY_2,
-    process.env.GEMINI_REVIEWER_API_KEY,
-    process.env.GEMINI_REVIEWER_API_KEY_2,
-    process.env.GEMINI_REWRITER_API_KEY,
-    process.env.GEMINI_REWRITER_API_KEY_2,
-  ];
-  const listKeys = splitEnvList(process.env.GEMINI_API_KEYS);
-  return uniqueKeys([...numberedKeys, ...listKeys]);
+  ]);
 };
 
 const getGeminiKeysForRole = (role: GeminiKeyRole) => {
-  const listKeys = splitEnvList(process.env.GEMINI_API_KEYS);
   const preferredByRole: Record<GeminiKeyRole, Array<string | undefined>> = {
     writer: [
-      process.env.GEMINI_WRITER_API_KEY,
-      process.env.GEMINI_WRITER_API_KEY_2,
       process.env.GEMINI_API_KEY_1,
       process.env.GEMINI_API_KEY_2,
-      listKeys[0],
-      listKeys[1],
     ],
     reviewer: [
-      process.env.GEMINI_REVIEWER_API_KEY,
-      process.env.GEMINI_REVIEWER_API_KEY_2,
       process.env.GEMINI_API_KEY_3,
       process.env.GEMINI_API_KEY_4,
-      listKeys[2],
-      listKeys[3],
     ],
     rewriter: [
-      process.env.GEMINI_REWRITER_API_KEY,
-      process.env.GEMINI_REWRITER_API_KEY_2,
       process.env.GEMINI_API_KEY_5,
       process.env.GEMINI_API_KEY_6,
-      listKeys[4],
-      listKeys[5],
     ],
   };
 
@@ -1283,11 +1259,15 @@ const summaryFromPlanParts = (chapter: Chapter) => {
   return parts.join(" ").trim() || chapter.summary;
 };
 
+const sentenceCount = (value: string) =>
+  String(value || "").split(/[.!?…。！？]+/).map(item => item.trim()).filter(Boolean).length;
+
 const isWeakArcSummary = (value: string) => {
   if (/(HƯỚNG TRUYỆN ĐÃ CHỌN|HUONG TRUYEN DA CHON|Logic cốt truyện|Logic cot truyen|Nhịp Arc|Nhip Arc|Truyện chỉ sử dụng|Truyen chi su dung|Bắt buộc khi lập lộ trình|Bat buoc khi lap lo trinh)/i.test(value)) return true;
   const normalized = textFingerprint(value);
-  if (!normalized || normalized.split(/\s+/).length < 10) return true;
-  return /(?:huong truyen da chon|arc cau noi ngan|arc nhip vua|arc trong tam dai|truyen chi su dung|khong su dung tuyen|xuat phat tu mau thuan|buoc nhan vat doi trang thai|de lai moc noi|phuc vu huong|dung \d+ chuong de|trong .+ buoc qua chuong|arc nay khai cuc|arc nay hoi nhap|arc nay phuc vu)|^(arc \d+ phu trach|arc \d+ tiep tuc|tom tat arc|khong co|khai cuc ngan|hoi nhap va khoa quy tac|day nhan vat)/.test(normalized);
+  const wordTotal = normalized ? normalized.split(/\s+/).length : 0;
+  if (!normalized || wordTotal < 28 || sentenceCount(value) < 2) return true;
+  return /(?:huong truyen da chon|arc cau noi ngan|arc nhip vua|arc trong tam dai|truyen chi su dung|khong su dung tuyen|xuat phat tu mau thuan|buoc nhan vat doi trang thai|de lai moc noi|phuc vu huong|dung \d+ chuong de|phan giua arc can|cuoi arc phai|trong .+ buoc qua chuong|arc nay khai cuc|arc nay hoi nhap|arc nay phuc vu)|^(arc \d+ phu trach|arc \d+ tiep tuc|tom tat arc|khong co|khai cuc ngan|hoi nhap va khoa quy tac|day nhan vat)/.test(normalized);
 };
 
 const isWeakArcTitle = (value: string) => {
@@ -1306,6 +1286,23 @@ const pickStrongArcText = (values: unknown[]) => {
     })
     .filter(item => item.clean);
   return candidates.find(item => !isWeakArcSummary(item.original) && !isWeakArcSummary(item.clean))?.clean || "";
+};
+
+const pickArcContentText = (values: unknown[]) => {
+  const candidates = values
+    .map(value => {
+      const original = asText(value);
+      return { original, clean: stripDirectionLabels(original) };
+    })
+    .filter(item => item.clean);
+
+  return candidates.find(item => {
+    const words = countWords(item.clean);
+    return words >= 45
+      && sentenceCount(item.clean) >= 3
+      && !isWeakArcSummary(item.original)
+      && !isWeakArcSummary(item.clean);
+  })?.clean || "";
 };
 
 const deriveArcTitleFallback = (params: StoryParams, index: number, count: number, arcRole: string) => {
@@ -1365,11 +1362,11 @@ const buildArcSummaryFallback = (
     ? `mâu thuẫn khởi nguồn "${seed}"`
     : `mục tiêu "${goal}"`;
   const opening = index === 1
-    ? `${arcTitle} mở ở chương ${start}, khi ${characterName} còn ở thế bị động trước ${premise} và chưa nắm đủ luật chơi.`
-    : `${arcTitle} mở ở chương ${start}, nối từ hậu quả Arc trước khi ${characterName} phải bước vào một tầng sức ép mới của ${premise}.`;
-  const middle = `Phần giữa Arc phải đưa nhân vật qua vài biến cố cụ thể: một dấu hiệu bất thường, một lựa chọn khó, một lực cản có tên/động cơ và một dữ kiện canon mới được khóa.`;
-  const ending = `Cuối chương ${end}, Arc phải tạo biến chuyển rõ về mục tiêu, quan hệ, quyền lực hoặc nhận thức; ${characterName} không được trở về trạng thái ban đầu.`;
-  const handoff = `Móc nối sang Arc sau cần là hậu quả còn mở, bí mật chưa giải hoặc món nợ mới, phù hợp vai trò: ${arcRole.toLowerCase()}.`;
+    ? `${arcTitle} bắt đầu ở chương ${start}, khi ${characterName} còn ở thế bị động trước ${premise} và buộc phải hiểu luật chơi bằng một va chạm cụ thể.`
+    : `${arcTitle} bắt đầu ở chương ${start}, nối từ hậu quả Arc trước khi ${characterName} bước vào một tầng sức ép mới của ${premise}.`;
+  const middle = `Trong phần giữa, một dấu hiệu bất thường, một lựa chọn khó, một lực cản có động cơ và một dữ kiện canon mới lần lượt làm mục tiêu của nhân vật đổi hướng.`;
+  const ending = `Đến chương ${end}, lựa chọn của ${characterName} phải làm thay đổi ít nhất một quan hệ, quyền lực, nhận thức hoặc món nợ đã khóa trong Thiên Cơ Lục.`;
+  const handoff = `Arc khép bằng hậu quả còn mở, bí mật chưa giải hoặc cái giá mới, để chương sau tiếp tục vai trò ${arcRole.toLowerCase()}.`;
   return `${opening} ${middle} ${ending} ${handoff}`;
 };
 
@@ -1526,10 +1523,10 @@ const normalizeVolumes = (raw: AnyRecord, params: StoryParams): Volume[] => {
       ? deriveArcTitleFallback(params, index, ranges.length, arcRole)
       : rawTitle;
     const rawChapters = Array.isArray(rawVolume.chapters) ? rawVolume.chapters : [];
-    const summary = pickStrongArcText([rawVolume.summary, rawVolume.content, rawVolume.synopsis, rawVolume.arcContent])
+    const content = pickArcContentText([rawVolume.content, rawVolume.synopsis, rawVolume.arcContent, rawVolume.summary])
       || buildArcSummaryFallback(params, title, index, range.start, range.end, arcRole);
-    const content = pickStrongArcText([rawVolume.content, rawVolume.synopsis, rawVolume.arcContent, rawVolume.summary])
-      || summary;
+    const summary = pickStrongArcText([rawVolume.summary, rawVolume.content, rawVolume.synopsis, rawVolume.arcContent])
+      || content;
     const theme = stripDirectionLabels(asText(rawVolume.theme || rawVolume.topic || rawVolume.subject, buildArcThemeFallback(params, index, ranges.length)));
     const objective = stripDirectionLabels(asText(
       rawVolume.objective || rawVolume.goal || rawVolume.preliminaryGoal || rawVolume.arcGoal,
@@ -1857,7 +1854,7 @@ Hãy thẩm định như Cụm 2:
 - Chỉ đánh dấu lỗi thật sự ảnh hưởng logic, canon, điểm nhìn, độ dài Arc/chương, hoặc khả năng viết chương sau.
 - Với lộ trình dài, không yêu cầu chia đều; chỉ bắt lỗi nếu độ dài Arc không có lý do nội dung.
 - Với lộ trình Arc, thiếu mục "# Sơ lược truyện" trong generalSummary là lỗi phải sửa.
-- Với lộ trình Arc, mỗi Arc phải có content là một đoạn "nội dung hướng tới" cụ thể 4-6 câu: mở Arc, 2-4 biến cố chính, lực cản, lựa chọn/cái giá, biến chuyển cuối Arc và móc nối sang Arc sau. Summary chỉ được là bản rút gọn. Summary/content kiểu "Arc 1 phụ trách chương...", chép lại seed/hướng truyện hoặc chỉ nêu chức năng là chưa đạt.
+- Với lộ trình Arc, mỗi Arc phải có content là một đoạn "nội dung bắt buộc của Arc" cụ thể 4-6 câu: tình thế mở, 2-4 biến cố chính, lực cản, lựa chọn/cái giá, biến chuyển cuối Arc và móc nối sang Arc sau. Summary chỉ được là bản rút gọn. Summary/content kiểu "Arc 1 phụ trách chương...", chép lại seed/hướng truyện hoặc chỉ nêu chức năng là chưa đạt.
 - Với lộ trình Arc, mỗi Arc bắt buộc có title riêng, content/nội dung Arc, theme/chủ đề Arc, objective/mục tiêu sơ bộ Arc và purpose/vai trò Arc. Thiếu một trong các trường này là lỗi phải sửa.
 - Với bản đồ chương, mỗi chapter bắt buộc có title riêng 3-8 từ, gắn với biến cố cụ thể, không lặp tên Arc, không lặp title chương khác, không để "Chương X" làm tên thật.
 - Nếu hợp lý, isValid=true và shouldRewrite=false.
@@ -1923,7 +1920,7 @@ Hãy đóng vai Cụm 3:
 - Không tự ý đổi tên riêng, tổng số chương, mục tiêu chữ, mode, hướng truyện đã khóa.
 - Không viết văn xuôi truyện ở bước lộ trình/bản đồ.
 - Nếu đang sửa lộ trình Arc, phải giữ/khôi phục mục "# Sơ lược truyện" trong generalSummary.
-- Nếu đang sửa Arc, phải viết đủ title/content/theme/objective/purpose. Content phải là đoạn nội dung hướng tới thật 4-6 câu, có tình thế mở, các biến cố chính, xung đột, lựa chọn/cái giá, biến chuyển cuối và móc nối; summary chỉ rút gọn content; không chỉ ghi chức năng, phạm vi chương hoặc chép lại ý tưởng khởi nguồn.
+- Nếu đang sửa Arc, phải viết đủ title/content/theme/objective/purpose. Content phải là đoạn nội dung bắt buộc thật 4-6 câu, có tình thế mở, các biến cố chính, xung đột, lựa chọn/cái giá, biến chuyển cuối và móc nối; summary chỉ rút gọn content; không chỉ ghi chức năng, phạm vi chương hoặc chép lại ý tưởng khởi nguồn.
 - Nếu đang sửa bản đồ chương, mọi chapter phải có title riêng 3-8 từ, không lặp và không bắt đầu bằng "Chương", "C.", "Chapter".
 - Trả về đúng JSON, không markdown, không giải thích.
 
@@ -1986,9 +1983,9 @@ ${arcBudgetGuide}
 - Nếu mở đầu nhân vật chưa có tên, chưa có nhận thức, bị bỏ rơi, mất trí nhớ hoặc đang ở trạng thái bất lực, Đại cục phải ghi rõ ai biết gì, ai đặt tên/gọi tên, khi nào nhân vật có thể biết tên/mục tiêu của mình.
 - Không được để chapter 1 gọi nhân vật bằng tên hồ sơ nếu trong logic cảnh chưa có người đặt hoặc gọi tên đó.
 - Nếu tổng số chương rất dài, chia Arc theo cụm 25-60 chương để sau này sinh bản đồ chương theo từng Arc; không bắt buộc Arc nào cũng bằng nhau.
-- Mỗi Arc phải nêu: đoạn nội dung hướng tới đủ hiểu, chức năng trong toàn truyện, xung đột chính, biến chuyển cuối Arc, dữ kiện canon cần giữ, nguy cơ nếu Arc này bị bỏ qua.
+- Mỗi Arc phải nêu: đoạn nội dung bắt buộc đủ hiểu, chức năng trong toàn truyện, xung đột chính, biến chuyển cuối Arc, dữ kiện canon cần giữ, nguy cơ nếu Arc này bị bỏ qua.
 - Mỗi Arc bắt buộc có đủ 5 trường riêng: title, content, theme, objective, purpose.
-- title = tên Arc riêng; content = đoạn văn ngắn "nội dung hướng tới của Arc" 4-6 câu có mở/thân/cuối/móc nối; summary = bản rút gọn 2-3 câu của content; theme = chủ đề tư tưởng/cảm xúc của Arc; objective = mục tiêu sơ bộ cần đạt trước khi sang Arc sau; purpose = vai trò/chức năng của Arc trong toàn truyện và lý do dài/ngắn.
+- title = tên Arc riêng; content = đoạn văn ngắn "nội dung bắt buộc của Arc" 4-6 câu có tình thế mở/biến cố/lực cản/cái giá/biến chuyển/móc nối; summary = bản rút gọn 2-3 câu của content; theme = chủ đề tư tưởng/cảm xúc của Arc; objective = mục tiêu sơ bộ cần đạt trước khi sang Arc sau; purpose = vai trò/chức năng của Arc trong toàn truyện và lý do dài/ngắn.
 - General summary phải là Markdown ngắn, có ngắt phần rõ ràng, không dồn thành một đoạn. Bắt buộc dùng 5 mục đúng tên: "# Sơ lược truyện", "# Lời hứa truyện", "# Trục nhân quả", "# Cao trào và phản lực", "# Kết cục dự kiến". Mỗi mục 1-3 câu, có xuống dòng trống giữa các mục.
 - "# Sơ lược truyện" phải kể rõ truyện nói về ai, khởi điểm nào, mục tiêu nào, lực cản trung tâm nào và hướng phát triển toàn bộ tác phẩm. Không được thay bằng câu quản trị kiểu "Đại cục dự phòng".
 - World building phải là Thiên Cơ Lục khởi tạo dạng Markdown, tối đa 320 từ, có đủ mục: # TIMELINE, # SỐ LIỆU VÀ QUY TẮC, # NHÂN VẬT VÀ QUAN HỆ, # ĐIỂM NHÌN VÀ TÊN GỌI, # ĐỊA DANH/VẬT PHẨM/HỆ THỐNG, # MÂU THUẪN ĐANG MỞ, # ĐIỀU CẤM PHÁ LOGIC.
@@ -2006,7 +2003,7 @@ JSON bắt buộc:
       "index": 1,
       "title": "tên Arc riêng 3-8 từ, không chứa nhãn HƯỚNG TRUYỆN ĐÃ CHỌN/Tiền đề/Logic cốt truyện",
       "summary": "bản rút gọn 2-3 câu: tình thế đầu Arc, xung đột chính, biến chuyển cuối Arc; không dùng nhãn quản trị",
-      "content": "một đoạn văn ngắn về nội dung hướng tới của Arc 4-6 câu: mở Arc, 2-4 biến cố chính, lực cản, lựa chọn/cái giá, kết quả cuối Arc và móc nối; không dùng nhãn quản trị",
+      "content": "một đoạn văn ngắn về nội dung bắt buộc của Arc 4-6 câu: tình thế mở, 2-4 biến cố chính, lực cản, lựa chọn/cái giá, kết quả cuối Arc và móc nối; không dùng nhãn quản trị",
       "theme": "chủ đề Arc",
       "objective": "mục tiêu sơ bộ Arc",
       "purpose": "chức năng của Arc trong toàn truyện, kèm lý do Arc này cần dài/ngắn",
@@ -2029,7 +2026,7 @@ JSON bắt buộc:
   "title": "tên tác phẩm",
   "worldBuilding": "Thiên Cơ Lục dạng markdown",
   "generalSummary": "đại cục toàn truyện dạng Markdown 5 mục, bắt buộc có # Sơ lược truyện",
-  "volumes": [{ "index": 1, "title": "tên Arc riêng 3-8 từ, không chứa nhãn quản trị", "summary": "bản rút gọn nội dung Arc", "content": "đoạn nội dung hướng tới của Arc 4-6 câu có mở/thân/cuối/móc nối", "theme": "chủ đề Arc", "objective": "mục tiêu sơ bộ Arc", "purpose": "chức năng Arc và lý do dài/ngắn", "chapterStart": 1, "chapterEnd": ${Math.min(totalChapters, 40)}, "chapters": [] }]
+  "volumes": [{ "index": 1, "title": "tên Arc riêng 3-8 từ, không chứa nhãn quản trị", "summary": "bản rút gọn nội dung Arc", "content": "đoạn nội dung bắt buộc của Arc 4-6 câu có tình thế mở/biến cố/lực cản/cái giá/biến chuyển/móc nối", "theme": "chủ đề Arc", "objective": "mục tiêu sơ bộ Arc", "purpose": "chức năng Arc và lý do dài/ngắn", "chapterStart": 1, "chapterEnd": ${Math.min(totalChapters, 40)}, "chapters": [] }]
 }`,
     );
   } catch (error) {
@@ -2097,7 +2094,7 @@ ${history || "Chưa có chương đã viết."}
 
 Hãy lập Arc ${safeVolumes.length + 1}, phủ chương ${start}-${end}.
 Arc mới phải nối logic với các Arc đã có, có mục tiêu riêng, có chapterStart/chapterEnd rõ ràng, chưa cần bản đồ chương chi tiết.
-Viết JSON gọn nhưng đủ ý: title là tên Arc riêng 3-8 từ như tiêu đề truyện thật, không chứa nhãn quản trị; content là đoạn văn ngắn "nội dung hướng tới của Arc" 4-6 câu có mở/thân/cuối/móc nối; summary là bản rút gọn 2-3 câu; theme là chủ đề Arc; objective là mục tiêu sơ bộ Arc; purpose tối đa 42 từ.
+Viết JSON gọn nhưng đủ ý: title là tên Arc riêng 3-8 từ như tiêu đề truyện thật, không chứa nhãn quản trị; content là đoạn văn ngắn "nội dung bắt buộc của Arc" 4-6 câu có tình thế mở/biến cố/lực cản/cái giá/biến chuyển/móc nối; summary là bản rút gọn 2-3 câu; theme là chủ đề Arc; objective là mục tiêu sơ bộ Arc; purpose tối đa 42 từ.
 Content phải nói rõ tình thế đầu Arc, 2-4 biến cố chính, xung đột chính, biến chuyển cuối Arc và móc nối sang Arc sau; summary chỉ rút gọn content; không được chỉ ghi "Arc này phụ trách chương...", không chỉ nêu chức năng và không chép lại seed/hướng truyện.
 Ghi rõ dữ kiện canon cần giữ và hậu quả cuối Arc nối sang Arc sau.
 Ghi rõ trạng thái nhận thức/tên gọi của nhân vật ở đầu Arc nếu Arc có đổi tên, đổi tuổi, đổi người chăm sóc, đổi thân phận hoặc mất/khôi phục ký ức.
@@ -2113,7 +2110,7 @@ Trả về JSON của một Volume có index, title, summary, content, theme, ob
       `Arc ${safeVolumes.length + 1} mở rộng`,
       `Arc mới phải phủ chương ${start}-${end}, nối tiếp ${safeVolumes.length} Arc đã có và không phá Thiên Cơ Lục.`,
       data,
-      `{ "index": ${safeVolumes.length + 1}, "title": "tên Arc riêng 3-8 từ, không chứa nhãn quản trị", "summary": "bản rút gọn nội dung Arc", "content": "đoạn nội dung hướng tới của Arc 4-6 câu có mở/thân/cuối/móc nối", "theme": "chủ đề Arc", "objective": "mục tiêu sơ bộ Arc", "purpose": "chức năng Arc", "chapterStart": ${start}, "chapterEnd": ${end}, "chapters": [] }`,
+      `{ "index": ${safeVolumes.length + 1}, "title": "tên Arc riêng 3-8 từ, không chứa nhãn quản trị", "summary": "bản rút gọn nội dung Arc", "content": "đoạn nội dung bắt buộc của Arc 4-6 câu có tình thế mở/biến cố/lực cản/cái giá/biến chuyển/móc nối", "theme": "chủ đề Arc", "objective": "mục tiêu sơ bộ Arc", "purpose": "chức năng Arc", "chapterStart": ${start}, "chapterEnd": ${end}, "chapters": [] }`,
     );
   } catch (error) {
     if (!isAIJsonFormatError(error)) throw error;
@@ -2127,9 +2124,9 @@ Trả về JSON của một Volume có index, title, summary, content, theme, ob
   const title = isWeakArcTitle(rawTitleOriginal) || isWeakArcTitle(rawTitle)
     ? deriveArcTitleFallback(params, index, profileCount, arcRole)
     : rawTitle;
-  const summary = pickStrongArcText([data?.summary, data?.content])
+  const content = pickArcContentText([data?.content, data?.synopsis, data?.arcContent, data?.summary])
     || buildArcSummaryFallback(params, title, index, start, end, arcRole);
-  const content = pickStrongArcText([data?.content, data?.summary]) || summary;
+  const summary = pickStrongArcText([data?.summary, data?.content, data?.synopsis, data?.arcContent]) || content;
 
   return {
     index,
@@ -2179,20 +2176,20 @@ ${worldBible.slice(0, 7000)}
 [ARC CẦN LẬP BẢN ĐỒ CHƯƠNG]
 - Arc ${currentArc.index}: ${currentArc.title}
 - Phạm vi: chương ${start}-${end} (${chapterCount} chương)
-- Nội dung hướng tới của Arc: ${currentArc.content || currentArc.summary}
+- Nội dung bắt buộc của Arc: ${currentArc.content || currentArc.summary}
 - Chủ đề Arc: ${currentArc.theme || "Chưa khóa, hãy suy ra từ Đại cục và nội dung Arc."}
 - Mục tiêu sơ bộ Arc: ${currentArc.objective || currentArc.purpose || "Đẩy nhân vật qua một biến chuyển có hậu quả rõ."}
 - Chức năng Arc: ${currentArc.purpose || currentArc.summary}
-- Sơ lược Arc: ${currentArc.summary}
+- Tóm tắt rút gọn của Arc: ${currentArc.summary}
 
 [CHƯƠNG ĐÃ VIẾT GẦN ARC NÀY]
 ${nearbyHistory || "Chưa có chương đã viết trong vùng này."}
 
 Hãy lập bản đồ chi tiết cho đúng các chương ${start}-${end}.
 Yêu cầu:
-- Đoạn "Nội dung hướng tới của Arc" là xương sống bắt buộc. Chia các chương thành từng lát cắt cụ thể đi từ tình thế mở, các biến cố chính, lực cản, lựa chọn/cái giá, biến chuyển cuối đến móc nối sang Arc sau; không được chỉ rải đều số chương.
-- Mỗi title/summary/objective phải cho thấy chương đó phục vụ phần nào của nội dung hướng tới. Không dùng câu mẫu chung như "dùng một cảnh quyết định", "giữ đúng tính cách", "không giải quyết mâu thuẫn trung tâm quá sớm", "mở cảnh bằng áp lực cụ thể" làm tên hoặc tóm tắt chương.
-- Nếu nội dung hướng tới của Arc có nhiều tầng, chapter đầu phải mở đúng tình thế, chapter giữa phải tạo biến cố và lực cản mới, chapter cuối phải trả giá/đổi trạng thái và để lại móc nối; không gom toàn bộ ý đồ vào một chương rồi lặp lại ở các chương sau.
+- Đoạn "Nội dung bắt buộc của Arc" là xương sống bắt buộc. Chia các chương thành từng lát cắt cụ thể đi từ tình thế mở, các biến cố chính, lực cản, lựa chọn/cái giá, biến chuyển cuối đến móc nối sang Arc sau; không được chỉ rải đều số chương.
+- Mỗi title/summary/objective phải cho thấy chương đó phục vụ phần nào của nội dung bắt buộc này. Không dùng câu mẫu chung như "dùng một cảnh quyết định", "giữ đúng tính cách", "không giải quyết mâu thuẫn trung tâm quá sớm", "mở cảnh bằng áp lực cụ thể" làm tên hoặc tóm tắt chương.
+- Nếu nội dung bắt buộc của Arc có nhiều tầng, chapter đầu phải mở đúng tình thế, chapter giữa phải tạo biến cố và lực cản mới, chapter cuối phải trả giá/đổi trạng thái và để lại móc nối; không gom toàn bộ ý đồ vào một chương rồi lặp lại ở các chương sau.
 - Trả đúng ${chapterCount} chapter object, index liên tục từ ${start} đến ${end}; không thiếu, không trùng.
 - Mỗi chương chỉ là kế hoạch, chưa viết văn xuôi.
 - Mỗi chương có title, summary, objective, đúng 3 beats dạng cảnh, 2 mustInclude, cliffhanger, targetWords=${params.length}, pacing.
@@ -2294,11 +2291,11 @@ ${generalSummary}
 
 [ARC HIỆN TẠI]
 - Tên Arc: ${currentArc.title}
-- Nội dung hướng tới của Arc: ${currentArc.content || currentArc.summary}
+- Nội dung bắt buộc của Arc: ${currentArc.content || currentArc.summary}
 - Chủ đề Arc: ${currentArc.theme || "Chưa khóa rõ, suy ra từ Đại cục."}
 - Mục tiêu sơ bộ Arc: ${currentArc.objective || currentArc.purpose || "Đẩy truyện qua một biến chuyển có hậu quả."}
 - Vai trò Arc: ${currentArc.purpose || currentArc.summary}
-- Sơ lược Arc: ${currentArc.summary}
+- Tóm tắt rút gọn của Arc: ${currentArc.summary}
 
 [KẾ HOẠCH CHƯƠNG ${newIndex}]
 - Tên dự kiến: ${chapterPlan?.title || `Chương ${newIndex}`}
@@ -2342,7 +2339,7 @@ ${userIdea || "Không có bổ sung. Hãy phát triển tự nhiên theo lộ tr
 YÊU CẦU VIẾT:
 - Mục tiêu độ dài: khoảng ${targetWords} chữ. Không được dừng dưới ${minWords} chữ; không vượt quá ${maxWords} chữ nếu không cần để khép cảnh.
 - Chỉ được coi là hoàn tất khi chương đã đủ tối thiểu ${minWords} chữ, câu cuối có dấu kết, cảnh cuối khép bằng một hậu quả/móc nối cụ thể. Không dừng giữa câu, giữa đoạn hoặc sau một từ nối như "và", "nhưng", "của", "trong".
-- Nội dung hướng tới của Arc là trục chính; chương này phải là một lát cắt cụ thể trong trục đó, không lặp lại ý đồ Arc bằng lời kể chung.
+- Nội dung bắt buộc của Arc là trục chính; chương này phải là một lát cắt cụ thể trong trục đó, không lặp lại ý đồ Arc bằng lời kể chung.
 - Bắt đầu bằng đúng mẫu: "Tên chương: [tên chương]".
 - Sau dòng tên chương, viết văn xuôi liền mạch bằng tiếng Việt.
 - Mỗi beat phải được viết thành cảnh có hành động, cảm giác, đối thoại hoặc quyết định cụ thể; không tóm tắt thay cho cảnh.
@@ -2494,11 +2491,11 @@ ${generalSummary}
 
 [ARC HIỆN TẠI]
 - Tên Arc: ${currentArc.title}
-- Nội dung hướng tới của Arc: ${currentArc.content || currentArc.summary}
+- Nội dung bắt buộc của Arc: ${currentArc.content || currentArc.summary}
 - Chủ đề Arc: ${currentArc.theme || "Chưa khóa rõ, suy ra từ Đại cục."}
 - Mục tiêu sơ bộ Arc: ${currentArc.objective || currentArc.purpose || "Đẩy truyện qua một biến chuyển có hậu quả."}
 - Vai trò Arc: ${currentArc.purpose || currentArc.summary}
-- Sơ lược Arc: ${currentArc.summary}
+- Tóm tắt rút gọn của Arc: ${currentArc.summary}
 
 [KẾ HOẠCH CHƯƠNG ${newIndex}]
 ${chapterPlan ? JSON.stringify(chapterPlan, null, 2) : "Không có bản đồ chi tiết; bám Arc và Thiên Cơ Lục."}
@@ -2667,11 +2664,11 @@ ${generalSummary}
 
 [ARC HIỆN TẠI]
 - Tên Arc: ${currentArc.title}
-- Nội dung hướng tới của Arc: ${currentArc.content || currentArc.summary}
+- Nội dung bắt buộc của Arc: ${currentArc.content || currentArc.summary}
 - Chủ đề Arc: ${currentArc.theme || "Chưa khóa rõ, suy ra từ Đại cục."}
 - Mục tiêu sơ bộ Arc: ${currentArc.objective || currentArc.purpose || "Đẩy truyện qua một biến chuyển có hậu quả."}
 - Vai trò Arc: ${currentArc.purpose || currentArc.summary}
-- Sơ lược Arc: ${currentArc.summary}
+- Tóm tắt rút gọn của Arc: ${currentArc.summary}
 
 [KẾ HOẠCH CHƯƠNG]
 ${chapterPlan ? JSON.stringify(chapterPlan, null, 2) : "Không có kế hoạch chi tiết, thẩm định theo Arc."}
