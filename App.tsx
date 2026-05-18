@@ -140,10 +140,20 @@ const App: React.FC = () => {
   };
 
   const updateDraftParams = (updater: (previous: StoryParams) => StoryParams) => {
+    clearDraftPipeline();
     setDirectionChoices([]);
     setPendingDirectionParams(null);
     setSelectedDirectionId('');
     setLogicReport(null);
+    setActiveProjectId(null);
+    setVolumes([]);
+    setWrittenChapters([]);
+    setGeneralSummary('');
+    setWorldBible('');
+    setStory('');
+    setChapterIdea('');
+    setCurrentChapterIndex(1);
+    setActiveArcIndex(1);
     setParams(previous => ({
       ...updater(previous),
       directionLock: '',
@@ -1014,6 +1024,87 @@ const App: React.FC = () => {
   const sentenceCount = (value: string) =>
     String(value || '').split(/[.!?…。！？]+/).map(item => item.trim()).filter(Boolean).length;
 
+  const ARC_ADMIN_TEXT_PATTERN = /(?:huong truyen da chon|logic cot truyen|nhip arc|bat buoc khi lap lo trinh|truyen chi su dung|khong su dung tuyen|tai lieu thiet lap|world building|ten tac pham|dung tai lieu nay lam quy chuan|content bat buoc|arc cau noi ngan|arc nhip vua|arc trong tam dai|phuc vu huong|dung \d+ chuong de)/;
+  const LEGACY_WATER_STORY_PATTERN = /(?:cuu long|lac minh|dai nam|dong nuoc|song nuoc|luat nuoc|thuy lan|ca tom|ha moc)/;
+  const ARC_STOP_WORDS = new Set([
+    'arc', 'chuong', 'truyen', 'nhan', 'vat', 'chinh', 'muc', 'tieu', 'noi', 'dung', 'the', 'gioi',
+    'phai', 'duoc', 'khong', 'trong', 'ngoai', 'mot', 'nhung', 'cac', 'voi', 'cua', 'cho', 'vao', 'chi',
+    'huong', 'tinh', 'the', 'bien', 'co', 'lua', 'chon', 'ket', 'qua', 'moc', 'noi', 'dau', 'cuoi',
+    'thiet', 'lap', 'tai', 'lieu', 'world', 'building', 'dung', 'quy', 'chuan', 'logic',
+  ]);
+
+  const meaningfulArcTokens = (value: string, limit = 28) => {
+    const seen = new Set<string>();
+    return planFingerprint(value)
+      .split(/\s+/)
+      .filter(Boolean)
+      .filter(token => {
+        if (token.length < 3 || ARC_STOP_WORDS.has(token) || seen.has(token)) return false;
+        seen.add(token);
+        return true;
+      })
+      .slice(0, limit);
+  };
+
+  const currentStorySignal = () =>
+    `${params.seed || ''} ${params.directionLock || ''} ${params.character.name || ''} ${params.character.personality || ''} ${params.character.goal || ''} ${(params.genres || []).join(' ')}`;
+
+  const storyKeywordSet = (extra = '') =>
+    new Set(meaningfulArcTokens(`${currentStorySignal()} ${extra}`, 90));
+
+  const sharesCurrentStorySignal = (value: string, extra = '') => {
+    const keywords = storyKeywordSet(extra);
+    return meaningfulArcTokens(value, 36).some(token => keywords.has(token));
+  };
+
+  const isOffProjectArcText = (value: string) => {
+    const normalized = planFingerprint(value);
+    if (!normalized) return false;
+    const projectSignal = planFingerprint(currentStorySignal());
+    if (ARC_ADMIN_TEXT_PATTERN.test(normalized)) return true;
+    if (LEGACY_WATER_STORY_PATTERN.test(normalized) && !LEGACY_WATER_STORY_PATTERN.test(projectSignal)) return true;
+    const tokens = meaningfulArcTokens(value, 24);
+    return tokens.length >= 5 && !sharesCurrentStorySignal(value);
+  };
+
+  const isOffProjectArcTitle = (title: string, arcText = '') => {
+    const normalized = planFingerprint(title);
+    if (!normalized) return true;
+    const projectSignal = planFingerprint(currentStorySignal());
+    if (LEGACY_WATER_STORY_PATTERN.test(normalized) && !LEGACY_WATER_STORY_PATTERN.test(projectSignal)) return true;
+    if (ARC_ADMIN_TEXT_PATTERN.test(normalized)) return true;
+    const titleTokens = meaningfulArcTokens(title, 8);
+    if (titleTokens.length === 0) return true;
+    const keywords = storyKeywordSet(arcText);
+    const specificTokens = titleTokens.filter(token => !['dau', 'tien', 'luat', 'choi', 'vet', 'nut', 'canh', 'cua', 'ket', 'cuc', 'gia', 'dang', 'cao'].includes(token));
+    return specificTokens.length > 0 && !specificTokens.some(token => keywords.has(token));
+  };
+
+  const cleanTitleText = (value: string, limit = 4) =>
+    stripDirectionLabels(value || '')
+      .replace(/[#*_`"'“”‘’]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, limit)
+      .join(' ');
+
+  const storyTitleFragment = (offset = 0) => {
+    const candidates = [
+      params.character.name,
+      directionTitleFromLock(params.directionLock || ''),
+      params.character.goal,
+      (params.genres || [])[offset % Math.max(1, (params.genres || []).length)],
+      params.seed,
+    ]
+      .map(item => cleanTitleText(item || '', 4))
+      .filter(Boolean)
+      .filter(item => !ARC_ADMIN_TEXT_PATTERN.test(planFingerprint(item)));
+    if (candidates.length === 0) return '';
+    return candidates[offset % candidates.length];
+  };
+
   const isWeakPlanPhrase = (value: string) => {
     const normalized = planFingerprint(value);
     if (!normalized || normalized.split(/\s+/).length < 3) return true;
@@ -1024,7 +1115,8 @@ const App: React.FC = () => {
     if (/(HƯỚNG TRUYỆN ĐÃ CHỌN|HUONG TRUYEN DA CHON|Logic cốt truyện|Logic cot truyen|Nhịp Arc|Nhip Arc|Truyện chỉ sử dụng|Truyen chi su dung|Bắt buộc khi lập lộ trình|Bat buoc khi lap lo trinh)/i.test(value)) return true;
     const normalized = planFingerprint(value);
     const wordTotal = normalized ? normalized.split(/\s+/).length : 0;
-    if (!normalized || wordTotal < 28 || sentenceCount(value) < 2) return true;
+    if (!normalized || wordTotal < 45 || sentenceCount(value) < 5) return true;
+    if (ARC_ADMIN_TEXT_PATTERN.test(normalized) || isOffProjectArcText(value)) return true;
     return /(?:huong truyen da chon|arc cau noi ngan|arc nhip vua|arc trong tam dai|truyen chi su dung|khong su dung tuyen|xuat phat tu mau thuan|buoc nhan vat doi trang thai|de lai moc noi|phuc vu huong|dung \d+ chuong de|phan giua arc can|cuoi arc phai|trong .+ buoc qua chuong|arc nay khai cuc|arc nay hoi nhap|arc nay phuc vu)|^(arc \d+ phu trach|arc \d+ tiep tuc|tom tat arc|khong co|khai cuc ngan|hoi nhap va khoa quy tac|day nhan vat)/.test(normalized);
   };
 
@@ -1037,28 +1129,25 @@ const App: React.FC = () => {
   };
 
   const fallbackArcDisplayTitle = (volume: Volume) => {
-    const signal = planFingerprint(`${params.seed || ''} ${params.directionLock || ''} ${params.character.goal || ''} ${(params.genres || []).join(' ')}`);
-    const banks = [
-      { test: /cuu long|song|dong nuoc|thuy|nuoc|lan|ca/, titles: ['Đứa Trẻ Của Dòng Nước', 'Luật Nước Ngầm', 'Vết Dấu Cửu Long', 'Mạch Sâu Trỗi Dậy', 'Bờ Bên Kia Bão'] },
-      { test: /dieu tra|huyen nghi|bi an|manh moi|than phan|lat mat/, titles: ['Dấu Hỏi Đầu Tiên', 'Lớp Vỏ Giả', 'Người Giấu Chứng Cứ', 'Sự Thật Đổi Mặt', 'Đáp Án Có Giá'] },
-      { test: /bao thu|thu han|mon no|tra gia|nhan qua/, titles: ['Món Nợ Đầu Tiên', 'Giá Của Lời Thề', 'Kẻ Đòi Nợ Cũ', 'Vết Máu Quay Lại', 'Ngày Trả Giá'] },
-      { test: /ma phap|ma dao|hoc phu|yeu ma|thanh thanh|cam chu|phap su/, titles: ['Ấn Chú Đầu Tiên', 'Luật Của Học Phủ', 'Bóng Tối Trong Thành', 'Cấm Chú Thức Tỉnh', 'Pháp Trận Sau Cùng'] },
-    ];
-    const bank = banks.find(item => item.test.test(signal));
-    if (bank) return bank.titles[(volume.index - 1) % bank.titles.length];
-    return volume.index === 1
-      ? 'Vết Nứt Đầu Tiên'
-      : volume.index === volumes.length
-        ? 'Cánh Cửa Kết Cục'
-        : volume.index > volumes.length * 0.65
-          ? 'Cái Giá Dâng Cao'
-          : 'Dấu Vết Đổi Hướng';
+    const signal = planFingerprint(currentStorySignal());
+    const fragment = storyTitleFragment(volume.index - 1);
+    const phases = /hack|robot|mang|internet|cyber|khoa hoc|cong nghe|du lieu/.test(signal)
+      ? ['Mã Lệnh Đầu Tiên', 'Linh Hồn Trong Máy', 'Cổng Dữ Liệu Sai Lệch', 'Bản Vá Của Thực Tại', 'Cánh Cửa Ngoài Hệ Thống']
+      : /ky ao|fantasy|ma phap|than thoai|di nang|phep|phu thuy/.test(signal)
+        ? ['Dấu Ấn Đầu Tiên', 'Luật Của Vùng Đất Lạ', 'Bí Mật Sau Lời Nguyền', 'Cái Giá Của Phép Màu', 'Cánh Cửa Cuối Hành Trình']
+        : /dieu tra|huyen nghi|bi an|manh moi|than phan|lat mat/.test(signal)
+          ? ['Dấu Hỏi Đầu Tiên', 'Lớp Vỏ Giả', 'Người Giấu Chứng Cứ', 'Sự Thật Đổi Mặt', 'Đáp Án Có Giá']
+          : ['Vết Nứt Đầu Tiên', 'Luật Chơi Mới', 'Dấu Vết Đổi Hướng', 'Cái Giá Dâng Cao', 'Cánh Cửa Kết Cục'];
+    const phase = volume.index === volumes.length ? phases[phases.length - 1] : phases[(volume.index - 1) % Math.max(1, phases.length - 1)];
+    if (!fragment) return phase;
+    return volume.index === 1 ? `${phase}: ${fragment}` : `${phase} - ${fragment}`;
   };
 
   const getArcDisplayTitle = (volume: Volume) => {
     const originalTitle = volume.title || '';
     const rawTitle = stripDirectionLabels(volume.title || '');
-    if (!isWeakArcTitleText(originalTitle) && !isWeakArcTitleText(rawTitle)) return rawTitle;
+    const arcContext = `${volume.content || ''} ${volume.summary || ''} ${volume.theme || ''} ${volume.objective || ''}`;
+    if (!isWeakArcTitleText(originalTitle) && !isWeakArcTitleText(rawTitle) && !isOffProjectArcTitle(rawTitle, arcContext)) return rawTitle;
     return fallbackArcDisplayTitle(volume);
   };
 
@@ -1066,14 +1155,17 @@ const App: React.FC = () => {
     const candidates = [volume.content, volume.summary]
       .map(item => ({ original: item || '', clean: stripDirectionLabels(item || '') }))
       .filter(item => item.clean);
-    const strongCandidate = candidates.find(item => !isWeakArcSummaryText(item.original) && !isWeakArcSummaryText(item.clean));
+    const strongCandidate = candidates.find(item => !isWeakArcSummaryText(item.original) && !isWeakArcSummaryText(item.clean) && !isOffProjectArcText(item.clean));
     if (strongCandidate) return { text: strongCandidate.clean, isFallback: false };
 
     const seed = stripDirectionLabels(params.seed || '') || directionTitleFromLock(params.directionLock || '');
     const premise = seed ? `mâu thuẫn "${seed.slice(0, 120)}"` : `mục tiêu "${params.character.goal || 'đã khóa'}"`;
     const name = params.character.name || 'nhân vật chính';
+    const arcTitle = getArcDisplayTitle(volume);
+    const theme = stripDirectionLabels(volume.theme || '') || `cái giá của ${params.character.goal || 'mục tiêu trung tâm'}`;
+    const objective = stripDirectionLabels(volume.objective || '') || `buộc ${name} thay đổi lựa chọn trước khi sang Arc sau`;
     return {
-      text: `${getArcDisplayTitle(volume)} bắt đầu trong chương ${volume.chapterStart || '?'}-${volume.chapterEnd || '?'}, khi ${name} phải đối mặt một tầng mới của ${premise}. Ở phần giữa, một dấu hiệu bất thường, một lựa chọn khó, một lực cản có động cơ và một dữ kiện canon mới lần lượt làm mục tiêu của nhân vật đổi hướng. Đến cuối Arc, lựa chọn của ${name} phải làm thay đổi ít nhất một quan hệ, quyền lực, nhận thức hoặc món nợ đã khóa trong Thiên Cơ Lục. Arc khép bằng hậu quả còn mở, bí mật chưa giải hoặc cái giá mới để kéo sang Arc sau.`,
+      text: `${arcTitle} mở trong chương ${volume.chapterStart || '?'}-${volume.chapterEnd || '?'}, khi ${name} bị kéo vào một tầng mới của ${premise}. Những chương đầu đặt rõ tình thế, người cản đường và điều ${name} chưa thể biết, để mâu thuẫn không chỉ là giới thiệu mà có sức ép thực tế. Phần giữa Arc phải đẩy nhân vật qua vài biến cố có nhân quả, mỗi biến cố làm thay đổi thông tin, quan hệ, quyền lực hoặc món nợ đã khóa trong Thiên Cơ Lục. Trục cảm xúc của Arc là ${theme}, còn mục tiêu sơ bộ là ${objective}. Đến cuối Arc, lựa chọn của ${name} phải để lại một hậu quả nhìn thấy được và một bí mật hoặc cái giá đủ mạnh để móc sang Arc tiếp theo.`,
       isFallback: true,
     };
   };
@@ -1527,6 +1619,16 @@ const App: React.FC = () => {
 
   const generateProjectFromParams = async (workingParams: StoryParams) => {
     setParams(workingParams);
+    clearDraftPipeline();
+    setActiveProjectId(null);
+    setVolumes([]);
+    setWrittenChapters([]);
+    setGeneralSummary('');
+    setWorldBible('');
+    setStory('');
+    setChapterIdea('');
+    setCurrentChapterIndex(1);
+    setActiveArcIndex(1);
     setIsGeneratingOutline(true);
     setGenerationStatus(workingParams.projectType === 'Truyện Ngắn' ? 'Đang viết truyện ngắn hoàn chỉnh...' : 'Bước 1/3: Đang lập Đại cục và phân bổ Arc...');
     setLogicReport(null);

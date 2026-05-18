@@ -40,7 +40,6 @@ Mặc định app dùng `gemini-2.5-flash`, phù hợp hơn cho viết truyện 
 - `GEMINI_MODEL`: model mặc định.
 - `GEMINI_PLAN_MODEL`: model lập lộ trình và kiểm tra logic.
 - `GEMINI_WRITE_MODEL`: model viết chương.
-- `GEMINI_FALLBACK_MODELS`: danh sách model dự phòng, cách nhau bằng dấu phẩy.
 - `GEMINI_MAX_OUTPUT_TOKENS`: trần token đầu ra mỗi request, mặc định `8192`.
 
 App tự đổi các tên model cũ như `gemini-1.5-flash` sang model còn hỗ trợ để tránh lỗi 404.
