@@ -7,6 +7,7 @@ export type ChapterValidationResult = {
   isValid: boolean;
   reason?: string;
   structureIssues?: string[];
+  setupIssues?: string[];
   logicIssues?: string[];
   canonIssues?: string[];
   povIssues?: string[];
@@ -1528,6 +1529,66 @@ const sliderBrief = (params: StoryParams) => {
     .join(", ");
 };
 
+const toneWritingContract = (tone: StoryParams["tone"]) => {
+  const profiles: Partial<Record<StoryParams["tone"], string>> = {
+    "Nhẹ nhàng": "Giọng nhẹ, ấm và có khoảng thở. Câu văn vừa phải, cảm xúc đi qua cử chỉ nhỏ, tránh bi kịch hóa hoặc đẩy kịch tính gắt nếu tình huống chưa cần.",
+    "Lãng mạn": "Giọng giàu cảm xúc thân mật nhưng không sến. Tập trung vào ánh nhìn, khoảng cách, điều không nói ra, lựa chọn vì người khác; thoại phải tự nhiên và có hàm ý.",
+    "U ám": "Giọng nặng, lạnh, bất an. Không khí, âm thanh, vật thể và im lặng phải tạo sức ép; tránh hài hước phá mood và tránh than vãn trừu tượng.",
+    "Bi tráng": "Giọng trang trọng, có sức nén, hướng tới mất mát và phẩm giá. Cái giá của lựa chọn phải rõ; không biến bi kịch thành gào thét hoặc mỹ từ rỗng.",
+    "Chữa lành": "Giọng dịu, chậm, có hy vọng sau tổn thương. Cảm xúc phục hồi qua hành động chăm sóc, nhận ra, tha thứ hoặc tự đứng dậy; không giải quyết đau đớn quá dễ.",
+    "Kịch tính": "Giọng căng, nhịp nhanh hơn, nhiều quyết định và phản ứng dây chuyền. Mỗi cảnh cần áp lực cụ thể, thời hạn hoặc nguy cơ; không sa vào giải thích dài.",
+    "Đen tối": "Giọng nghiệt ngã, rủi ro đạo đức rõ, hậu quả nặng. Không tô hồng, không cứu nhân vật bằng may mắn rẻ; tránh máu me vô nghĩa nếu không đổi trạng thái truyện.",
+    "Triết lý": "Giọng có chiều sâu suy tưởng nhưng vẫn phải thành cảnh. Câu hỏi nội tâm gắn với lựa chọn, cái giá và hệ quả; không biến chương thành bài giảng.",
+    "Hài hước": "Giọng duyên, có nhịp bật cười từ tình huống, phản ứng, thoại và nghịch lý. Hài phải phục vụ nhân vật/xung đột, không phá canon hoặc làm nhân vật ngốc đi.",
+    "Hiện thực gai góc": "Giọng đời, sắc, nhân quả xã hội rõ. Chi tiết vật chất, tiền bạc, thân phận, quyền lực và lựa chọn khó phải có trọng lượng; không tô hồng hoặc kết luận dễ dãi.",
+  };
+  return profiles[tone] || "Giữ đúng giọng đã chọn trong hồ sơ, nhất quán từ nhịp câu, mức cảm xúc, loại hình ảnh, thoại và cách kết đoạn.";
+};
+
+const modeStructureContract = (mode: StoryParams["mode"]) => {
+  const profiles: Partial<Record<StoryParams["mode"], string>> = {
+    "Truyện hoàn chỉnh": "Toàn bộ lộ trình phải có mở, phát triển, cao trào và kết. Mỗi Arc trả một phần mâu thuẫn, cuối truyện trả đủ lời hứa thể loại.",
+    "Mở để viết tiếp": "Truyện vẫn phải trả xong xung đột chính của phần hiện tại, nhưng để lại một bí mật, món nợ hoặc cánh cửa hợp logic cho phần sau.",
+    "Twist ending": "Twist phải được gieo bằng manh mối công bằng từ trước. Không được bẻ lái bằng thông tin chưa từng có hoặc phủ định cảm xúc/logic đã xây.",
+    "Bi kịch không cứu vãn": "Bi kịch phải nảy ra từ lựa chọn, thiếu sót, hệ thống hoặc cái giá đã gieo. Không dùng tai nạn ngẫu nhiên để ép kết buồn.",
+    "Happy ending nhưng có giá phải trả": "Kết tích cực nhưng vẫn mất mát, hy sinh, nợ hoặc vết sẹo rõ. Không được xóa sạch hậu quả chỉ vì kết vui.",
+  };
+  return profiles[mode] || "Kết cấu phải bám kiểu kết truyện đã chọn và gieo đủ điều kiện từ đầu đến cuối.";
+};
+
+const genreFusionContract = (params: StoryParams) => {
+  const genres = params.genres?.length ? params.genres : ["Tự do"];
+  if (genres.length === 1) {
+    return `Thể loại chính là "${genres[0]}". Thể loại này phải hiện trong luật thế giới, loại xung đột, cảnh then chốt, phản lực chính và lời hứa cảm xúc; không chỉ nhắc tên.`;
+  }
+  return [
+    `Các thể loại đã chọn là: ${genres.join(", ")}.`,
+    `Không được bỏ sót thể loại nào. Thể loại đầu tiên "${genres[0]}" là động cơ chính của truyện; các thể loại còn lại phải trở thành cơ chế thế giới, loại phản lực, tuyến điều tra/tình cảm/hành động, bầu không khí hoặc kiểu cái giá.`,
+    "Không được liệt kê nhãn thể loại trong văn xuôi để thay cho triển khai. Mỗi thể loại phải có ít nhất một tác dụng cụ thể trong Đại cục, Arc và chương: luật, địa điểm, nghề nghiệp, nguy cơ, quan hệ, năng lực, bí mật, hình ảnh hoặc kiểu lựa chọn.",
+    "Nếu hai thể loại có vẻ xung đột, phải biến chính sự xung đột đó thành luật truyện hoặc mâu thuẫn nhân vật thay vì bỏ một bên.",
+  ].join(" ");
+};
+
+const setupContract = (params: StoryParams) => `KHÓA HỒ SƠ THIẾT LẬP - BẮT BUỘC
+- Mọi dữ liệu trong hồ sơ là hợp đồng sáng tác: giọng văn, kết cấu, số chương, số chữ/chương, nhân vật chính, tính cách, mục tiêu, thể loại, ý tưởng khởi nguồn, hướng truyện và truyện mẫu/lưu ý đều phải chi phối kết quả.
+- Không được tự đổi nhân vật chính, đổi thể loại trung tâm, đổi kiểu kết cấu, đổi tổng số chương, bỏ tính cách, bỏ ý tưởng khởi nguồn hoặc viết một truyện khác chỉ vì prompt có chỗ trống.
+- Tính cách nhân vật chính phải điều khiển cách nói, cách im lặng, cách lựa chọn, điểm yếu, sai lầm và cái giá. Không chỉ nhắc tính cách như nhãn.
+- Ý tưởng khởi nguồn phải thành trục nhân quả: xung đột mở đầu, bí mật/hệ quả kéo dài, lựa chọn làm thay đổi trạng thái và mâu thuẫn phải được trả dần.
+- Nếu có truyện mẫu/lưu ý văn phong, chỉ học nhịp, mật độ đối thoại/miêu tả, độ giải thích, cách ngắt đoạn và cảm giác cảnh; tuyệt đối không copy tên riêng, thiết lập, tình tiết hoặc câu văn.
+
+GIỌNG VĂN ĐÃ CHỌN: ${params.tone}
+${toneWritingContract(params.tone)}
+
+KẾT CẤU ĐÃ CHỌN: ${params.mode}
+${modeStructureContract(params.mode)}
+
+PHỐI HỢP THỂ LOẠI
+${genreFusionContract(params)}
+
+RÀNG BUỘC SỐ LƯỢNG
+- Trường thiên phải phủ đúng ${params.totalChapters} chương trong lộ trình; từng chương hướng tới ${params.length} chữ và không được kết vội dưới ngưỡng tối thiểu.
+- Lộ trình Arc, bản đồ chương và bản thảo phải thống nhất nhau. Nếu đã khóa Arc/chương/Thiên Cơ Lục, các bước sau không được bẻ canon.`;
+
 const buildProjectBrief = (params: StoryParams) => `HỒ SƠ ĐẦU VÀO
 - Loại dự án: ${params.projectType}
 - Tổng số chương: ${params.totalChapters}
@@ -1545,7 +1606,9 @@ const buildProjectBrief = (params: StoryParams) => `HỒ SƠ ĐẦU VÀO
 - Cách dùng ý tưởng: xem đây là lõi nhân quả, phải biến thành xung đột, bí mật, lựa chọn và hậu quả xuyên suốt; không được bỏ qua để viết một truyện khác.
 - Hướng truyện đã khóa: ${params.directionLock || "Chưa chọn. AI phải tự đề xuất hướng hợp logic nhất từ hồ sơ."}
 - Truyện mẫu/lưu ý tham chiếu: ${params.referenceStories || "Không có. Không sao chép tác phẩm có sẵn."}
-- Cách dùng truyện mẫu/lưu ý: chỉ học nhịp, độ nén, cảm giác văn phong và loại cảnh; không sao chép tên riêng, thiết lập, tình tiết hoặc câu văn.`;
+- Cách dùng truyện mẫu/lưu ý: chỉ học nhịp, độ nén, cảm giác văn phong và loại cảnh; không sao chép tên riêng, thiết lập, tình tiết hoặc câu văn.
+
+${setupContract(params)}`;
 
 const normalizeChapter = (
   raw: AnyRecord | undefined,
@@ -1890,6 +1953,7 @@ const normalizeChapterValidationResult = (data: AnyRecord): ChapterValidationRes
   isValid: data?.isValid === true || data?.valid === true,
   reason: asText(data?.reason || data?.summary),
   structureIssues: mergeStringArrays(data?.structureIssues, data?.plotIssues, data?.contentIssues, data?.arcIssues, data?.chapterPlanIssues),
+  setupIssues: mergeStringArrays(data?.setupIssues, data?.briefIssues, data?.formIssues, data?.genreIssues, data?.toneContractIssues, data?.modeIssues, data?.referenceStyleIssues),
   logicIssues: mergeStringArrays(data?.logicIssues, data?.causalityIssues, data?.sceneLogicIssues, data?.motivationIssues),
   canonIssues: mergeStringArrays(data?.canonIssues, data?.continuityIssues, data?.worldBibleIssues, data?.timelineIssues),
   povIssues: mergeStringArrays(data?.povIssues, data?.characterIssues, data?.knowledgeIssues, data?.nameUsageIssues),
@@ -1930,6 +1994,7 @@ ${JSON.stringify(draft, null, 2).slice(0, 16000)}
 
 Hãy thẩm định như Cụm 2:
 - Không viết lại.
+- Đối chiếu hồ sơ thiết lập: giọng văn, kết cấu, số chương, nhân vật chính, tính cách, thể loại, ý tưởng khởi nguồn và truyện mẫu/lưu ý phải xuất hiện đúng vai trò trong lộ trình/bản đồ.
 - Chỉ đánh dấu lỗi thật sự ảnh hưởng logic, canon, điểm nhìn, độ dài Arc/chương, hoặc khả năng viết chương sau.
 - Với lộ trình dài, không yêu cầu chia đều; chỉ bắt lỗi nếu độ dài Arc không có lý do nội dung.
 - Với lộ trình Arc, thiếu mục "# Sơ lược truyện" trong generalSummary là lỗi phải sửa.
@@ -1995,6 +2060,7 @@ ${ARC_SYNOPSIS_REQUIREMENTS}
 Hãy đóng vai Cụm 3:
 - Sửa trực tiếp các lỗi Cụm 2 nêu.
 - Giữ nguyên mọi phần không bị lỗi.
+- Luôn giữ đúng hồ sơ thiết lập: giọng văn, kết cấu, số chương, nhân vật chính, tính cách, thể loại, ý tưởng khởi nguồn và truyện mẫu/lưu ý; không sửa bằng cách đổi truyện khác.
 - Không chia Arc/chương đều máy móc; độ dài phải theo trọng lượng tình tiết.
 - Không tự ý đổi tên riêng, tổng số chương, mục tiêu chữ, mode, hướng truyện đã khóa.
 - Không viết văn xuôi truyện ở bước lộ trình/bản đồ.
@@ -2048,6 +2114,8 @@ ${ARC_SYNOPSIS_REQUIREMENTS}
 
 YÊU CẦU LẬP LỘ TRÌNH:
 - Chỉ tạo Đại cục và khoảng ${volumeCount} Arc, phủ đủ chương 1-${totalChapters}. Chưa viết bản đồ từng chương ở bước này.
+- Lộ trình phải bám đúng toàn bộ hồ sơ thiết lập: giọng văn "${params.tone}", kết cấu "${params.mode}", ${params.totalChapters} chương, nhân vật chính "${params.character.name || "chưa đặt tên"}", tính cách "${params.character.personality || "chưa mô tả"}", thể loại ${params.genres.join(", ") || "Tự do"}, ý tưởng khởi nguồn và truyện mẫu/lưu ý nếu có.
+- Nếu chọn nhiều thể loại, Đại cục và mỗi Arc phải thể hiện cách phối hợp chúng thành luật thế giới, xung đột, phản lực, tuyến cảm xúc hoặc loại cái giá; không được bỏ sót thể loại hoặc chỉ nhắc tên.
 - Mỗi Arc phải có chapterStart/chapterEnd rõ ràng, nối tiếp nhau, không trùng, không bỏ sót, không vượt quá ${totalChapters}.
 - Không chia đều máy móc. Độ dài Arc phải theo trọng lượng tình tiết: Arc cầu nối ngắn hơn, Arc điều tra/tích lũy/khủng hoảng/cao trào dài hơn, Arc kết chỉ dài nếu cần trả giá và dư âm.
 - Khung gợi ý bất đối xứng để cân nhắc:
@@ -2173,6 +2241,7 @@ ${history || "Chưa có chương đã viết."}
 
 Hãy lập Arc ${safeVolumes.length + 1}, phủ chương ${start}-${end}.
 Arc mới phải nối logic với các Arc đã có, có mục tiêu riêng, có chapterStart/chapterEnd rõ ràng, chưa cần bản đồ chương chi tiết.
+Arc mới phải bám hồ sơ thiết lập hiện tại: giọng văn "${params.tone}", kết cấu "${params.mode}", thể loại ${params.genres.join(", ") || "Tự do"}, nhân vật "${params.character.name || "chưa đặt tên"}", tính cách "${params.character.personality || "chưa mô tả"}", ý tưởng khởi nguồn và truyện mẫu/lưu ý nếu có.
 Viết JSON gọn nhưng đủ ý: title là tên Arc riêng 3-8 từ như tiêu đề truyện thật, không chứa nhãn quản trị; content là đoạn văn ngắn "nội dung bắt buộc của Arc" 5-7 câu có tình thế mở/biến cố/lực cản/cái giá/biến chuyển/móc nối; summary là bản rút gọn 2-3 câu; theme là chủ đề Arc; objective là mục tiêu sơ bộ Arc; purpose tối đa 42 từ.
 Content phải nói rõ tình thế đầu Arc, 2-4 biến cố chính, xung đột chính, biến chuyển cuối Arc và móc nối sang Arc sau; summary chỉ rút gọn content; không được chỉ ghi "Arc này phụ trách chương...", không chỉ nêu chức năng và không chép lại seed/hướng truyện.
 Ghi rõ dữ kiện canon cần giữ và hậu quả cuối Arc nối sang Arc sau.
@@ -2267,6 +2336,7 @@ ${nearbyHistory || "Chưa có chương đã viết trong vùng này."}
 
 Hãy lập bản đồ chi tiết cho đúng các chương ${start}-${end}.
 Yêu cầu:
+- Bản đồ chương phải tuân thủ hồ sơ thiết lập: giọng văn "${params.tone}" ảnh hưởng nhịp và loại cảnh; kết cấu "${params.mode}" ảnh hưởng cách gieo/trả; tính cách "${params.character.personality || "chưa mô tả"}" phải xuất hiện thành lựa chọn/sai lầm/hành vi; các thể loại ${params.genres.join(", ") || "Tự do"} phải được triển khai thành biến cố cụ thể.
 - Đoạn "Nội dung bắt buộc của Arc" là xương sống bắt buộc. Chia các chương thành từng lát cắt cụ thể đi từ tình thế mở, các biến cố chính, lực cản, lựa chọn/cái giá, biến chuyển cuối đến móc nối sang Arc sau; không được chỉ rải đều số chương.
 - Mỗi title/summary/objective phải cho thấy chương đó phục vụ phần nào của nội dung bắt buộc này. Không dùng câu mẫu chung như "dùng một cảnh quyết định", "giữ đúng tính cách", "không giải quyết mâu thuẫn trung tâm quá sớm", "mở cảnh bằng áp lực cụ thể" làm tên hoặc tóm tắt chương.
 - Nếu nội dung bắt buộc của Arc có nhiều tầng, chapter đầu phải mở đúng tình thế, chapter giữa phải tạo biến cố và lực cản mới, chapter cuối phải trả giá/đổi trạng thái và để lại móc nối; không gom toàn bộ ý đồ vào một chương rồi lặp lại ở các chương sau.
@@ -2420,10 +2490,14 @@ YÊU CẦU VIẾT:
 - Mục tiêu độ dài: khoảng ${targetWords} chữ. Không được dừng dưới ${minWords} chữ; không vượt quá ${maxWords} chữ nếu không cần để khép cảnh.
 - Chỉ được coi là hoàn tất khi chương đã đủ tối thiểu ${minWords} chữ, câu cuối có dấu kết, cảnh cuối khép bằng một hậu quả/móc nối cụ thể. Không dừng giữa câu, giữa đoạn hoặc sau một từ nối như "và", "nhưng", "của", "trong".
 - Nội dung bắt buộc của Arc là trục chính; chương này phải là một lát cắt cụ thể trong trục đó, không lặp lại ý đồ Arc bằng lời kể chung.
+- Bắt buộc bám hồ sơ thiết lập: giọng văn "${params.tone}" phải hiện trong nhịp câu, mức cảm xúc, loại hình ảnh, thoại và cách kết đoạn; không chuyển sang giọng khác vì cảnh căng hoặc hài.
+- Tính cách nhân vật chính "${params.character.personality || "chưa mô tả"}" phải chi phối lời nói, im lặng, phản ứng, lựa chọn và sai lầm; không chỉ kể rằng nhân vật có tính cách đó.
+- Thể loại ${params.genres.join(", ") || "Tự do"} phải hiện qua luật thế giới, xung đột, cảnh, vật chứng, phản lực hoặc cái giá. Nếu có nhiều thể loại, mỗi thể loại phải có tác dụng cụ thể trong chương.
+- Ý tưởng khởi nguồn và truyện mẫu/lưu ý văn phong phải được dùng đúng vai trò: ý tưởng là lõi nhân quả; truyện mẫu/lưu ý chỉ điều chỉnh nhịp, mật độ giải thích, đối thoại, miêu tả và cách ngắt đoạn, không copy tình tiết.
 - Bắt đầu bằng đúng mẫu: "Tên chương: [tên chương]".
 - Sau dòng tên chương, viết văn xuôi liền mạch bằng tiếng Việt.
 - Mỗi beat phải được viết thành cảnh có hành động, cảm giác, đối thoại hoặc quyết định cụ thể; không tóm tắt thay cho cảnh.
-- Văn phong hiện đại và chuyên nghiệp: mạch lạc, có hơi văn, có nhạc tính vừa đủ, không cộc, không lạm dụng mỹ từ, không giảng đạo, không dùng câu sáo hoặc thành ngữ rỗng.
+- Văn phong phải hiện đại, chuyên nghiệp và đúng giọng đã chọn: mạch lạc, có hơi văn, có nhạc tính vừa đủ, không cộc, không lạm dụng mỹ từ, không giảng đạo, không dùng câu sáo hoặc thành ngữ rỗng.
 - Ưu tiên văn hay nhưng chặt: hình ảnh chính xác, nhịp câu biến hóa, đối thoại có hàm ý, ít giải thích trực tiếp; mỗi đoạn phải làm tình thế, cảm xúc hoặc thông tin dịch chuyển.
 - Mở chương bằng một cảnh cụ thể, không mở bằng tóm tắt tiểu sử dài. Nếu cần quá khứ, đưa vào qua vật chứng, lời gọi, hành động, ký ức ngắn hoặc hậu quả hiện tại.
 - Khi đổi cảnh, phải có cầu nối rõ: thời gian, địa điểm, nhân vật có mặt, mục tiêu mới hoặc hậu quả từ cảnh trước.
@@ -2526,6 +2600,7 @@ export const rewriteChapterWithReviewStream = async (
 ): Promise<string> => {
   const reviewIssueGroups = [
     review.structureIssues,
+    review.setupIssues,
     review.logicIssues,
     review.canonIssues,
     review.povIssues,
@@ -2600,11 +2675,13 @@ ${excerptForAudit(originalDraft, 18000)}
 
 YÊU CẦU KEY 3:
 - Viết lại toàn bộ chương, không chỉ vá vài đoạn.
-- Sửa đúng toàn bộ lỗi Cụm 2 nêu trong các nhóm: structureIssues, logicIssues, canonIssues, povIssues, metricIssues, ramblingIssues, styleIssues, repetitionIssues, dictionIssues, suggestions và rewriteDirectives.
+- Sửa đúng toàn bộ lỗi Cụm 2 nêu trong các nhóm: structureIssues, setupIssues, logicIssues, canonIssues, povIssues, metricIssues, ramblingIssues, styleIssues, repetitionIssues, dictionIssues, suggestions và rewriteDirectives.
 - Nếu Cụm 2 có preserveStrengths, giữ các điểm mạnh đó; nếu phải sửa, giữ tác dụng truyện của chúng nhưng thay cách thể hiện.
 - Dùng báo cáo Cụm 2 như bản giao việc: lỗi nào có dẫn chứng/vị trí thì xử lý trực tiếp tại vùng đó; lỗi nào là nguyên tắc chung thì rà toàn chương.
 - Không chỉ thay vài câu. Hãy viết lại thành một bản chương liền mạch, đã tự sửa lặp chữ, lặp ý, câu sáo, đoạn quá dài, thoại sai quan hệ và các chỗ nhân vật biết/làm điều không hợp logic.
 - Nếu báo cáo Cụm 2 nêu lặp đoạn/câu dài, tuyệt đối không giữ lại hai đoạn giống nhau. Chỉ giữ một lần thông tin cần thiết, phần còn lại phải thay bằng diễn biến mới có mục tiêu, va chạm và hậu quả riêng.
+- Khi sửa, vẫn phải khóa theo hồ sơ thiết lập: giữ giọng văn "${params.tone}", kết cấu "${params.mode}", thể loại ${params.genres.join(", ") || "Tự do"}, ý tưởng khởi nguồn, truyện mẫu/lưu ý, tên nhân vật chính và tính cách "${params.character.personality || "chưa mô tả"}". Không được sửa lỗi bằng cách đổi truyện hoặc đổi chất văn đã chọn.
+- Nếu Cụm 2 bắt lỗi lệch giọng, lệch thể loại, quên tính cách, bỏ ý tưởng hoặc sai truyện mẫu/lưu ý, hãy sửa bằng cảnh/hành động/thoại cụ thể chứ không thêm câu giải thích.
 - Không rút ngắn: mục tiêu khoảng ${targetWords} chữ, không dừng dưới ${minWords} chữ, không vượt quá ${maxWords} chữ nếu không cần để khép cảnh.
 - Chỉ được coi là hoàn tất khi bản sửa đã đủ tối thiểu ${minWords} chữ, câu cuối có dấu kết, cảnh cuối khép bằng một hậu quả/móc nối cụ thể. Không dừng giữa câu, giữa đoạn hoặc sau một từ nối như "và", "nhưng", "của", "trong".
 - Không đổi tổng hướng truyện, không thêm tuyến mới, không đổi canon, không tự đặt số liệu nếu Thiên Cơ Lục chưa khóa.
@@ -2733,6 +2810,10 @@ export const validateChapterLogic = async (
   
   const prompt = `THẨM ĐỊNH CANON, TÍNH NHẤT QUÁN VÀ ĐỘ TẬP TRUNG
 
+${params ? `[HỒ SƠ THIẾT LẬP PHẢI KIỂM]
+${buildProjectBrief(params)}
+` : ""}
+
 [LUẬT NHẬP VAI PHẢI KIỂM]
 ${IMMERSIVE_LOGIC_RULES}
 
@@ -2764,14 +2845,15 @@ ${chapterAuditText}
 
 CỤM 2 PHẢI ĐỌC BẢN CHƯƠNG KEY 1 NHƯ MỘT BẢN THẢO THẬT.
 Không viết lại chương. Hãy soi đủ các lớp sau và đưa báo cáo để Cụm 3 sửa:
-1. Bám sát truyện: chương có đi đúng Đại cục, Arc, kế hoạch chương, beat và trạng thái đầu/cuối không.
-2. Nội dung và logic: mỗi cảnh có mục tiêu, va chạm, lựa chọn/hành động, hậu quả; biến cố có nguyên nhân; nhân vật không hành động/nói vô cớ.
-3. Thiên Cơ Lục và canon: timeline, số liệu, địa danh, cấp bậc, vật phẩm, quan hệ, luật thế giới, bí mật, mâu thuẫn mở có khớp không.
-4. Thông số chương: đúng số chương, đúng mục tiêu chữ, không kết sớm, không mất đoạn cuối, không bỏ beat bắt buộc.
-5. Nhập vai và điểm nhìn: nhân vật chỉ biết điều họ có thể biết; tên gọi chỉ dùng sau khi được đặt/gọi/nhận biết; tuổi, cơ thể, vị thế và quan hệ phải khớp hoàn cảnh.
-6. Văn phong: nhịp đoạn, độ dài câu, cách ngắt dòng, độ hiện đại/chuyên nghiệp, mức “kể thay cảnh”, độ sáo rỗng hoặc giảng giải.
-7. Lặp chữ/lặp ý: cụm từ, hình ảnh, cảm xúc, mô-típ câu, thông tin hoặc cảnh có bị nhắc lại nhiều lần mà không thêm tác dụng mới không.
-8. Ngôn từ: từ yếu, mỹ từ rỗng, câu trừu tượng, thoại sai sắc thái, xưng hô sai, từ làm lệch tính cách hoặc thời điểm.
+1. Bám hồ sơ thiết lập: có đúng giọng văn "${params?.tone || "đã chọn"}", kết cấu "${params?.mode || "đã chọn"}", thể loại, ý tưởng khởi nguồn, truyện mẫu/lưu ý, nhân vật chính và tính cách không.
+2. Bám sát truyện: chương có đi đúng Đại cục, Arc, kế hoạch chương, beat và trạng thái đầu/cuối không.
+3. Nội dung và logic: mỗi cảnh có mục tiêu, va chạm, lựa chọn/hành động, hậu quả; biến cố có nguyên nhân; nhân vật không hành động/nói vô cớ.
+4. Thiên Cơ Lục và canon: timeline, số liệu, địa danh, cấp bậc, vật phẩm, quan hệ, luật thế giới, bí mật, mâu thuẫn mở có khớp không.
+5. Thông số chương: đúng số chương, đúng mục tiêu chữ, không kết sớm, không mất đoạn cuối, không bỏ beat bắt buộc.
+6. Nhập vai và điểm nhìn: nhân vật chỉ biết điều họ có thể biết; tên gọi chỉ dùng sau khi được đặt/gọi/nhận biết; tuổi, cơ thể, vị thế và quan hệ phải khớp hoàn cảnh.
+7. Văn phong: nhịp đoạn, độ dài câu, cách ngắt dòng, độ hiện đại/chuyên nghiệp, mức “kể thay cảnh”, độ sáo rỗng hoặc giảng giải.
+8. Lặp chữ/lặp ý: cụm từ, hình ảnh, cảm xúc, mô-típ câu, thông tin hoặc cảnh có bị nhắc lại nhiều lần mà không thêm tác dụng mới không.
+9. Ngôn từ: từ yếu, mỹ từ rỗng, câu trừu tượng, thoại sai sắc thái, xưng hô sai, từ làm lệch tính cách hoặc thời điểm.
 
 QUY TẮC BÁO LỖI:
 - Mỗi lỗi phải nói rõ vì sao ảnh hưởng truyện và Cụm 3 cần sửa theo hướng nào.
@@ -2785,6 +2867,7 @@ Trả về JSON đúng schema:
   "isValid": boolean,
   "reason": "kết luận ngắn, nêu lỗi chính hoặc vì sao đạt",
   "structureIssues": ["lỗi bám Đại cục/Arc/bản đồ chương/cấu trúc cảnh"],
+  "setupIssues": ["lỗi lệch hồ sơ thiết lập: giọng văn, kết cấu, thể loại, ý tưởng, truyện mẫu/lưu ý, nhân vật, tính cách"],
   "logicIssues": ["lỗi nhân quả, động cơ, hành động, chuyển cảnh"],
   "canonIssues": ["lỗi Thiên Cơ Lục, timeline, số liệu, quan hệ, cấp bậc, vật phẩm, luật thế giới"],
   "povIssues": ["lỗi điểm nhìn, tên gọi, tuổi/nhận thức, nhân vật biết điều chưa thể biết"],
@@ -2866,6 +2949,7 @@ ${JSON.stringify(plannedChapters, null, 2)}
 ${JSON.stringify(manuscript, null, 2)}
 
 Hãy kiểm tra logic toàn truyện đã viết:
+- Có chương/Arc nào lệch hồ sơ thiết lập không: sai giọng văn "${params.tone}", bỏ thể loại ${params.genres.join(", ") || "Tự do"}, quên tính cách "${params.character.personality || "chưa mô tả"}", lệch ý tưởng khởi nguồn, không theo truyện mẫu/lưu ý văn phong hoặc sai kết cấu "${params.mode}"?
 - Có mâu thuẫn thế giới, nhân vật, quan hệ, timeline, số liệu, cấp bậc, vật phẩm hoặc địa danh không?
 - Chương nào lệch khỏi kế hoạch chương hoặc Arc?
 - Có lặp tình tiết, nhảy cóc, kết thúc quá sớm, mở tuyến phụ rơi rớt hoặc thiếu hậu quả không?
@@ -2989,9 +3073,11 @@ Hãy viết một truyện ngắn hoàn chỉnh.
 Yêu cầu:
 - Độ dài mục tiêu: khoảng ${targetWords} chữ. Không được dừng dưới ${minWords} chữ nếu truyện chưa khép cảnh và dư âm; không vượt quá ${maxWords} chữ nếu không cần.
 - Có mở truyện, phát triển xung đột, bước ngoặt, cao trào và dư âm. Truyện ngắn vẫn cần nhân quả rõ, không chỉ là một chuỗi cảnh đẹp.
+- Bắt buộc bám hồ sơ thiết lập: giọng văn "${params.tone}", kết cấu "${params.mode}", thể loại ${params.genres.join(", ") || "Tự do"}, nhân vật chính "${params.character.name || "chưa đặt tên"}", tính cách "${params.character.personality || "chưa mô tả"}", ý tưởng khởi nguồn và truyện mẫu/lưu ý nếu có.
+- Nếu chọn nhiều thể loại, truyện ngắn phải phối chúng thành một mâu thuẫn trung tâm và các cảnh cụ thể; không được bỏ sót thể loại hoặc chỉ liệt kê nhãn.
 - Nhân vật chính phải hành động theo tính cách và mục tiêu đã nhập khi đã đủ năng lực chủ động. Nếu mở đầu là trẻ sơ sinh, bị bỏ rơi, bất tỉnh hoặc mất trí nhớ, chỉ viết những phản ứng cơ thể/cảm giác phù hợp; lựa chọn lớn có thể thuộc người trong cảnh và phải tạo hậu quả cho nhân vật chính.
 - Tên trong hồ sơ chỉ được dùng trong truyện sau khi có logic đặt tên/gọi tên. Nếu cảnh mở đầu là sơ sinh, bị bỏ rơi, mất trí nhớ hoặc chưa biết thân phận, phải viết đúng trạng thái đó.
-- Bám thể loại, tông giọng và mode kết truyện.
+- Bám thể loại, tông giọng và mode kết truyện; giọng văn đã chọn phải ảnh hưởng nhịp câu, mức cảm xúc, loại hình ảnh, thoại và cách kết đoạn.
 - Văn phong hiện đại, chuyên nghiệp: cảnh rõ, thoại tự nhiên, câu văn có lực nhưng không cộc; ngắt đoạn có nhịp, có khoảng lặng, hạn chế sáo ngữ và giải thích trực tiếp.
 - Không lan man: mỗi cảnh phải phục vụ xung đột chính, tính cách nhân vật hoặc hậu quả cao trào.
 - Giữ nhất quán tên riêng, số liệu, mốc thời gian và luật thế giới đã tự thiết lập trong truyện ngắn.

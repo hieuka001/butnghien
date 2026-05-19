@@ -9,10 +9,25 @@ export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     const isVercel = process.env.VERCEL === '1' || Boolean(process.env.VERCEL_ENV);
     const exposeClientGeminiKeys = !isVercel || env.GEMINI_CLIENT_EXPOSE === 'true';
+    const devDependencyAliases = mode === 'development'
+      ? {
+          react: path.resolve(rootDir, 'node_modules/react/cjs/react.development.js'),
+          'react/jsx-runtime': path.resolve(rootDir, 'node_modules/react/cjs/react-jsx-runtime.development.js'),
+          'react/jsx-dev-runtime': path.resolve(rootDir, 'node_modules/react/cjs/react-jsx-dev-runtime.development.js'),
+          'react-dom': path.resolve(rootDir, 'node_modules/react-dom/cjs/react-dom.development.js'),
+          'react-dom/client': path.resolve(rootDir, 'node_modules/react-dom/cjs/react-dom-client.development.js'),
+        }
+      : {};
     return {
+      root: rootDir,
+      cacheDir: path.resolve(rootDir, 'node_modules/.vite'),
       server: {
         port: 3000,
         host: '0.0.0.0',
+        fs: {
+          strict: true,
+          allow: [rootDir],
+        },
       },
       plugins: [react()],
       define: {
@@ -41,6 +56,7 @@ export default defineConfig(({ mode }) => {
       resolve: {
         alias: {
           '@': path.resolve(rootDir, '.'),
+          ...devDependencyAliases,
         }
       }
     };
