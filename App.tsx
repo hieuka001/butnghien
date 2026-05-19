@@ -129,12 +129,14 @@ const App: React.FC = () => {
   const [pendingDirectionParams, setPendingDirectionParams] = useState<StoryParams | null>(null);
   const [selectedDirectionId, setSelectedDirectionId] = useState<string>('');
   const [pendingDraftMeta, setPendingDraftMeta] = useState<{ chapterIndex: number; arcIndex: number } | null>(null);
+  const [draftAutosavedMeta, setDraftAutosavedMeta] = useState<{ chapterIndex: number; arcIndex: number } | null>(null);
   const [draftReview, setDraftReview] = useState<ChapterValidationResult | null>(null);
   const [revisionRequest, setRevisionRequest] = useState<string>('');
   const [view, setView] = useState<'editor' | 'outline' | 'manuscript' | 'setup' | 'directions' | 'my-stories' | 'bible'>('setup');
 
   const clearDraftPipeline = () => {
     setPendingDraftMeta(null);
+    setDraftAutosavedMeta(null);
     setDraftReview(null);
     setRevisionRequest('');
   };
@@ -323,6 +325,15 @@ const App: React.FC = () => {
 
   const friendlyError = (error: unknown) => {
     const message = error instanceof Error ? error.message : String(error || '');
+    if (/GEMINI_API_KEY_5|GEMINI_API_KEY_6|Cụm 3|Cum 3|rewriter/i.test(message)) {
+      return 'Cụm 3 chưa dùng được: Gemini đang từ chối quyền truy cập của key 5/6. Hãy thay key 5/6 bằng key thuộc project đã bật Generative Language API, bỏ giới hạn referrer/IP không phù hợp với Vercel Serverless, rồi redeploy.';
+    }
+    if (/GEMINI_API_KEY_3|GEMINI_API_KEY_4|Cụm 2|Cum 2|reviewer/i.test(message)) {
+      return 'Cụm 2 chưa dùng được: hãy kiểm tra key 3/4 đã bật Generative Language API và được phép gọi từ Vercel Serverless.';
+    }
+    if (/GEMINI_API_KEY_1|GEMINI_API_KEY_2|Cụm 1|Cum 1|writer/i.test(message)) {
+      return 'Cụm 1 chưa dùng được: hãy kiểm tra key 1/2 đã bật Generative Language API và được phép gọi từ Vercel Serverless.';
+    }
     if (
       message.includes('GEMINI_API_KEY_') ||
       message.includes('Gemini API key')
@@ -916,6 +927,12 @@ const App: React.FC = () => {
     && pendingDraftMeta.chapterIndex === currentChapterIndex
     && pendingDraftMeta.arcIndex === activeArcIndex,
   );
+  const currentDraftIsAutosaved = Boolean(
+    currentDraftIsPending
+    && draftAutosavedMeta
+    && draftAutosavedMeta.chapterIndex === currentChapterIndex
+    && draftAutosavedMeta.arcIndex === activeArcIndex,
+  );
   const draftReviewIssues = draftReview ? [
     ...(draftReview.structureIssues || []),
     ...(draftReview.logicIssues || []),
@@ -1472,11 +1489,13 @@ const App: React.FC = () => {
         throw new Error(`Bản nháp Cụm 1 đang thiếu phần cuối hoặc chưa đủ chữ: hiện khoảng ${draftWords}/${targetWords} chữ. App chưa gọi Cụm 2/3 và chưa lưu bản này.`);
       }
 
-      setStory(finalContent);
+      setGenerationStatus('Bản nháp Cụm 1 đã đủ chữ. Đang lưu vào bản thảo chính...');
+      await persistChapterContent(finalContent, currentArc);
       setPendingDraftMeta({ chapterIndex: currentChapterIndex, arcIndex: currentArc.index });
+      setDraftAutosavedMeta({ chapterIndex: currentChapterIndex, arcIndex: currentArc.index });
       setDraftReview(null);
       setRevisionRequest('');
-      setGenerationStatus('Bản nháp Cụm 1 đã sẵn sàng. Tác giả có thể đọc, ghi yêu cầu thêm, rồi bấm thẩm định nếu cần.');
+      setGenerationStatus('Đã lưu chương vào Bản thảo. Tác giả có thể đọc, gọi Cụm 2 thẩm định hoặc Cụm 3 sửa sau nếu cần.');
     } catch (e) { 
         console.error(e);
         const message = e instanceof Error ? e.message : '';
@@ -1521,6 +1540,8 @@ const App: React.FC = () => {
     setIsGenerating(true);
     try {
       await persistChapterContent(story, currentArc);
+      setPendingDraftMeta({ chapterIndex: currentChapterIndex, arcIndex: currentArc.index });
+      setDraftAutosavedMeta({ chapterIndex: currentChapterIndex, arcIndex: currentArc.index });
     } catch (error) {
       console.error(error);
       alert(friendlyError(error));
@@ -1603,14 +1624,19 @@ const App: React.FC = () => {
         setStory(originalDraft);
         throw new Error(`Bản sửa Cụm 3 vẫn thiếu phần cuối hoặc chưa đủ chữ: hiện khoảng ${rewrittenWords}/${targetWords} chữ. App chưa lưu bản này.`);
       }
-      setStory(rewritten);
+      setGenerationStatus('Cụm 3 đã viết lại. Đang lưu bản sửa vào bản thảo chính...');
+      await persistChapterContent(rewritten, currentArc);
       setPendingDraftMeta({ chapterIndex: currentChapterIndex, arcIndex: currentArc.index });
+      setDraftAutosavedMeta({ chapterIndex: currentChapterIndex, arcIndex: currentArc.index });
       setDraftReview(null);
       setRevisionRequest('');
     } catch (error) {
       console.error(error);
       setStory(originalDraft);
-      alert(friendlyError(error));
+      const savedNotice = currentDraftIsAutosaved
+        ? '\n\nBản trước đó vẫn đã nằm trong Bản thảo/Tàng thư. Bạn có thể thay key 5/6 rồi bấm Cụm 3 lại, hoặc giữ bản hiện tại.'
+        : '\n\nBản nháp Cụm 1 vẫn được giữ trên màn hình. Bạn có thể bấm Lưu bản này hoặc thay key 5/6 rồi thử Cụm 3 lại.';
+      alert(`${friendlyError(error)}${isGeminiKeyInfrastructureError(error) ? savedNotice : ''}`);
     } finally {
       setIsGenerating(false);
       setGenerationStatus('');
@@ -2728,18 +2754,20 @@ const App: React.FC = () => {
                     <section className="bg-white border border-indigo-100 rounded-[2rem] shadow-xl p-5 md:p-6 space-y-4">
                       <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
                         <div>
-                          <span className="inline-flex px-3 py-1 bg-amber-50 text-amber-700 rounded-full text-[9px] font-black uppercase tracking-widest border border-amber-100">
-                            Bản nháp Cụm 1
+                          <span className={`inline-flex px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${currentDraftIsAutosaved ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-amber-50 text-amber-700 border-amber-100'}`}>
+                            {currentDraftIsAutosaved ? 'Đã lưu bản thảo chính' : 'Bản nháp Cụm 1'}
                           </span>
                           <h3 className="mt-3 text-lg font-black text-slate-900">
-                            {draftReview ? 'Cụm 2 đã báo cáo, chờ tác giả quyết định' : 'Chưa gọi Cụm 2/3, chưa lưu vào bản thảo chính'}
+                            {draftReview ? 'Cụm 2 đã báo cáo, chờ tác giả quyết định' : currentDraftIsAutosaved ? 'Chương đã lưu, có thể thẩm định thêm' : 'Chưa gọi Cụm 2/3, chưa lưu vào bản thảo chính'}
                           </h3>
                           <p className="mt-1 text-xs text-slate-500 leading-5">
-                            Đọc bản nháp bên dưới. Nếu ổn, có thể lưu ngay. Nếu cần biên tập, bấm Cụm 2 để chỉ nhận báo cáo lỗi; sau đó nhập yêu cầu thêm rồi mới gọi Cụm 3 viết lại.
+                            {currentDraftIsAutosaved
+                              ? 'Chương này đã nằm trong Bản thảo/Tàng thư. Nếu cần biên tập, bấm Cụm 2 để nhận báo cáo lỗi; sau đó nhập yêu cầu thêm rồi mới gọi Cụm 3 viết lại.'
+                              : 'Đọc bản nháp bên dưới. Nếu ổn, có thể lưu ngay. Nếu cần biên tập, bấm Cụm 2 để chỉ nhận báo cáo lỗi; sau đó nhập yêu cầu thêm rồi mới gọi Cụm 3 viết lại.'}
                           </p>
                         </div>
-                        <button onClick={handleSaveCurrentDraft} disabled={isGenerating} className="px-5 py-3 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-2xl text-[10px] font-black uppercase hover:bg-emerald-600 hover:text-white transition-all disabled:opacity-50">
-                          Lưu bản này
+                        <button onClick={handleSaveCurrentDraft} disabled={isGenerating || currentDraftIsAutosaved} className="px-5 py-3 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-2xl text-[10px] font-black uppercase hover:bg-emerald-600 hover:text-white transition-all disabled:opacity-50">
+                          {currentDraftIsAutosaved ? 'Đã lưu' : 'Lưu bản này'}
                         </button>
                       </div>
                       <textarea
