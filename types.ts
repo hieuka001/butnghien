@@ -84,6 +84,20 @@ export interface StoryParams {
   directionLock?: string;
 }
 
+export interface StoryDirectionChoice {
+  id: string;
+  title: string;
+  badge: string;
+  engine: string;
+  bestFor: string;
+  premise: string;
+  logic: string;
+  arcBias: string;
+  payoff: string;
+  risk: string;
+  lock: string;
+}
+
 export interface StoryProject {
   id: string;
   title: string;

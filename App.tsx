@@ -7,6 +7,7 @@ import {
   rewriteChapterWithReviewStream,
   updateWorldBibleAndSummary, 
   generateShortStoryStream,
+  generateStoryDirectionChoices,
   validateChapterLogic,
   reviewStoryLogic,
   getConfiguredGeminiKeyCount,
@@ -32,7 +33,7 @@ import {
 } from './services/firebaseService';
 import React, { useState, useEffect, useRef } from 'react';
 import { GENRES, TONES, MODES } from './constants';
-import { StoryParams, StoryProject, Genre, Chapter, Volume, StoryLogicReport } from './types';
+import { StoryParams, StoryProject, Genre, Chapter, Volume, StoryLogicReport, StoryDirectionChoice } from './types';
 
 const MIN_TOTAL_CHAPTERS = 1;
 const MAX_TOTAL_CHAPTERS = 1000;
@@ -51,20 +52,6 @@ const DEFAULT_PARAMS: StoryParams = {
   seed: '',
   referenceStories: '',
   directionLock: ''
-};
-
-type StoryDirectionChoice = {
-  id: string;
-  title: string;
-  badge: string;
-  engine: string;
-  bestFor: string;
-  premise: string;
-  logic: string;
-  arcBias: string;
-  payoff: string;
-  risk: string;
-  lock: string;
 };
 
 const sortChaptersByIndex = (chapters: Chapter[] = []) => [...chapters].sort((a, b) => a.index - b.index);
@@ -325,6 +312,9 @@ const App: React.FC = () => {
 
   const friendlyError = (error: unknown) => {
     const message = error instanceof Error ? error.message : String(error || '');
+    if (/Key 6 chọn hướng|Key 6 chon huong|direction/i.test(message)) {
+      return 'Key 6 chưa tạo được 10 hướng truyện. Hãy kiểm tra GEMINI_API_KEY_6 đã bật Generative Language API, không bị giới hạn referrer/IP với Vercel Serverless, rồi redeploy.';
+    }
     if (/GEMINI_API_KEY_5|GEMINI_API_KEY_6|Cụm 3|Cum 3|rewriter/i.test(message)) {
       return 'Cụm 3 chưa dùng được: Gemini đang từ chối quyền truy cập của key 5/6. Hãy thay key 5/6 bằng key thuộc project đã bật Generative Language API, bỏ giới hạn referrer/IP không phù hợp với Vercel Serverless, rồi redeploy.';
     }
@@ -361,223 +351,6 @@ const App: React.FC = () => {
     if (message.includes('INVALID_EMAIL')) return 'Email không hợp lệ.';
     if (message.includes('Firebase Auth')) return 'Không đăng nhập được Firebase. Kiểm tra cấu hình Authentication.';
     return message || 'Không đăng nhập được.';
-  };
-
-  const buildStoryDirectionChoices = (draft: StoryParams): StoryDirectionChoice[] => {
-    const hero = draft.character.name || 'nhân vật chính';
-    const goal = draft.character.goal || 'mục tiêu còn bỏ ngỏ';
-    const seed = draft.seed || 'ý tưởng khởi nguồn';
-    const directionDetails: Record<string, { engine: string; bestFor: string; payoff: string }> = {
-      'causal-debt': {
-        engine: 'Nợ cũ tạo lựa chọn mới, lựa chọn mới sinh hậu quả lớn hơn.',
-        bestFor: 'Truyện cần chiều sâu nhân quả, trả giá rõ và cao trào có sức nặng.',
-        payoff: 'Cao trào là lúc nhân vật tự chọn trả món nợ lớn nhất thay vì thắng dễ.',
-      },
-      'investigation-layers': {
-        engine: 'Manh mối, phủ nhận, kiểm chứng và cú lật được cài bằng chứng từ sớm.',
-        bestFor: 'Trinh thám, linh dị, huyền nghi hoặc truyện có bí mật trung tâm.',
-        payoff: 'Sự thật cuối cùng nối toàn bộ chứng cứ, không phải twist rơi từ trên xuống.',
-      },
-      'power-builder': {
-        engine: 'Tài nguyên, quan hệ và luật chơi tăng dần bằng giao dịch có giá.',
-        bestFor: 'Tu tiên, xây dựng thế lực, đô thị, quan trường, hệ thống hoặc thành trì.',
-        payoff: 'Thế lực thắng bằng cấu trúc đã xây, nhưng phải mất một phần nền móng.',
-      },
-      'identity-reversal': {
-        engine: 'Nhận thức sai về bản thân bị phá từng lớp bằng chứng hợp timeline.',
-        bestFor: 'Truyện thân phận, trọng sinh, gia đấu, huyền huyễn có bí mật quá khứ.',
-        payoff: 'Sự thật đổi mục tiêu hành động, không chỉ đổi nhãn thân phận.',
-      },
-      'survival-countdown': {
-        engine: 'Hạn chót và tài nguyên cạn dần ép nhân vật chọn ngay trong cảnh.',
-        bestFor: 'Sinh tồn, mạt thế, vô hạn lưu, kinh dị hoặc truyện cần nhịp căng.',
-        payoff: 'Nhân vật sống sót nhờ hiểu luật, không nhờ may mắn hay cứu viện vô cớ.',
-      },
-      'moral-corruption': {
-        engine: 'Mỗi chiến thắng đẩy nhân vật qua một ranh giới đạo đức mới.',
-        bestFor: 'Dark fantasy, quyền lực, trả thù, phản anh hùng hoặc hiện thực gai góc.',
-        payoff: 'Cao trào buộc nhân vật chọn giữa mục tiêu và phần người còn lại.',
-      },
-      'healing-bond': {
-        engine: 'Xung đột ngoài truyện phản chiếu một vết thương nội tâm đang mở.',
-        bestFor: 'Chữa lành, tâm lý, thanh xuân, đời thường hoặc lãng mạn trưởng thành.',
-        payoff: 'Kết truyện thắng bằng thay đổi hành vi, không bằng một bài độc thoại.',
-      },
-      'romance-conflict': {
-        engine: 'Quan hệ then chốt trực tiếp làm cốt truyện khó hơn sau mỗi bước tiến.',
-        bestFor: 'Ngôn tình, đam mỹ, bách hợp, gia đấu hoặc truyện có tuyến quan hệ mạnh.',
-        payoff: 'Cao trào tình cảm cũng là cao trào đại cục, hai tuyến không tách rời.',
-      },
-      'strategic-war': {
-        engine: 'Mỗi Arc là một nước cờ có thông tin thiếu, phản đòn và cái giá.',
-        bestFor: 'Đấu trí, quân sự, cung đấu, thương chiến, tu tiên phe phái.',
-        payoff: 'Kế hoạch thắng không hoàn hảo; đối thủ cũng để lại vết cắt thật.',
-      },
-      'folk-horror': {
-        engine: 'Lời đồn, nghi lễ và cấm kỵ được kiểm chứng bằng sự kiện có quy tắc.',
-        bestFor: 'Linh dị dân gian, kinh dị tâm lý, quỷ dị hoặc truyện làng xã.',
-        payoff: 'Bí mật cổ được giải bằng luật đã cài, không bằng hù dọa rời rạc.',
-      },
-      'adventure-world': {
-        engine: 'Mỗi vùng đất mở một luật chơi, một phe lợi ích và một mảnh đáp án.',
-        bestFor: 'Phiêu lưu, kỳ ảo, Tây huyễn, đa vũ trụ hoặc thám hiểm.',
-        payoff: 'Thế giới không chỉ đẹp; nó ép nhân vật đổi cách sống và cách chọn.',
-      },
-      'tragedy-domino': {
-        engine: 'Một lựa chọn hợp lý nhưng thiếu thông tin kéo theo chuỗi không thu hồi.',
-        bestFor: 'Bi kịch, ngược luyến, hiện thực gai góc hoặc truyện trả giá nặng.',
-        payoff: 'Kết cục đau nhưng công bằng về nhân quả, không bi kịch vì xui rủi.',
-      },
-    };
-
-    const makeChoice = (
-      id: string,
-      title: string,
-      badge: string,
-      premise: string,
-      logic: string,
-      arcBias: string,
-      risk: string,
-    ): StoryDirectionChoice => {
-      const details = directionDetails[id] || {
-        engine: 'Mọi biến cố phải có nguyên nhân, lựa chọn và hậu quả rõ.',
-        bestFor: 'Truyện cần khung phát triển nhất quán.',
-        payoff: 'Cao trào trả lời đúng lời hứa đã đặt ở đầu truyện.',
-      };
-
-      return {
-        id,
-        title,
-        badge,
-        ...details,
-        premise,
-        logic,
-        arcBias,
-        risk,
-        lock: [
-          `HƯỚNG TRUYỆN ĐÃ CHỌN: ${title}`,
-          `Tiền đề: ${premise}`,
-          `Động cơ truyện: ${details.engine}`,
-          `Phù hợp khi: ${details.bestFor}`,
-          `Logic cốt truyện: ${logic}`,
-          `Nhịp Arc: ${arcBias}`,
-          `Dư âm/cao trào: ${details.payoff}`,
-          `Điều cần tránh: ${risk}`,
-          `Bắt buộc khi lập lộ trình: mọi Arc phải phục vụ hướng này, có nguyên nhân - lựa chọn - hậu quả rõ, không mở tuyến phụ nếu không làm ${hero} tiến gần hoặc xa hơn khỏi mục tiêu "${goal}".`,
-        ].join('\n'),
-      };
-    };
-
-    return [
-      makeChoice(
-        'causal-debt',
-        'Nợ nhân quả mở rộng',
-        'Nhân quả',
-        `${hero} tưởng chỉ đang theo đuổi "${goal}", nhưng mỗi lựa chọn đúng lại lộ thêm một món nợ cũ trong ${seed}.`,
-        'Mỗi Arc giải một hậu quả, đồng thời tạo một hậu quả lớn hơn; chiến thắng không miễn phí.',
-        'Khai cuộc ngắn, trung đoạn nhiều Arc dài để truy dấu nguyên nhân, cuối truyện dồn vào trả giá.',
-        'Không để nhân vật thắng nhờ may mắn hoặc thông tin tự rơi xuống.',
-      ),
-      makeChoice(
-        'investigation-layers',
-        'Điều tra nhiều tầng',
-        'Huyền nghi',
-        `${hero} bắt đầu từ một dấu hiệu nhỏ, càng kiểm chứng càng phát hiện sự thật ban đầu chỉ là lớp vỏ.`,
-        'Manh mối phải có nguồn, người che giấu, lý do che giấu và cách kiểm chứng trong cảnh.',
-        'Arc đầu đặt câu hỏi, các Arc giữa bóc lớp sai lệch, Arc cuối nối tất cả chứng cứ.',
-        'Không tung twist không có phục bút hoặc đổi hung thủ/phản diện vô căn cứ.',
-      ),
-      makeChoice(
-        'power-builder',
-        'Xây thế lực từng bước',
-        'Thế lực',
-        `${hero} không thể một mình đạt "${goal}", buộc phải gom người, tài nguyên, luật chơi và danh phận.`,
-        'Mỗi tài nguyên mới phải có chi phí, người phản đối và hậu quả chính trị hoặc tình cảm.',
-        'Arc xây nền ngắn, Arc tranh tài nguyên dài, Arc mất mát và tái cấu trúc ở gần cao trào.',
-        'Không tăng sức mạnh/tài sản/đồng minh mà không có giao dịch hoặc đánh đổi.',
-      ),
-      makeChoice(
-        'identity-reversal',
-        'Lật mặt thân phận',
-        'Thân phận',
-        `${hero} có một nhận thức sai về bản thân hoặc quá khứ; lộ trình dùng các Arc để phá dần nhận thức đó.`,
-        'Mỗi Arc đưa một bằng chứng mâu thuẫn, nhưng bằng chứng phải hợp timeline và có người hưởng lợi khi giấu nó.',
-        'Arc đầu cài nghi vấn, trung đoạn kéo căng phủ nhận, cuối đoạn trước cao trào buộc nhân vật nhận sự thật.',
-        'Không tiết lộ thân phận chỉ để gây sốc; sự thật phải đổi mục tiêu hành động.',
-      ),
-      makeChoice(
-        'survival-countdown',
-        'Sinh tồn có hạn giờ',
-        'Áp lực',
-        `${seed} được khóa bằng một hạn chót, tài nguyên cạn dần hoặc luật sinh tồn khiến ${hero} không thể đứng yên.`,
-        'Mỗi Arc làm một nguồn lực giảm, một lựa chọn đạo đức khó hơn và một luật sinh tồn rõ hơn.',
-        'Arc ngắn dồn nhịp ở đầu/cuối, Arc giữa dài để nhân vật học luật và trả giá.',
-        'Không kéo dài bằng việc nhân vật quên dùng giải pháp đã biết.',
-      ),
-      makeChoice(
-        'moral-corruption',
-        'Phản anh hùng trượt dốc',
-        'Đạo đức',
-        `${hero} càng tiến gần "${goal}" càng phải dùng cách trái với tính cách ban đầu.`,
-        'Mỗi Arc có một ranh giới đạo đức; vượt ranh giới phải để lại vết nứt trong quan hệ và tự nhận thức.',
-        'Arc đầu giữ thiện ý, trung đoạn xám hóa dài, tiền cao trào buộc chọn mất gì để thắng.',
-        'Không biến nhân vật ác đột ngột; mọi thay đổi phải có sức ép cụ thể.',
-      ),
-      makeChoice(
-        'healing-bond',
-        'Cứu rỗi và chữa lành',
-        'Nội tâm',
-        `${hero} không chỉ cần đạt "${goal}", mà còn phải chữa một vết thương khiến nhân vật luôn chọn sai.`,
-        'Xung đột ngoài truyện phản chiếu vết thương trong lòng; mỗi Arc phá một cơ chế phòng vệ.',
-        'Nhịp chậm hơn ở đầu và giữa, cao trào không chỉ thắng thua mà là dám thay đổi.',
-        'Không biến chữa lành thành độc thoại; phải thể hiện bằng hành động và quan hệ.',
-      ),
-      makeChoice(
-        'romance-conflict',
-        'Tình cảm kéo cốt truyện',
-        'Quan hệ',
-        `Một quan hệ then chốt trở thành lực đẩy chính khiến ${hero} chọn khác đi trước ${seed}.`,
-        'Mỗi bước tiến tình cảm phải làm tình thế truyện khó hơn, không chỉ là cảnh ngọt riêng lẻ.',
-        'Arc quan hệ phát triển xen với Arc xung đột chính; giữa truyện có đổ vỡ hoặc hiểu lầm có nguyên nhân.',
-        'Không để tình cảm đứng ngoài đại cục hoặc giải quyết xung đột bằng lời tỏ tình.',
-      ),
-      makeChoice(
-        'strategic-war',
-        'Đấu trí và thế cờ',
-        'Mưu lược',
-        `${hero} bước vào một bàn cờ có phe phái, luật ngầm và đối thủ biết phản công.`,
-        'Mỗi Arc là một nước cờ có mục tiêu, thông tin thiếu, phản đòn và cái giá sau khi thắng.',
-        'Arc giữa và tiền cao trào dài hơn để chứa bẫy, phản bẫy, đồng minh hai mặt.',
-        'Không cho kế hoạch hoàn hảo; phải có sai số, mất mát hoặc đối thủ đọc được một phần ý đồ.',
-      ),
-      makeChoice(
-        'folk-horror',
-        'Dân gian quỷ sự',
-        'Linh dị',
-        `${seed} được diễn giải qua lời đồn, nghi lễ, cấm kỵ và ký ức tập thể của một cộng đồng.`,
-        'Mỗi Arc xác minh một lời đồn bằng sự kiện thật; quy tắc siêu nhiên phải nhất quán.',
-        'Arc đầu chậm và ám, Arc giữa điều tra nghi lễ, Arc cuối phá hoặc trả giá cho cấm kỵ.',
-        'Không dùng hù dọa rời rạc; mọi hiện tượng phải gắn với luật và tội cũ.',
-      ),
-      makeChoice(
-        'adventure-world',
-        'Khám phá thế giới',
-        'Phiêu lưu',
-        `${hero} phải đi qua nhiều địa điểm/quy tắc để hiểu bản chất của ${seed}.`,
-        'Mỗi địa điểm mở một luật mới, một phe lợi ích mới và một mảnh đáp án cho mục tiêu chính.',
-        'Arc được phân theo vùng/luật chơi, có Arc dài cho vùng trung tâm và Arc ngắn cho cầu nối.',
-        'Không du lịch cảnh đẹp lan man; địa điểm phải đổi lựa chọn của nhân vật.',
-      ),
-      makeChoice(
-        'tragedy-domino',
-        'Bi kịch domino',
-        'Bi kịch',
-        `Một quyết định tưởng nhỏ của ${hero} hoặc người thân làm chuỗi hậu quả không thể thu hồi.`,
-        'Mỗi Arc cho nhân vật cơ hội sửa sai nhưng cách sửa lại đẩy bi kịch sang tầng mới.',
-        'Arc đầu ngắn để gây lỗi, Arc giữa dài để chống đỡ, Arc cuối tập trung trả giá.',
-        'Không bi kịch vì xui rủi; bi kịch phải đến từ lựa chọn hợp lý nhưng thiếu thông tin.',
-      ),
-    ];
   };
 
   const lockDirectionIntoParams = (draft: StoryParams, choice: StoryDirectionChoice) => normalizeParams({
@@ -674,7 +447,7 @@ const App: React.FC = () => {
       '# MÂU THUẪN ĐANG MỞ',
       `- Ý tưởng khởi nguồn: ${workingParams.seed || 'Truyện ngắn độc lập.'}`,
       '# ĐIỀU CẤM PHÁ LOGIC',
-      '- Không nhảy cóc qua nhận nuôi, đặt tên, trưởng thành, đổi thân phận hoặc biết bí mật nếu chưa có cảnh nối nhân quả.',
+      '- Không nhảy cóc qua nhận nuôi, đặt tên, trưởng thành, đổi thân phận hoặc biết bí mật nếu chưa có cảnh nối nguyên nhân - chuyển biến.',
     ].join('\n');
     const shortStoryArc: Volume = {
       index: 1,
@@ -751,7 +524,7 @@ const App: React.FC = () => {
           '# Lời hứa truyện',
           first,
           '',
-          '# Trục nhân quả',
+          '# Trục diễn tiến',
           second,
           '',
           '# Cao trào và phản lực',
@@ -765,7 +538,7 @@ const App: React.FC = () => {
 
     if (source && !/^\s*#{1,3}\s*Sơ lược truyện/im.test(source)) {
       const synopsis = params.seed?.trim()
-        || `${params.character.name || 'Nhân vật chính'} theo đuổi mục tiêu "${params.character.goal || 'đã khóa'}" qua lộ trình ${params.totalChapters} chương, mỗi Arc phải đẩy một tầng nhân quả mới.`;
+        || `${params.character.name || 'Nhân vật chính'} theo đuổi mục tiêu "${params.character.goal || 'đã khóa'}" qua lộ trình ${params.totalChapters} chương, mỗi Arc phải đẩy một tầng diễn tiến mới.`;
       source = ['# Sơ lược truyện', synopsis, '', source].join('\n');
     }
 
@@ -835,7 +608,7 @@ const App: React.FC = () => {
       '- Chưa khóa. Mỗi nhân vật phụ mới phải có quan hệ, chức năng trong Arc và trạng thái sau khi xuất hiện.',
       '',
       '# ĐỊA DANH/VẬT PHẨM/HỆ THỐNG',
-      rawWorldBuilding?.trim() || 'Thế giới sẽ được giữ nhất quán theo thể loại, luật nhân quả và các giới hạn đã đặt.',
+      rawWorldBuilding?.trim() || 'Thế giới sẽ được giữ nhất quán theo thể loại, luật diễn tiến và các giới hạn đã đặt.',
       '',
       '# LỘ TRÌNH ARC',
       arcLines || 'Arc chưa có dữ liệu.',
@@ -968,9 +741,7 @@ const App: React.FC = () => {
     { label: 'Chấp bút', status: writtenChapters.length > 0 ? 'done' : hasRoadmapReady ? 'active' : 'locked' },
     { label: 'Biên tập', status: logicReport ? 'done' : writtenChapters.length > 0 ? 'active' : 'locked' },
   ];
-  const visibleDirectionChoices = directionChoices.length > 0
-    ? directionChoices
-    : buildStoryDirectionChoices(pendingDirectionParams || params);
+  const visibleDirectionChoices = directionChoices;
   const selectedDirection = visibleDirectionChoices.find(choice => choice.id === selectedDirectionId) || visibleDirectionChoices[0];
   const isStoryProject = (value: unknown): value is StoryProject => {
     const project = value as Partial<StoryProject>;
@@ -1179,10 +950,10 @@ const App: React.FC = () => {
     const premise = seed ? `mâu thuẫn "${seed.slice(0, 120)}"` : `mục tiêu "${params.character.goal || 'đã khóa'}"`;
     const name = params.character.name || 'nhân vật chính';
     const arcTitle = getArcDisplayTitle(volume);
-    const theme = stripDirectionLabels(volume.theme || '') || `cái giá của ${params.character.goal || 'mục tiêu trung tâm'}`;
+    const theme = stripDirectionLabels(volume.theme || '') || `mâu thuẫn quanh ${params.character.goal || 'mục tiêu trung tâm'}`;
     const objective = stripDirectionLabels(volume.objective || '') || `buộc ${name} thay đổi lựa chọn trước khi sang Arc sau`;
     return {
-      text: `${arcTitle} mở trong chương ${volume.chapterStart || '?'}-${volume.chapterEnd || '?'}, khi ${name} bị kéo vào một tầng mới của ${premise}. Những chương đầu đặt rõ tình thế, người cản đường và điều ${name} chưa thể biết, để mâu thuẫn không chỉ là giới thiệu mà có sức ép thực tế. Phần giữa Arc phải đẩy nhân vật qua vài biến cố có nhân quả, mỗi biến cố làm thay đổi thông tin, quan hệ, quyền lực hoặc món nợ đã khóa trong Thiên Cơ Lục. Trục cảm xúc của Arc là ${theme}, còn mục tiêu sơ bộ là ${objective}. Đến cuối Arc, lựa chọn của ${name} phải để lại một hậu quả nhìn thấy được và một bí mật hoặc cái giá đủ mạnh để móc sang Arc tiếp theo.`,
+      text: `${arcTitle} mở trong chương ${volume.chapterStart || '?'}-${volume.chapterEnd || '?'}, khi ${name} bước vào một tầng mới của ${premise}. Những chương đầu đặt rõ tình thế, người cản đường và điều ${name} chưa thể biết, để mâu thuẫn không chỉ là giới thiệu mà có sức ép thực tế. Phần giữa Arc phải đẩy nhân vật qua vài biến cố có liên kết hợp lý, mỗi biến cố làm thay đổi thông tin, quan hệ, quyền lực hoặc rủi ro đã khóa trong Thiên Cơ Lục. Trục cảm xúc của Arc là ${theme}, còn mục tiêu sơ bộ là ${objective}. Đến cuối Arc, lựa chọn của ${name} phải để lại một chuyển biến nhìn thấy được và một bí mật hoặc móc nối đủ rõ để sang Arc tiếp theo.`,
       isFallback: true,
     };
   };
@@ -1191,7 +962,7 @@ const App: React.FC = () => {
 
   const getArcTheme = (volume: Volume) =>
     volume.theme || (volume.index === 1
-      ? `Khởi điểm của ${params.character.goal || 'mục tiêu trung tâm'} và cái giá đầu tiên phải trả.`
+      ? `Khởi điểm của ${params.character.goal || 'mục tiêu trung tâm'} và biến cố đầu tiên làm truyện chuyển động.`
       : `Một tầng thử thách mới buộc nhân vật đổi cách hiểu về ${params.character.goal || 'mục tiêu trung tâm'}.`);
 
   const getArcObjective = (volume: Volume) =>
@@ -1246,12 +1017,12 @@ const App: React.FC = () => {
           title = chapter.index === start
             ? `Biến cố mở mạch ${chapter.index}`
             : chapter.index === end
-              ? `Cái giá cuối Arc ${chapter.index}`
+              ? `Biến chuyển cuối Arc ${chapter.index}`
               : ratio < 0.34
                 ? `Manh mối đổi hướng ${chapter.index}`
                 : ratio < 0.67
-                  ? `Lựa chọn có giá ${chapter.index}`
-                  : `Hậu quả quay lại ${chapter.index}`;
+                  ? `Lựa chọn đổi hướng ${chapter.index}`
+                  : `Móc nối quay lại ${chapter.index}`;
         }
         titleKey = planFingerprint(title);
       }
@@ -1262,7 +1033,7 @@ const App: React.FC = () => {
       if (!summary || !summaryKey || seenSummaries.has(summaryKey) || isWeakPlanPhrase(summary)) {
         const firstBeat = (chapter.beats || []).find(beat => !isWeakPlanPhrase(beat || ''));
         const consequence = !isWeakPlanPhrase(chapter.cliffhanger || '') ? chapter.cliffhanger : '';
-        summary = [firstBeat || chapter.objective || chapter.summary, consequence ? `Hậu quả: ${consequence}` : ''].filter(Boolean).join(' ').trim();
+        summary = [firstBeat || chapter.objective || chapter.summary, consequence ? `Móc nối: ${consequence}` : ''].filter(Boolean).join(' ').trim();
         summaryKey = planFingerprint(summary);
       }
       seenSummaries.add(summaryKey);
@@ -1746,12 +1517,23 @@ const App: React.FC = () => {
       return;
     }
 
-    const choices = buildStoryDirectionChoices(workingParams);
+    setIsGeneratingOutline(true);
+    setGenerationStatus('Key 6 đang đọc hồ sơ và tạo 10 hướng truyện...');
     setPendingDirectionParams(workingParams);
-    setDirectionChoices(choices);
-    setSelectedDirectionId(choices[0]?.id || '');
-    setGenerationStatus('');
-    setView('directions');
+    setDirectionChoices([]);
+    setSelectedDirectionId('');
+    try {
+      const choices = await generateStoryDirectionChoices(workingParams);
+      setDirectionChoices(choices);
+      setSelectedDirectionId(choices[0]?.id || '');
+      setView('directions');
+    } catch (error) {
+      console.error(error);
+      alert(friendlyError(error));
+    } finally {
+      setIsGeneratingOutline(false);
+      setGenerationStatus('');
+    }
   };
 
   const handleChooseDirection = async (choice: StoryDirectionChoice) => {
@@ -2338,7 +2120,7 @@ const App: React.FC = () => {
                       Chọn hướng đi trước khi khóa lộ trình Arc
                     </h2>
                     <p className="mt-3 text-sm md:text-base text-slate-600 leading-7">
-                      App không chia đều chương một cách máy móc. Mỗi lựa chọn là một chiến lược nhân quả riêng: động cơ truyện, nhịp Arc, kiểu cao trào và lỗi logic cần chặn. Chọn một hướng để khóa nó vào hồ sơ trước khi AI dựng Đại cục.
+                      Key 6 đọc toàn bộ cấu hình ở cột trái rồi tạo 10 hướng truyện riêng. Mỗi lựa chọn là một chiến lược sáng tác khác nhau: động cơ truyện, nhịp Arc, kiểu cao trào và lỗi cần tránh. Chọn một hướng để khóa nó vào hồ sơ trước khi AI dựng Đại cục.
                     </p>
                     <div className="mt-5 grid sm:grid-cols-3 gap-3">
                       <div className="surface-muted p-3 bg-white">
@@ -2364,7 +2146,7 @@ const App: React.FC = () => {
                     <div className="space-y-3">
                       <div className="p-3 bg-white/10 border border-white/10 rounded-lg">
                         <p className="text-[8px] font-black uppercase tracking-widest text-emerald-200">Phù hợp</p>
-                        <p className="mt-1 text-xs leading-5 text-slate-200">{selectedDirection?.bestFor || 'Chọn hướng để xem gợi ý.'}</p>
+                        <p className="mt-1 text-xs leading-5 text-slate-200">{selectedDirection?.bestFor || 'Key 6 sẽ tạo hướng truyện từ hồ sơ bạn nhập.'}</p>
                       </div>
                       <div className="flex gap-2">
                         <button onClick={() => setView('setup')} className="flex-1 px-4 py-3 bg-white/10 hover:bg-white/20 rounded-lg text-[9px] font-black uppercase tracking-widest">

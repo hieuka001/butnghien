@@ -23,7 +23,7 @@ type GeminiProxyBody = {
   role?: GeminiKeyRole;
 };
 
-type GeminiKeyRole = "writer" | "reviewer" | "rewriter";
+type GeminiKeyRole = "writer" | "reviewer" | "rewriter" | "direction";
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const MAX_OUTPUT_TOKENS = Math.min(Math.max(Number(process.env.GEMINI_MAX_OUTPUT_TOKENS) || 8192, 512), 65536);
@@ -31,6 +31,7 @@ const keyCursorByRole: Record<GeminiKeyRole, number> = {
   writer: 0,
   reviewer: 0,
   rewriter: 0,
+  direction: 0,
 };
 const keyCooldownUntil = new Map<string, number>();
 
@@ -57,12 +58,14 @@ const roleKeyHelp: Record<GeminiKeyRole, string> = {
   writer: "GEMINI_API_KEY_1 va GEMINI_API_KEY_2",
   reviewer: "GEMINI_API_KEY_3 va GEMINI_API_KEY_4",
   rewriter: "GEMINI_API_KEY_5 va GEMINI_API_KEY_6",
+  direction: "GEMINI_API_KEY_6",
 };
 
 const roleLabel: Record<GeminiKeyRole, string> = {
   writer: "Cum 1 viet/lap khung",
   reviewer: "Cum 2 tham dinh",
   rewriter: "Cum 3 sua ban thao",
+  direction: "Key 6 chon huong truyen",
 };
 
 const getGeminiKeys = () => {
@@ -88,6 +91,9 @@ const getGeminiKeysForRole = (role: GeminiKeyRole) => {
     ],
     rewriter: [
       process.env.GEMINI_API_KEY_5,
+      process.env.GEMINI_API_KEY_6,
+    ],
+    direction: [
       process.env.GEMINI_API_KEY_6,
     ],
   };
@@ -137,7 +143,7 @@ const shouldTryFallbackModel = (error: unknown) =>
 const roleCooldownKey = (role: GeminiKeyRole, keyIndex: number) => `${role}:${keyIndex}`;
 
 const normalizeRole = (role?: string): GeminiKeyRole =>
-  role === "reviewer" || role === "rewriter" ? role : "writer";
+  role === "reviewer" || role === "rewriter" || role === "direction" ? role : "writer";
 
 const markKeyCooling = (role: GeminiKeyRole, keyIndex: number, status: number) => {
   keyCooldownUntil.set(roleCooldownKey(role, keyIndex), Date.now() + (status === 429 ? 90_000 : 20_000));
@@ -291,6 +297,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
         writer: getGeminiKeysForRole("writer").length,
         reviewer: getGeminiKeysForRole("reviewer").length,
         rewriter: getGeminiKeysForRole("rewriter").length,
+        direction: getGeminiKeysForRole("direction").length,
       },
       model: normalizeGeminiModel(process.env.GEMINI_MODEL || "gemini-2.5-flash"),
       fallbackModels: getFallbackModels(),
