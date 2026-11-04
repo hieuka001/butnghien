@@ -52,6 +52,9 @@ export interface Chapter {
   biblePending?: boolean;
   biblePendingReason?: string;
   planFallback?: boolean;
+  writtenAt?: number;
+  previousContent?: string;
+  previousContentAt?: number;
   objective?: string;
   beats?: string[];
   mustInclude?: string[];

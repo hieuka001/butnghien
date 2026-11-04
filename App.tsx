@@ -40,7 +40,7 @@ import {
 } from './services/firebaseService';
 import React, { useState, useEffect, useRef } from 'react';
 import { GENRES, TONES, MODES } from './constants';
-import { StoryParams, StoryProject, Genre, Chapter, Volume, StoryLogicReport, StoryDirectionChoice } from './types';
+import { StoryParams, StoryProject, Genre, Tone, Chapter, Volume, StoryLogicReport, StoryDirectionChoice } from './types';
 
 const MIN_TOTAL_CHAPTERS = 1;
 const MAX_TOTAL_CHAPTERS = 1000;
@@ -102,6 +102,13 @@ const mergeProjectsByUpdatedAt = (local: StoryProject[], cloud: StoryProject[]):
   return [...byId.values()].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 };
 
+// Gập dấu tiếng Việt + thường hóa để tìm kiếm không dấu trong bản thảo.
+const foldText = (value: string) => String(value || "")
+  .toLowerCase()
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .replace(/đ/g, "d");
+
 const App: React.FC = () => {
   const [projects, setProjects] = useState<StoryProject[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
@@ -119,6 +126,11 @@ const App: React.FC = () => {
   const [story, setStory] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [isRetryingBible, setIsRetryingBible] = useState<boolean>(false);
+  const [manuscriptQuery, setManuscriptQuery] = useState('');
+  const [expandedPreviousChapter, setExpandedPreviousChapter] = useState<number | null>(null);
+  const [includeBibleInExport, setIncludeBibleInExport] = useState(false);
+  const [syncNonce, setSyncNonce] = useState(0);
+  const [storageUsageText, setStorageUsageText] = useState('');
   const [generationStatus, setGenerationStatus] = useState<string>('');
   const [isGeneratingOutline, setIsGeneratingOutline] = useState<boolean>(false);
   const [isHydrated, setIsHydrated] = useState<boolean>(false);
@@ -331,7 +343,50 @@ const App: React.FC = () => {
     }, 1200);
 
     return () => window.clearTimeout(timer);
-  }, [projects, isHydrated, authUser?.uid]);
+  }, [projects, isHydrated, authUser?.uid, syncNonce]);
+
+  // Co mang tro lai -> kich lai dong bo cloud ngay thay vi cho thay doi ke tiep.
+  useEffect(() => {
+    const onOnline = () => setSyncNonce(nonce => nonce + 1);
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, []);
+
+  // Xin quyen luu tru ben (giam nguy co Safari don IndexedDB) + do dung luong da dung.
+  useEffect(() => {
+    if (!isHydrated) return;
+    const storage = navigator.storage;
+    if (!storage) return;
+    if (storage.persist) storage.persist().catch(() => undefined);
+    if (storage.estimate) {
+      storage.estimate().then(estimate => {
+        if (typeof estimate.usage === 'number') {
+          setStorageUsageText(`Đã dùng ~${(estimate.usage / 1048576).toFixed(1)} MB${estimate.quota ? ` / ${(estimate.quota / 1073741824).toFixed(1)} GB` : ''}`);
+        }
+      }).catch(() => undefined);
+    }
+  }, [isHydrated]);
+
+  // Phim tat: Ctrl/Cmd+S luu ban nhap trong trinh viet; Ctrl/Cmd+Enter o man Lo trinh = viet chuong ke tiep.
+  const editorActionsRef = useRef<{ save: () => void; writeNext: () => void }>({ save: () => undefined, writeNext: () => undefined });
+  useEffect(() => {
+    editorActionsRef.current = { save: handleSaveCurrentDraft, writeNext: openEditorWithGuard };
+  });
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey)) return;
+      if (event.key.toLowerCase() === 's' && view === 'editor' && !isGenerating) {
+        event.preventDefault();
+        editorActionsRef.current.save();
+      }
+      if (event.key === 'Enter' && view === 'outline' && !isGenerating) {
+        event.preventDefault();
+        editorActionsRef.current.writeNext();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [view, isGenerating]);
 
   const toggleGenre = (genre: Genre) => {
     updateDraftParams(prev => ({
@@ -768,6 +823,30 @@ const App: React.FC = () => {
   });
   const writtenChapterIndexes = new Set(writtenChapters.map(chapter => chapter.index));
   const pendingBibleChapters = sortChapters(writtenChapters.filter(chapter => chapter.biblePending));
+  const foldedManuscriptQuery = foldText(manuscriptQuery.trim());
+  const manuscriptMatchByIndex = new Map<number, number>();
+  if (foldedManuscriptQuery) {
+    writtenChapters.forEach(chapter => {
+      const haystack = foldText(`${chapter.title}\n${chapter.content || ''}`);
+      const count = haystack.split(foldedManuscriptQuery).length - 1;
+      if (count > 0) manuscriptMatchByIndex.set(chapter.index, count);
+    });
+  }
+  const visibleManuscriptChapters = foldedManuscriptQuery
+    ? sortChapters(writtenChapters).filter(chapter => manuscriptMatchByIndex.has(chapter.index))
+    : sortChapters(writtenChapters);
+  const manuscriptTotalWords = writtenChapters.reduce((sum, chapter) => sum + countDraftWords(chapter.content || ''), 0);
+  const weekCutoff = Date.now() - 7 * 24 * 3600 * 1000;
+  const manuscriptWeekWords = writtenChapters
+    .filter(chapter => (chapter.writtenAt || 0) >= weekCutoff)
+    .reduce((sum, chapter) => sum + countDraftWords(chapter.content || ''), 0);
+  const projectQuickStats = (project: StoryProject) => {
+    const chapters = (project.volumes || []).flatMap(volume => volume.chapters || []).filter(chapter => chapter.content);
+    return {
+      chapterCount: chapters.length,
+      totalWords: chapters.reduce((sum, chapter) => sum + countDraftWords(chapter.content || ''), 0),
+    };
+  };
   const missingChapterIndexes = params.projectType === 'Trường Thiên'
     ? Array.from({ length: Math.max(0, params.totalChapters) }, (_, index) => index + 1).filter(index => !plannedChapterIndexes.has(index))
     : [];
@@ -1151,6 +1230,91 @@ const App: React.FC = () => {
     downloadTextFile(`BanThao_${safeTitle}.txt`, buildManuscriptText(project));
   };
 
+  const downloadBlobFile = (filename: string, blob: Blob) => {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const safeProjectFileName = (project: StoryProject) =>
+    project.title.replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, '_') || 'ButNghien';
+
+  const buildManuscriptMarkdown = (project: StoryProject, includeBible: boolean) => {
+    const chapters = sortChapters((project.volumes || []).flatMap(volume => volume.chapters || []).filter(chapter => chapter.content));
+    const parts = [
+      `# ${project.title}`,
+      '',
+      `> Thể loại: ${project.params.genres.join(', ')} · Tông giọng: ${project.params.tone} · ${chapters.length} chương đã viết`,
+      '',
+      '## Đại cục',
+      '',
+      project.generalSummary || '',
+      '',
+    ];
+    if (includeBible && project.progressionSummary) {
+      parts.push('## Thiên Cơ Lục', '', project.progressionSummary, '');
+    }
+    chapters.forEach(chapter => {
+      parts.push(`## Chương ${chapter.index}: ${chapter.title}`, '', chapter.content || '', '');
+    });
+    return parts.join('\n').trim();
+  };
+
+  const handleExportMarkdown = (project: StoryProject, includeBible: boolean) => {
+    downloadTextFile(`BanThao_${safeProjectFileName(project)}.md`, buildManuscriptMarkdown(project, includeBible), 'text/markdown;charset=utf-8');
+  };
+
+  const handleExportDocx = async (project: StoryProject, includeBible: boolean) => {
+    // docx kha nang (~200KB): tai luoi dung import dong, chi nap khi nguoi dung that su xuat DOCX.
+    const { Document, Packer, Paragraph, HeadingLevel } = await import('docx');
+    const chapters = sortChapters((project.volumes || []).flatMap(volume => volume.chapters || []).filter(chapter => chapter.content));
+    const paragraphs: InstanceType<typeof Paragraph>[] = [
+      new Paragraph({ text: project.title, heading: HeadingLevel.TITLE }),
+      new Paragraph({ text: `Thể loại: ${project.params.genres.join(', ')} · Tông giọng: ${project.params.tone} · ${chapters.length} chương đã viết`, spacing: { after: 240 } }),
+      new Paragraph({ text: 'ĐẠI CỤC', heading: HeadingLevel.HEADING_1 }),
+      ...String(project.generalSummary || '').split(/\n+/).filter(Boolean).map(line => new Paragraph({ text: line })),
+    ];
+    if (includeBible && project.progressionSummary) {
+      paragraphs.push(new Paragraph({ text: 'THIÊN CƠ LỤC', heading: HeadingLevel.HEADING_1 }));
+      String(project.progressionSummary).split(/\n+/).filter(Boolean).forEach(line => paragraphs.push(new Paragraph({ text: line })));
+    }
+    chapters.forEach(chapter => {
+      paragraphs.push(new Paragraph({ text: `Chương ${chapter.index}: ${chapter.title}`, heading: HeadingLevel.HEADING_1, pageBreakBefore: true }));
+      String(chapter.content || '').split(/\n\s*\n/).forEach(block => {
+        block.split('\n').map(line => line.trim()).filter(Boolean).forEach(line => paragraphs.push(new Paragraph({ text: line, spacing: { after: 120 } })));
+      });
+    });
+    const blob = await Packer.toBlob(new Document({ sections: [{ children: paragraphs }] }));
+    downloadBlobFile(`BanThao_${safeProjectFileName(project)}.docx`, blob);
+  };
+
+  const handleExportLibraryBackup = () => {
+    const payload = {
+      app: 'ButNghienAI',
+      kind: 'library-backup',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      projects,
+    };
+    downloadTextFile(`ButNghien_SaoLuuToanBo_${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(payload, null, 2), 'application/json;charset=utf-8');
+  };
+
+  const handleDuplicateProject = (project: StoryProject, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const copy: StoryProject = {
+      ...project,
+      id: crypto.randomUUID(),
+      title: `${project.title} (bản sao)`,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    setProjects(prev => [copy, ...prev]);
+    setCloudStatus(`Đã nhân bản "${project.title}" thành "${copy.title}".`);
+  };
+
   const mergeArcPlans = (currentArc: Volume, plannedArc: Volume): Volume => {
     const existingByIndex = new Map((currentArc.chapters || []).map(chapter => [chapter.index, chapter]));
     const plannedIndexes = new Set((plannedArc.chapters || []).map(chapter => chapter.index));
@@ -1230,6 +1394,8 @@ const App: React.FC = () => {
     const finalTitle = updates.chapterTitle || extracted.title;
     const actualText = extracted.body;
 
+    const existingChapter = baseWritten.find(chapter => chapter.index === currentChapterIndex);
+    const contentChanged = Boolean(existingChapter?.content && existingChapter.content !== actualText);
     const newChapter: Chapter = {
       ...chapterPlan,
       index: currentChapterIndex,
@@ -1240,6 +1406,10 @@ const App: React.FC = () => {
       biblePending: bibleUpdateError ? true : undefined,
       biblePendingReason: bibleUpdateError || undefined,
       targetWords: chapterPlan?.targetWords || params.length,
+      writtenAt: Date.now(),
+      // Giu ban truoc moi khi noi dung bi ghi de (ke ca Cum 3 viet lai) de tac gia xem/khoi phuc.
+      previousContent: contentChanged ? existingChapter?.content : existingChapter?.previousContent,
+      previousContentAt: contentChanged ? Date.now() : existingChapter?.previousContentAt,
     };
 
     const nextWrittenList = baseWritten.some(c => c.index === newChapter.index)
@@ -1948,6 +2118,51 @@ const App: React.FC = () => {
     }
   };
 
+  const handleRestorePreviousContent = (chapter: Chapter) => {
+    if (!chapter.previousContent) return;
+    if (!window.confirm(`Khôi phục bản trước của Chương ${chapter.index}? Bản hiện tại sẽ trở thành "bản trước" để bạn quay lại được. Lưu ý: Thiên Cơ Lục đang khớp với bản hiện tại — sau khi khôi phục nên chạy kiểm tra logic.`)) return;
+    const swapped: Chapter = {
+      ...chapter,
+      content: chapter.previousContent,
+      previousContent: chapter.content,
+      previousContentAt: Date.now(),
+      writtenAt: Date.now(),
+    };
+    const nextWritten = sortChapters(writtenChapters.map(item => item.index === chapter.index ? swapped : item));
+    const nextVolumes = volumes.map(volume => ({
+      ...volume,
+      chapters: (volume.chapters || []).map(item => item.index === chapter.index ? { ...item, ...swapped } : item),
+    }));
+    writtenChaptersRef.current = nextWritten;
+    volumesRef.current = nextVolumes;
+    setWrittenChapters(nextWritten);
+    setVolumes(nextVolumes);
+    if (chapter.index === currentChapterIndex) setStory(swapped.content || '');
+    setProjects(prev => prev.map(project => project.id === activeProjectId ? { ...project, volumes: nextVolumes, updatedAt: Date.now() } : project));
+    setCloudStatus(`Đã khôi phục bản trước của Chương ${chapter.index}.`);
+  };
+
+  const handlePrefillSample = () => {
+    setParams(prev => ({
+      ...prev,
+      projectType: 'Trường Thiên',
+      totalChapters: 12,
+      length: 1200,
+      genres: ['Tiên hiệp', 'Hài hước'] as Genre[],
+      tone: 'Hài hước' as Tone,
+      seed: 'Một đệ tử tạp dịch nhặt được nghiên mực cổ có thể viết lại một dòng Thiên Cơ Lục mỗi ngày — nhưng mỗi lần viết, một ký ức của cậu bị mực ăn mất. Cậu phải leo lên đỉnh tông môn trước khi quên mất lý do mình bắt đầu.',
+      narrativeView: 'Ngôi thứ ba hạn chế bám nhân vật chính',
+      character: {
+        ...prev.character,
+        name: 'Tiểu Mãn',
+        personality: 'Lém lỉnh, gan dạ, hay gây họa nhưng trọng nghĩa khí',
+        goal: 'Trở thành chân truyền đệ tử và giữ lại ký ức về người thầy đầu tiên',
+      },
+    }));
+    setView('setup');
+    setCloudStatus('Đã điền hồ sơ mẫu — sửa tự do rồi bấm khóa hồ sơ để thử luồng viết.');
+  };
+
   const handleDeleteProject = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (window.confirm("⚠️ Bạn có chắc chắn muốn xóa vĩnh viễn tác phẩm này khỏi Tàng Thư local và Firebase?")) {
@@ -2135,10 +2350,14 @@ const App: React.FC = () => {
           <div className="antique-frame p-3 rounded-xl">
             <span className="block text-[8px] font-black uppercase text-[#96762a]">Database</span>
             <span className="text-[9px] font-bold text-stone-500 line-clamp-2">{storageStatus}</span>
+            {storageUsageText && <span className="block text-[8px] font-bold text-stone-400 mt-0.5">{storageUsageText}</span>}
           </div>
           <div className="antique-frame p-3 rounded-xl">
             <span className="block text-[8px] font-black uppercase text-[#96762a]">Firebase</span>
-            <span className="text-[9px] font-bold text-stone-500 line-clamp-2">{cloudStatus}</span>
+            <span className="flex items-start gap-1.5 text-[9px] font-bold text-stone-500 line-clamp-2">
+              <span className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${/lỗi|Không tải|chưa đồng bộ/i.test(cloudStatus) ? 'bg-red-500' : /Đang lưu|Đang tải/i.test(cloudStatus) ? 'bg-amber-500 animate-pulse' : /đã|Đã/i.test(cloudStatus) ? 'bg-emerald-500' : 'bg-stone-300'}`} />
+              <span className="line-clamp-2">{cloudStatus}</span>
+            </span>
           </div>
         </div>
         <div className="p-4 bg-[#052e26]/85 backdrop-blur-xl border border-amber-200/20 text-white rounded-lg shadow-lg shadow-teal-950/30 space-y-3">
@@ -2669,6 +2888,7 @@ const App: React.FC = () => {
                 <h2 className="text-2xl font-black italic story-font">Tàng Thư Của Bạn</h2>
                 <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
                   <button onClick={() => fileInputRef.current?.click()} className="bg-gradient-to-b from-amber-200 to-amber-400 text-stone-900 px-8 py-3 rounded-xl text-[10px] font-black uppercase shadow-lg shadow-amber-500/20 hover:brightness-110 transition-all">Nhập file (.json)</button>
+                  <button onClick={handleExportLibraryBackup} className="bg-white/10 text-white px-8 py-3 rounded-xl text-[10px] font-black uppercase hover:bg-white/20 transition-all">Sao lưu toàn bộ (.json)</button>
                 </div>
                 <input type="file" ref={fileInputRef} onChange={e => {
                   const file = e.target.files?.[0];
@@ -2677,6 +2897,27 @@ const App: React.FC = () => {
                   reader.onload = (ev) => {
                     try {
                       const imported = JSON.parse(ev.target?.result as string);
+                      if (imported && imported.kind === 'library-backup' && Array.isArray(imported.projects)) {
+                        const validProjects = imported.projects.filter(isStoryProject).map(normalizeProjectRecord);
+                        if (!validProjects.length) throw new Error('File sao lưu không có tác phẩm hợp lệ.');
+                        validProjects.forEach(importedProject => {
+                          if (tombstonesRef.current[importedProject.id]) {
+                            delete tombstonesRef.current[importedProject.id];
+                            clearLocalTombstone(importedProject.id);
+                            void clearDeletedProjectOnFirebase(importedProject.id).catch(() => undefined);
+                          }
+                        });
+                        setProjects(prev => {
+                          const byId: Map<string, StoryProject> = new Map(prev.map(project => [project.id, project]));
+                          validProjects.forEach(importedProject => {
+                            const existing = byId.get(importedProject.id);
+                            if (!existing || (importedProject.updatedAt || 0) >= (existing.updatedAt || 0)) byId.set(importedProject.id, importedProject);
+                          });
+                          return [...byId.values()].sort((x, y) => (y.updatedAt || 0) - (x.updatedAt || 0));
+                        });
+                        alert(`Đã nhập ${validProjects.length} tác phẩm từ file sao lưu — hệ thống sẽ tự lưu và đồng bộ.`);
+                        return;
+                      }
                       if (!isStoryProject(imported)) throw new Error('Không phải file dự án Bút Nghiên.');
                       const normalizedImport = normalizeProjectRecord(imported);
                       if (tombstonesRef.current[normalizedImport.id]) {
@@ -2712,11 +2953,12 @@ const App: React.FC = () => {
                   <p className="story-font text-2xl font-black text-stone-900">Tàng Thư đang trống</p>
                   <p className="text-sm text-stone-500 max-w-md mx-auto leading-relaxed">Chưa có tác phẩm nào được lưu. Quay lại Studio, khóa hồ sơ rồi chọn hướng truyện để chấp bút tác phẩm đầu tiên.</p>
                   <button onClick={() => setView('setup')} className="btn-primary px-6 py-3 text-[10px] font-black uppercase tracking-widest">Về Studio sáng tác</button>
+                  <button onClick={handlePrefillSample} className="block mx-auto px-6 py-3 rounded-2xl border border-amber-300/70 text-amber-800 text-[10px] font-black uppercase tracking-widest hover:bg-amber-50 transition-all">Dùng hồ sơ mẫu thử</button>
                 </div>
               )}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {projects.map(p => (
-                  <div key={p.id} className="surface p-8 hover:shadow-2xl transition-all group flex flex-col h-80">
+                  <div key={p.id} className="surface cv-auto p-8 hover:shadow-2xl transition-all group flex flex-col h-80">
                     <div className="flex-1">
                       <div className="flex justify-between items-start mb-4">
                         <span className="px-3 py-1 bg-amber-50 text-orange-600 rounded-full text-[9px] font-black uppercase">{p.params.projectType}</span>
@@ -2724,8 +2966,11 @@ const App: React.FC = () => {
                            <button onClick={(e) => handleExportManuscript(p, e)} className="p-2 bg-emerald-50 text-emerald-500 rounded-lg hover:bg-emerald-600 hover:text-white transition-all shadow-sm" title="Xuất bản thảo TXT">
                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6M7 3h7l5 5v13a1 1 0 01-1 1H7a1 1 0 01-1-1V4a1 1 0 011-1z" /></svg>
                            </button>
-                           <button onClick={(e) => { e.stopPropagation(); const latestProj = projects.find(proj => proj.id === p.id) || p; const dataStr = JSON.stringify(latestProj, null, 2); const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr); const link = document.createElement('a'); link.href = dataUri; link.download = `ButNghien_${latestProj.title.replace(/\s+/g, '_')}.json`; link.click(); }} className="p-2 bg-amber-50 text-orange-400 rounded-lg hover:bg-orange-600 hover:text-white transition-all shadow-sm" title="Xuất JSON">
+                           <button onClick={(e) => { e.stopPropagation(); const latestProj = projects.find(proj => proj.id === p.id) || p; downloadTextFile(`ButNghien_${latestProj.title.replace(/\s+/g, '_')}.json`, JSON.stringify(latestProj, null, 2), 'application/json;charset=utf-8'); }} className="p-2 bg-amber-50 text-orange-400 rounded-lg hover:bg-orange-600 hover:text-white transition-all shadow-sm" title="Xuất JSON">
                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                           </button>
+                           <button onClick={(e) => handleDuplicateProject(p, e)} className="p-2 bg-sky-50 text-sky-400 rounded-lg hover:bg-sky-600 hover:text-white transition-all shadow-sm" title="Nhân bản dự án">
+                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H10a2 2 0 01-2-2V7z" /></svg>
                            </button>
                            <button onClick={(e) => handleDeleteProject(p.id, e)} className="p-2 bg-red-50 text-red-300 rounded-lg hover:bg-red-600 hover:text-white transition-all shadow-sm" title="Xóa dự án">
                               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
@@ -2734,6 +2979,7 @@ const App: React.FC = () => {
                       </div>
                       <h3 className="font-black text-xl uppercase text-stone-800 story-font group-hover:text-stone-900 mb-2 line-clamp-1">{p.title}</h3>
                       <p className="text-[10px] text-stone-400 italic line-clamp-4 leading-relaxed">{p.generalSummary}</p>
+                      {(() => { const stats = projectQuickStats(p); return stats.chapterCount > 0 ? <p className="text-[10px] font-bold text-stone-500 mt-2">{stats.chapterCount} chương · {stats.totalWords.toLocaleString('vi-VN')} chữ</p> : null; })()}
                     </div>
                     <div className="flex gap-2 pt-6 border-t border-stone-50 mt-auto">
                       <button onClick={() => loadProject(p)} className="btn-primary flex-1 py-3 rounded-xl text-[10px] font-black uppercase">Mở dự án</button>
@@ -2958,29 +3204,66 @@ const App: React.FC = () => {
           
           {view === 'manuscript' && (
              <div className="max-w-4xl mx-auto space-y-4 pb-20">
-               <div className="flex justify-between items-center mb-6">
+               <div className="flex flex-wrap justify-between items-center gap-3 mb-2">
                  <h2 className="text-3xl font-black italic story-font text-stone-900">Bản thảo lưu trữ</h2>
-                 <span className="px-4 py-1 bg-stone-100 text-stone-500 rounded-full text-[10px] font-black">{writtenChapters.length} Chương</span>
+                 <div className="flex flex-wrap gap-2">
+                   <span className="px-4 py-1 bg-stone-100 text-stone-500 rounded-full text-[10px] font-black">{writtenChapters.length} Chương</span>
+                   <span className="px-4 py-1 bg-stone-100 text-stone-500 rounded-full text-[10px] font-black">{manuscriptTotalWords.toLocaleString('vi-VN')} chữ</span>
+                   {manuscriptWeekWords > 0 && <span className="px-4 py-1 bg-emerald-50 text-emerald-600 rounded-full text-[10px] font-black">7 ngày qua: +{manuscriptWeekWords.toLocaleString('vi-VN')} chữ</span>}
+                 </div>
                </div>
-               {sortChapters(writtenChapters).map(c => {
+               <div className="flex flex-col lg:flex-row gap-2 lg:items-center">
+                 <input value={manuscriptQuery} onChange={(e) => setManuscriptQuery(e.target.value)} placeholder="Tìm trong bản thảo (không cần gõ dấu)..." className="flex-1 px-4 py-3 rounded-xl border border-stone-200 bg-white text-sm font-medium text-stone-700 outline-none focus:border-amber-400" />
+                 {manuscriptQuery && <button onClick={() => setManuscriptQuery('')} className="px-4 py-3 bg-stone-100 text-stone-500 rounded-xl text-[10px] font-black uppercase">Xóa tìm</button>}
+                 <div className="flex flex-wrap gap-2">
+                   <button onClick={() => { if (activeProject) handleExportManuscript(activeProject); }} className="px-4 py-3 bg-emerald-50 text-emerald-600 rounded-xl text-[10px] font-black uppercase hover:bg-emerald-600 hover:text-white transition-all">Xuất .txt</button>
+                   <button onClick={() => { if (activeProject) handleExportMarkdown(activeProject, includeBibleInExport); }} className="px-4 py-3 bg-amber-50 text-orange-600 rounded-xl text-[10px] font-black uppercase hover:bg-orange-600 hover:text-white transition-all">Xuất .md</button>
+                   <button onClick={() => { if (activeProject) void handleExportDocx(activeProject, includeBibleInExport); }} className="px-4 py-3 bg-sky-50 text-sky-600 rounded-xl text-[10px] font-black uppercase hover:bg-sky-600 hover:text-white transition-all">Xuất .docx</button>
+                   <label className="flex items-center gap-2 px-3 py-3 bg-white border border-stone-200 rounded-xl text-[10px] font-black uppercase text-stone-500 cursor-pointer">
+                     <input type="checkbox" checked={includeBibleInExport} onChange={(e) => setIncludeBibleInExport(e.target.checked)} className="accent-orange-600" />
+                     Kèm Thiên Cơ Lục
+                   </label>
+                 </div>
+               </div>
+               {foldedManuscriptQuery && (
+                 <p className="text-xs font-bold text-stone-500">Tìm thấy {visibleManuscriptChapters.length} chương chứa "{manuscriptQuery}" ({[...manuscriptMatchByIndex.values()].reduce((sum, n) => sum + n, 0)} lượt xuất hiện).</p>
+               )}
+               {visibleManuscriptChapters.map(c => {
                    const parentVol = volumes.find(v => (v.chapters || []).some(ch => ch.index === c.index));
+                   const matchCount = manuscriptMatchByIndex.get(c.index);
                    return (
-                     <div key={c.index} className="p-6 md:p-8 bg-white border rounded-[2rem] flex flex-col md:flex-row md:justify-between md:items-center gap-4 group shadow-sm hover:shadow-xl transition-all">
-                       <div className="flex flex-col gap-2">
-                         <span className="text-[10px] font-black uppercase text-orange-400 tracking-widest">Chương {c.index} ({getWordCount(c.content || "")} chữ)</span>
-                         <h4 className="font-black text-stone-800 story-font text-xl uppercase tracking-tight">{c.title}</h4>
+                     <div key={c.index} className="cv-auto p-6 md:p-8 bg-white border rounded-[2rem] flex flex-col gap-4 group shadow-sm hover:shadow-xl transition-all">
+                       <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
+                         <div className="flex flex-col gap-2">
+                           <span className="text-[10px] font-black uppercase text-orange-400 tracking-widest">Chương {c.index} ({getWordCount(c.content || "")} chữ){matchCount ? ` · khớp ${matchCount} lượt` : ''}{c.biblePending ? ' · ⚠ Canon chờ cập nhật' : ''}</span>
+                           <h4 className="font-black text-stone-800 story-font text-xl uppercase tracking-tight">{c.title}</h4>
+                         </div>
+                         <div className="flex flex-wrap items-center gap-2">
+                           <button onClick={() => handleReadChapter(c, parentVol?.index || activeArcIndex)} className="px-6 py-3 bg-amber-50 text-orange-600 rounded-xl text-[10px] font-black uppercase hover:bg-stone-900 hover:text-white transition-all shadow-sm">Đọc</button>
+                           <button onClick={() => handleRewriteChapter(c, parentVol?.index || activeArcIndex)} className="px-6 py-3 bg-stone-50 text-stone-500 rounded-xl text-[10px] font-black uppercase hover:bg-stone-800 hover:text-white transition-all shadow-sm">Viết lại</button>
+                           {c.previousContent && (
+                             <button onClick={() => setExpandedPreviousChapter(expandedPreviousChapter === c.index ? null : c.index)} className="px-4 py-3 bg-violet-50 text-violet-600 rounded-xl text-[10px] font-black uppercase hover:bg-violet-600 hover:text-white transition-all shadow-sm">Bản trước</button>
+                           )}
+                           <button onClick={(e) => handleDeleteChapter(c.index, parentVol?.index || activeArcIndex, e)} className="p-3 bg-red-50 text-red-400 rounded-xl hover:bg-red-600 hover:text-white transition-all">
+                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                           </button>
+                         </div>
                        </div>
-                       <div className="flex flex-wrap items-center gap-2">
-                         <button onClick={() => handleReadChapter(c, parentVol?.index || activeArcIndex)} className="px-6 py-3 bg-amber-50 text-orange-600 rounded-xl text-[10px] font-black uppercase hover:bg-stone-900 hover:text-white transition-all shadow-sm">Đọc</button>
-                         <button onClick={() => handleRewriteChapter(c, parentVol?.index || activeArcIndex)} className="px-6 py-3 bg-stone-50 text-stone-500 rounded-xl text-[10px] font-black uppercase hover:bg-stone-800 hover:text-white transition-all shadow-sm">Viết lại</button>
-                         <button onClick={(e) => handleDeleteChapter(c.index, parentVol?.index || activeArcIndex, e)} className="p-3 bg-red-50 text-red-400 rounded-xl hover:bg-red-600 hover:text-white transition-all">
-                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                         </button>
-                       </div>
+                       {expandedPreviousChapter === c.index && c.previousContent && (
+                         <div className="border border-violet-100 bg-violet-50/40 rounded-2xl p-5 space-y-3">
+                           <div className="flex flex-wrap justify-between items-center gap-2">
+                             <span className="text-[10px] font-black uppercase tracking-widest text-violet-500">Bản trước — {getWordCount(c.previousContent)} chữ{c.previousContentAt ? ` · lưu lúc ${new Date(c.previousContentAt).toLocaleString('vi-VN')}` : ''}</span>
+                             <button onClick={() => handleRestorePreviousContent(c)} className="px-4 py-2 bg-violet-600 text-white rounded-lg text-[10px] font-black uppercase hover:bg-violet-700 transition-all">Khôi phục bản này</button>
+                           </div>
+                           <div className="max-h-96 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-stone-600 bg-white/70 rounded-xl p-4">{c.previousContent}</div>
+                         </div>
+                       )}
                      </div>
                    );
-                 })
-               }
+                 })}
+               {foldedManuscriptQuery && visibleManuscriptChapters.length === 0 && (
+                 <p className="text-sm font-bold text-stone-400 text-center py-8">Không có chương nào chứa "{manuscriptQuery}".</p>
+               )}
              </div>
           )}
         </div>
