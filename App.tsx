@@ -357,7 +357,7 @@ const App: React.FC = () => {
   };
 
   const validateSetupParams = (draft: StoryParams) => {
-    if (getConfiguredGeminiKeyCount() === 0) return 'Chưa có đủ Gemini key. Hãy cấu hình GEMINI_API_KEY_1 đến GEMINI_API_KEY_6 rồi redeploy hoặc khởi động lại server.';
+    if (getConfiguredGeminiKeyCount() === 0) return 'Chưa có Gemini key khả dụng. Hãy kiểm tra các biến GEMINI_API_KEY_* trên Vercel rồi redeploy hoặc khởi động lại server.';
     if (!draft.seed?.trim()) return 'Hãy nhập ý tưởng khởi nguồn.';
     if (!draft.character.name?.trim()) return 'Hãy nhập tên nhân vật chính.';
     if (!draft.character.personality?.trim()) return 'Hãy nhập tính cách nhân vật chính để AI giữ logic nhân vật.';
@@ -370,16 +370,16 @@ const App: React.FC = () => {
   const friendlyError = (error: unknown) => {
     const message = error instanceof Error ? error.message : String(error || '');
     if (/Key 6 chọn hướng|Key 6 chon huong|direction/i.test(message)) {
-      return 'Key 6 chưa tạo được 10 hướng truyện. Hãy kiểm tra GEMINI_API_KEY_6 đã bật Generative Language API, không bị giới hạn referrer/IP với Vercel Serverless, rồi redeploy.';
+      return 'Chưa tạo được các hướng truyện: Gemini đang từ chối kho key dùng chung. Hãy kiểm tra các biến GEMINI_API_KEY_* trên Vercel đã bật Generative Language API, không bị giới hạn referrer/IP với Vercel Serverless, rồi redeploy.';
     }
     if (/GEMINI_API_KEY_5|GEMINI_API_KEY_6|Cụm 3|Cum 3|rewriter/i.test(message)) {
-      return 'Cụm 3 chưa dùng được: Gemini đang từ chối quyền truy cập của key 5/6. Hãy thay key 5/6 bằng key thuộc project đã bật Generative Language API, bỏ giới hạn referrer/IP không phù hợp với Vercel Serverless, rồi redeploy.';
+      return 'Cụm 3 chưa dùng được: Gemini đang từ chối quyền truy cập của kho key dùng chung. Hãy kiểm tra các biến GEMINI_API_KEY_* trên Vercel thuộc project đã bật Generative Language API, bỏ giới hạn referrer/IP không phù hợp với Vercel Serverless, rồi redeploy.';
     }
     if (/GEMINI_API_KEY_3|GEMINI_API_KEY_4|Cụm 2|Cum 2|reviewer/i.test(message)) {
-      return 'Cụm 2 chưa dùng được: hãy kiểm tra key 3/4 đã bật Generative Language API và được phép gọi từ Vercel Serverless.';
+      return 'Cụm 2 chưa dùng được: hãy kiểm tra kho key dùng chung (GEMINI_API_KEY_* trên Vercel) đã bật Generative Language API và được phép gọi từ Vercel Serverless.';
     }
     if (/GEMINI_API_KEY_1|GEMINI_API_KEY_2|Cụm 1|Cum 1|writer/i.test(message)) {
-      return 'Cụm 1 chưa dùng được: hãy kiểm tra key 1/2 đã bật Generative Language API và được phép gọi từ Vercel Serverless.';
+      return 'Cụm 1 chưa dùng được: hãy kiểm tra kho key dùng chung (GEMINI_API_KEY_* trên Vercel) đã bật Generative Language API và được phép gọi từ Vercel Serverless.';
     }
     if (
       message.includes('GEMINI_API_KEY_') ||
@@ -746,15 +746,21 @@ const App: React.FC = () => {
   const missingChapterIndexes = params.projectType === 'Trường Thiên'
     ? Array.from({ length: Math.max(0, params.totalChapters) }, (_, index) => index + 1).filter(index => !plannedChapterIndexes.has(index))
     : [];
-  const roadmapIssues = params.projectType === 'Trường Thiên'
+  // FIX deadlock (phat hien qua test live 2026-11-04): ban do chuong chi tiet chi duoc sinh LAZY
+  // theo tung Arc boi ensureArcChapterPlans, ma ham do chi chay BEN TRONG luong chuan bi viet —
+  // trong khi moi nut viet deu bi chan boi hasRoadmapReady neu chua co san ban do cho MOI chuong.
+  // Ket qua: du an Truong Thien moi khong bao gio viet duoc chuong 1. Cong viet chi doi hoi dung
+  // tien de that (co Arc + Dai cuc + Thien Co Luc); do phu ban do chi tiet (missingChapterIndexes)
+  // chi con dung de hien thi tien do, khong chan viet nua.
+  const writeGateIssues = params.projectType === 'Trường Thiên'
     ? [
         volumes.length === 0 ? 'Chưa có Arc.' : '',
-        missingChapterIndexes.length > 0 ? `Thiếu chương ${missingChapterIndexes.slice(0, 6).join(', ')}${missingChapterIndexes.length > 6 ? '...' : ''}.` : '',
         !generalSummary.trim() ? 'Chưa có Đại cục.' : '',
         !worldBible.trim() ? 'Chưa có Thiên Cơ Lục.' : '',
       ].filter(Boolean)
     : [];
-  const hasRoadmapReady = params.projectType !== 'Trường Thiên' || roadmapIssues.length === 0;
+  const roadmapIssues = writeGateIssues;
+  const hasRoadmapReady = params.projectType !== 'Trường Thiên' || writeGateIssues.length === 0;
   const firstUnwrittenChapterIndex = params.projectType === 'Trường Thiên'
     ? Array.from({ length: Math.max(0, params.totalChapters) }, (_, index) => index + 1).find(index => plannedChapterIndexes.has(index) && !writtenChapterIndexes.has(index))
     : undefined;
@@ -1496,8 +1502,8 @@ const App: React.FC = () => {
       console.error(error);
       setStory(originalDraft);
       const savedNotice = currentDraftIsAutosaved
-        ? '\n\nBản trước đó vẫn đã nằm trong Bản thảo/Tàng thư. Bạn có thể thay key 5/6 rồi bấm Cụm 3 lại, hoặc giữ bản hiện tại.'
-        : '\n\nBản nháp Cụm 1 vẫn được giữ trên màn hình. Bạn có thể bấm Lưu bản này hoặc thay key 5/6 rồi thử Cụm 3 lại.';
+        ? '\n\nBản trước đó vẫn đã nằm trong Bản thảo/Tàng thư. Bạn có thể kiểm tra kho key rồi bấm Cụm 3 lại, hoặc giữ bản hiện tại.'
+        : '\n\nBản nháp Cụm 1 vẫn được giữ trên màn hình. Bạn có thể bấm Lưu bản này hoặc kiểm tra kho key rồi thử Cụm 3 lại.';
       alert(`${friendlyError(error)}${isGeminiKeyInfrastructureError(error) ? savedNotice : ''}`);
     } finally {
       setIsGenerating(false);
@@ -1639,7 +1645,15 @@ const App: React.FC = () => {
 
   const handleAddNextArc = async () => {
     if (isGenerating || isGeneratingOutline) return;
-    if (getConfiguredGeminiKeyCount() === 0) return alert('Chưa có đủ Gemini key. Hãy cấu hình GEMINI_API_KEY_1 đến GEMINI_API_KEY_6 rồi redeploy hoặc khởi động lại server.');
+    if (getConfiguredGeminiKeyCount() === 0) return alert('Chưa có Gemini key khả dụng. Hãy kiểm tra các biến GEMINI_API_KEY_* trên Vercel rồi redeploy hoặc khởi động lại server.');
+    // FIX: truoc day nut nay tu y mo rong tong so chuong vuot qua thiet lap da khoa cua nguoi dung
+    // (test live: sach 3 chuong bi doi thanh 8 chuong). Lo trinh da phu du so chuong thi khong
+    // sinh Arc vuot nua; muon viet dai hon phai tang So chuong trong ho so truoc.
+    const coveredChapterEnd = volumes.reduce((max, volume) => Math.max(max, volume.chapterEnd || 0), 0);
+    if (coveredChapterEnd >= params.totalChapters) {
+      alert(`Lộ trình hiện tại đã phủ đủ ${params.totalChapters} chương theo thiết lập. Muốn viết dài hơn, hãy tăng Số chương trong hồ sơ truyện trước.`);
+      return;
+    }
     setIsGeneratingOutline(true);
     setGenerationStatus('Đang lập Arc mở rộng dựa trên Đại cục và Thiên Cơ Lục...');
     try {
@@ -1736,8 +1750,9 @@ const App: React.FC = () => {
       .filter(index => plannedChapterIndexes.has(index) && !writtenChapterIndexes.has(index));
     const nextIndex = availableIndexes.find(index => index > currentChapterIndex) || availableIndexes[0];
     if (!nextIndex) {
-      alert('Không còn chương chưa viết trong lộ trình hiện tại.');
-      setView('outline');
+      // Ban do chi tiet sinh theo tung Arc: het chuong DA CO ban do khong co nghia la het truyen.
+      // Mo luong chuan bi viet de tu lap ban do cho Arc ke tiep thay vi bao "het chuong".
+      await openEditorWithGuard();
       return;
     }
 
@@ -2371,12 +2386,12 @@ const App: React.FC = () => {
                     </h3>
                     <p className="text-sm text-stone-700 mt-1">
                       {hasRoadmapReady
-                        ? `Có ${plannedChapterIndexes.size} chương trong ${volumes.length} Arc. Đã sinh bản đồ chi tiết ${generatedChapterPlanCount} chương. Chương kế tiếp nên viết: ${firstUnwrittenChapterIndex ? `C.${firstUnwrittenChapterIndex}${firstUnwrittenPlan ? ` - ${firstUnwrittenPlan.title}` : ''}` : 'lộ trình đã hoàn tất'}.`
+                        ? `Đã khóa bản đồ chi tiết cho ${plannedChapterIndexes.size}/${params.totalChapters} chương trong ${volumes.length} Arc (tổng ${generatedChapterPlanCount} mục chương trong lộ trình).${missingChapterIndexes.length > 0 ? ` ${missingChapterIndexes.length} chương còn lại sẽ được lập bản đồ tự động khi bắt đầu viết Arc tương ứng.` : ''} Chương kế tiếp nên viết: ${(firstUnwrittenChapterIndex || firstUnwrittenPlan) ? `C.${firstUnwrittenChapterIndex || firstUnwrittenPlan?.index}${firstUnwrittenPlan ? ` - ${firstUnwrittenPlan.title}` : ''}` : 'lộ trình đã hoàn tất'}.`
                         : roadmapIssues.join(' ')}
                     </p>
                   </div>
-                  <button onClick={openEditorWithGuard} disabled={!hasRoadmapReady || !firstUnwrittenChapterIndex} className="px-6 py-3 bg-stone-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-stone-900 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
-                    {firstUnwrittenChapterIndex ? 'Viết chương kế tiếp' : 'Đã đủ bản thảo'}
+                  <button onClick={openEditorWithGuard} disabled={!hasRoadmapReady || !(firstUnwrittenChapterIndex || firstUnwrittenPlan)} className="px-6 py-3 bg-stone-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-stone-900 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
+                    {(firstUnwrittenChapterIndex || firstUnwrittenPlan) ? 'Viết chương kế tiếp' : 'Đã đủ bản thảo'}
                   </button>
                 </div>
               </section>

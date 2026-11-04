@@ -483,10 +483,10 @@ const uniqueKeys = (keys: Array<string | undefined>) => keys
   .filter((key, index, all) => all.indexOf(key) === index);
 
 const roleKeyHelp: Record<GeminiKeyRole, string> = {
-  writer: "GEMINI_API_KEY_1 và GEMINI_API_KEY_2",
-  reviewer: "GEMINI_API_KEY_3 và GEMINI_API_KEY_4",
-  rewriter: "GEMINI_API_KEY_5 và GEMINI_API_KEY_6",
-  direction: "GEMINI_API_KEY_6",
+  writer: "kho key dùng chung (GEMINI_API_KEY_*)",
+  reviewer: "kho key dùng chung (GEMINI_API_KEY_*)",
+  rewriter: "kho key dùng chung (GEMINI_API_KEY_*)",
+  direction: "kho key dùng chung (GEMINI_API_KEY_*)",
 };
 
 const roleLabel: Record<GeminiKeyRole, string> = {
