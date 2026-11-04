@@ -112,6 +112,7 @@ const App: React.FC = () => {
   const [chapterIdea, setChapterIdea] = useState<string>('');
   const [story, setStory] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  const [isRetryingBible, setIsRetryingBible] = useState<boolean>(false);
   const [generationStatus, setGenerationStatus] = useState<string>('');
   const [isGeneratingOutline, setIsGeneratingOutline] = useState<boolean>(false);
   const [isHydrated, setIsHydrated] = useState<boolean>(false);
@@ -743,6 +744,7 @@ const App: React.FC = () => {
     });
   });
   const writtenChapterIndexes = new Set(writtenChapters.map(chapter => chapter.index));
+  const pendingBibleChapters = sortChapters(writtenChapters.filter(chapter => chapter.biblePending));
   const missingChapterIndexes = params.projectType === 'Trường Thiên'
     ? Array.from({ length: Math.max(0, params.totalChapters) }, (_, index) => index + 1).filter(index => !plannedChapterIndexes.has(index))
     : [];
@@ -1209,6 +1211,7 @@ const App: React.FC = () => {
       summary: updates.chapterSummary || chapterPlan?.summary || '',
       bibleSnapshot: updates.updatedBible,
       biblePending: bibleUpdateError ? true : undefined,
+      biblePendingReason: bibleUpdateError || undefined,
       targetWords: chapterPlan?.targetWords || params.length,
     };
 
@@ -1243,6 +1246,75 @@ const App: React.FC = () => {
     ));
     if (bibleUpdateError) {
       setCloudStatus(`⚠ Chương ${currentChapterIndex} đã lưu nhưng Thiên Cơ Lục chưa cập nhật được (${bibleUpdateError}). Chương sau có thể lệch canon — hãy thẩm định lại trước khi viết tiếp.`);
+    }
+  };
+
+  const handleRetryBibleUpdate = async () => {
+    if (isRetryingBible || isGenerating) return;
+    const allWritten = writtenChaptersRef.current.length ? writtenChaptersRef.current : writtenChapters;
+    const pending = sortChapters(allWritten.filter(c => c.biblePending));
+    if (!pending.length) return;
+    const startIndex = pending[0].index;
+    const replayList = sortChapters(allWritten.filter(c => c.index >= startIndex && c.content));
+    if (!replayList.length) return;
+    setIsRetryingBible(true);
+    try {
+      // Snapshot cua chuong cho chinh la bible TRUOC chuong do (persist luu base khi that bai),
+      // nen chay lai tu do la dung chuoi canon. Cac chuong sau phai chay lai cung de khong lech chuoi.
+      let base = replayList[0].bibleSnapshot
+        || [...allWritten].filter(c => c.index < startIndex && c.bibleSnapshot).sort((x, y) => y.index - x.index)[0]?.bibleSnapshot
+        || worldBible;
+      const updatedByIndex = new Map<number, Chapter>();
+      let failedReason: string | null = null;
+      let failedChapterIndex: number | null = null;
+      for (let i = 0; i < replayList.length; i++) {
+        const chapter = replayList[i];
+        setGenerationStatus(`Đang cập nhật lại Thiên Cơ Lục: chương ${chapter.index} (${i + 1}/${replayList.length})...`);
+        const arc = getArcByChapterIndex(chapter.index) || getActiveArc();
+        try {
+          const updates = await updateWorldBibleAndSummary(base, chapter.content || '', chapter.index, generalSummary, params, arc || undefined, true);
+          updatedByIndex.set(chapter.index, {
+            ...chapter,
+            summary: updates.chapterSummary || chapter.summary,
+            bibleSnapshot: updates.updatedBible,
+            biblePending: undefined,
+            biblePendingReason: undefined,
+          });
+          base = updates.updatedBible;
+        } catch (retryError) {
+          failedReason = retryError instanceof Error ? retryError.message : 'lỗi không rõ';
+          failedChapterIndex = chapter.index;
+          updatedByIndex.set(chapter.index, { ...chapter, biblePending: true, biblePendingReason: failedReason });
+          break;
+        }
+      }
+      const nextWritten = sortChapters(allWritten.map(c => updatedByIndex.get(c.index) || c));
+      writtenChaptersRef.current = nextWritten;
+      setWrittenChapters(nextWritten);
+      setWorldBible(base);
+      const baseVolumes = volumesRef.current.length ? volumesRef.current : volumes;
+      const updatedVolumes = baseVolumes.map(v => ({
+        ...v,
+        chapters: (v.chapters || []).map(c => {
+          const u = updatedByIndex.get(c.index);
+          return u ? { ...c, summary: u.summary, bibleSnapshot: u.bibleSnapshot, biblePending: u.biblePending, biblePendingReason: u.biblePendingReason } : c;
+        }),
+      }));
+      volumesRef.current = updatedVolumes;
+      setVolumes(updatedVolumes);
+      setProjects(prevProjects => prevProjects.map(p => p.id === activeProjectId
+        ? { ...p, volumes: updatedVolumes, progressionSummary: base, updatedAt: Date.now() }
+        : p
+      ));
+      if (failedReason) {
+        setCloudStatus(`⚠ Cập nhật lại Thiên Cơ Lục dừng ở chương ${failedChapterIndex}: ${failedReason}`);
+        alert(`Chưa cập nhật xong Thiên Cơ Lục: ${failedReason}`);
+      } else {
+        setCloudStatus(`✓ Thiên Cơ Lục đã được cập nhật lại đầy đủ từ chương ${startIndex}.`);
+      }
+    } finally {
+      setIsRetryingBible(false);
+      setGenerationStatus('');
     }
   };
 
@@ -2476,6 +2548,7 @@ const App: React.FC = () => {
                                   <div className="flex gap-1 mt-2">
                                     <span className="px-2 py-0.5 bg-white rounded-md text-[8px] font-black text-stone-400 border">{chap.targetWords || params.length} chữ</span>
                                     <span className="px-2 py-0.5 bg-white rounded-md text-[8px] font-black text-stone-400 border">{chap.pacing || 'Nhịp vừa'}</span>
+                                    {chap.biblePending && <span className="px-2 py-0.5 bg-amber-100 rounded-md text-[8px] font-black text-amber-700 border border-amber-200">⚠ Canon chờ cập nhật</span>}
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-2">
@@ -2752,6 +2825,19 @@ const App: React.FC = () => {
                   <h2 className="text-4xl font-black italic text-stone-900 story-font uppercase tracking-tighter">Thiên Cơ Lục</h2>
                   <p className="text-xs text-stone-400 uppercase font-black tracking-[0.4em]">Biên niên sử nhất quán với lộ trình</p>
                 </header>
+                {pendingBibleChapters.length > 0 && (
+                  <section className="mb-10 bg-amber-50 border border-amber-200 rounded-3xl p-6 shadow-sm text-left">
+                    <h3 className="text-[10px] font-black uppercase tracking-widest text-amber-700">⚠ Thiên Cơ Lục chưa cập nhật đầy đủ</h3>
+                    <p className="text-sm text-stone-700 mt-2 leading-relaxed">
+                      Đang thiếu dữ kiện của chương {pendingBibleChapters.map(c => c.index).join(', ')}.
+                      {pendingBibleChapters[0].biblePendingReason ? <> Lý do gần nhất: {pendingBibleChapters[0].biblePendingReason}</> : null}
+                      {' '}Các chương viết sau mốc này có thể lệch canon. Bấm cập nhật lại để hệ thống chạy lại từ chương thiếu đầu tiên — các chương sau đó cũng được chạy lại để giữ chuỗi Thiên Cơ Lục nhất quán.
+                    </p>
+                    <button onClick={handleRetryBibleUpdate} disabled={isRetryingBible || isGenerating} className="mt-4 px-5 py-2.5 bg-amber-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-amber-700 disabled:opacity-40 transition-all">
+                      {isRetryingBible ? (generationStatus || 'Đang cập nhật lại...') : 'Cập nhật lại Thiên Cơ Lục'}
+                    </button>
+                  </section>
+                )}
                 {logicReport && (
                   <section className="mb-10 bg-white border border-amber-100 rounded-3xl p-8 shadow-sm space-y-6">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">

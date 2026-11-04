@@ -3494,6 +3494,7 @@ export const updateWorldBibleAndSummary = async (
   generalSummary: string,
   params?: StoryParams,
   currentArc?: Volume | { title: string; summary: string; chapters?: Chapter[]; purpose?: string },
+  strictTrace = false,
 ) => {
   const chapterPlan = currentArc?.chapters?.find(chapter => chapter.index === chapterIndex);
   const chapterAuditText = excerptForAudit(lastChapterContent, 12000);
@@ -3524,10 +3525,12 @@ Hãy cập nhật hồ sơ truyện như một sổ canon dài kỳ:
 - Không đổi tên gọi/timeline/quan hệ cũ để làm đẹp hồ sơ nếu chương mới không thật sự thay đổi chúng.
 - Nếu chương có chi tiết chưa chắc, ghi "chưa khóa" thay vì biến nó thành sự thật tuyệt đối.
 - Nếu phát hiện nguy cơ lệch canon, nhảy cóc logic, dùng tên sai thời điểm hoặc lan man, ghi vào # ĐỐI CHIẾU LOGIC.
-- NGÂN SÁCH ĐỘ DÀI: toàn bộ Thiên Cơ Lục mới tối đa khoảng 3.000 từ. Mục/biến cố ĐÃ ĐÓNG hoặc đã giải quyết phải nén thành 1 dòng dạng "đã đóng: ..."; không chép lại nguyên văn diễn giải dài. Ưu tiên giữ nguyên: số liệu đã khóa, quan hệ hiện tại, mâu thuẫn đang mở, điều cấm phá logic, điểm nhìn và tên gọi.`;
+- NGÂN SÁCH ĐỘ DÀI: toàn bộ Thiên Cơ Lục mới tối đa khoảng 3.000 từ. Mục/biến cố ĐÃ ĐÓNG hoặc đã giải quyết phải nén thành 1 dòng dạng "đã đóng: ..."; không chép lại nguyên văn diễn giải dài. Ưu tiên giữ nguyên: số liệu đã khóa, quan hệ hiện tại, mâu thuẫn đang mở, điều cấm phá logic, điểm nhìn và tên gọi.${strictTrace ? "\n- LƯU Ý QUAN TRỌNG: bản cập nhật trước của chương này đã bị từ chối vì chưa ghi nhận dữ kiện mới. Lần này bắt buộc ghi rõ tên chương, các tên riêng mới (người, địa danh, vật phẩm, tổ chức) và biến cố chính của chương vào # DIỄN TIẾN TRUYỆN cùng các mục liên quan." : ""}`;
 
+  // Dung model chinh thay vi model re nhat: giu so canon la khau de sai tinh nhat,
+  // model lite tung tra bible thieu du kien moi cua chuong ma khong loi nao bat duoc.
   const result = await chatJson(
-    PLAN_MODEL,
+    WRITE_MODEL,
     `Nhiệm vụ: rút tên chương, tóm tắt chương, cập nhật Thiên Cơ Lục.
 Thiên Cơ Lục phải có các mục Markdown:
 # DIỄN TIẾN TRUYỆN
@@ -3567,6 +3570,22 @@ Chỉ trả về JSON hợp lệ:
     if (missing.length >= 2) {
       throw new Error(`Thiên Cơ Lục cập nhật thiếu các mục bắt buộc: ${missing.join(", ")}. Đã giữ bản cũ.`);
     }
+  }
+  // Kiem chung sau luu (dot 7): bible RONG, KHONG THAY DOI, hoac khong ghi nhan ten rieng/
+  // du kien MOI cua chuong deu bi tu choi -> App danh dau biblePending va hien nut cap nhat lai,
+  // thay vi am tham dong bang canon thieu du kien nhu truoc.
+  if (!newBible.trim()) {
+    throw new Error("Thiên Cơ Lục cập nhật bị rỗng. Đã giữ bản cũ để tránh mất canon.");
+  }
+  const normalizeForCompare = (value: string) => value.replace(/\s+/g, " ").trim().toLowerCase();
+  if (normalizeForCompare(newBible) === normalizeForCompare(currentBible)) {
+    throw new Error(`Thiên Cơ Lục sau chương ${chapterIndex} không thay đổi so với bản cũ — AI chưa ghi nhận dữ kiện mới của chương. Đã giữ bản cũ và đánh dấu chờ cập nhật lại.`);
+  }
+  const summaryText = String(result?.chapterSummary || "");
+  const properSequences = (summaryText.match(/[\p{Lu}][\p{Ll}]+(?:\s+[\p{Lu}][\p{Ll}]+)+/gu) || []).map(item => item.trim());
+  const newSequences = [...new Set(properSequences)].filter(seq => !currentBible.toLowerCase().includes(seq.toLowerCase()));
+  if (newSequences.length && !newSequences.some(seq => newBible.toLowerCase().includes(seq.toLowerCase()))) {
+    throw new Error(`Thiên Cơ Lục cập nhật chưa ghi nhận dữ kiện/tên riêng mới của chương ${chapterIndex} (${newSequences.slice(0, 3).join(", ")}...). Đã giữ bản cũ và đánh dấu chờ cập nhật lại.`);
   }
   return result;
 };

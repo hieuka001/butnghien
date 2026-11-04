@@ -50,6 +50,7 @@ export interface Chapter {
   content?: string;
   bibleSnapshot?: string;
   biblePending?: boolean;
+  biblePendingReason?: string;
   objective?: string;
   beats?: string[];
   mustInclude?: string[];
