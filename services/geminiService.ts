@@ -2753,6 +2753,43 @@ Trả về JSON của một Volume có index, title, summary, content, theme, ob
   };
 };
 
+export const refreshGeneralSummary = async (
+  params: StoryParams,
+  worldBible: string,
+  volumes: Volume[],
+  writtenChapters: Chapter[],
+  currentSummary: string,
+): Promise<string> => {
+  const arcList = [...volumes]
+    .sort((a, b) => a.index - b.index)
+    .map(volume => `- Arc ${volume.index} (chương ${volume.chapterStart || "?"}-${volume.chapterEnd || "?"}): ${volume.title} — ${volume.summary}`)
+    .join("\n");
+  const recent = [...writtenChapters]
+    .sort((a, b) => a.index - b.index)
+    .slice(-10)
+    .map(chapter => `[C.${chapter.index}] ${chapter.title}: ${chapter.summary}`)
+    .join("\n");
+  const prompt = `${buildProjectBrief(params)}
+
+[THIÊN CƠ LỤC HIỆN TẠI]
+${bibleExcerptFor(worldBible, 12000)}
+
+[LỘ TRÌNH ARC]
+${arcList || "Chưa có Arc."}
+
+[CÁC CHƯƠNG ĐÃ VIẾT GẦN NHẤT]
+${recent || "Chưa có chương nào."}
+
+[ĐẠI CỤC HIỆN TẠI]
+${currentSummary}
+
+Hãy viết lại Đại cục toàn truyện, giữ đúng cấu trúc 5 mục như bản hiện tại và bắt buộc có mục "# Sơ lược truyện", sao cho khớp Thiên Cơ Lục hiện tại và diễn tiến đã viết: cập nhật tình thế hiện tại của nhân vật chính, các tuyến đang mở, đích đến còn lại theo lộ trình Arc. Không bịa dữ kiện ngoài Thiên Cơ Lục và các chương đã viết; không đổi kết cấu truyện đã khóa trong hồ sơ.
+Trả về JSON: { "generalSummary": "toàn văn Đại cục mới" }`;
+  const data = await chatJson(WRITE_MODEL, SYSTEM_INSTRUCTION_ROADMAP, prompt, 0.3, 6000, "reviewer");
+  const summary = formatGeneralSummary(asText(data?.generalSummary, ""), params);
+  return countWords(summary) >= 45 ? summary : "";
+};
+
 export const generateChapterPlansForArc = async (
   params: StoryParams,
   worldBible: string,
@@ -2770,7 +2807,9 @@ export const generateChapterPlansForArc = async (
     .map(chapter => `[C.${chapter.index}] ${chapter.title}: ${chapter.summary}`)
     .join("\n");
 
-  const prompt = `${buildProjectBrief(params)}
+  const buildPrompt = (winStart: number, winEnd: number, continuity: string) => {
+    const winCount = winEnd - winStart + 1;
+    return `${buildProjectBrief(params)}
 
 [LUẬT NHẬP VAI VÀ ĐIỂM NHÌN]
 ${IMMERSIVE_LOGIC_RULES}
@@ -2794,7 +2833,7 @@ ${bibleExcerptFor(worldBible, 9000)}
 
 [ARC CẦN LẬP BẢN ĐỒ CHƯƠNG]
 - Arc ${currentArc.index}: ${currentArc.title}
-- Phạm vi: chương ${start}-${end} (${chapterCount} chương)
+- Phạm vi: chương ${winStart}-${winEnd} (${winCount} chương)
 - Nội dung bắt buộc của Arc: ${currentArc.content || currentArc.summary}
 - Chủ đề Arc: ${currentArc.theme || "Chưa khóa, hãy suy ra từ Đại cục và nội dung Arc."}
 - Mục tiêu sơ bộ Arc: ${currentArc.objective || currentArc.purpose || "Đẩy nhân vật qua một biến chuyển rõ và đúng hồ sơ."}
@@ -2803,15 +2842,18 @@ ${bibleExcerptFor(worldBible, 9000)}
 
 [CHƯƠNG ĐÃ VIẾT GẦN ARC NÀY]
 ${nearbyHistory || "Chưa có chương đã viết trong vùng này."}
-
-Hãy lập bản đồ chi tiết cho đúng các chương ${start}-${end}.
+${continuity ? `
+[BẢN ĐỒ CÁC CHƯƠNG LIỀN TRƯỚC TRONG CÙNG ARC — GIỮ NỐI TIẾP, KHÔNG LẬP LẠI]
+${continuity}
+` : ""}
+Hãy lập bản đồ chi tiết cho đúng các chương ${winStart}-${winEnd}.
 Yêu cầu:
 - Bản đồ chương phải tuân thủ hồ sơ thiết lập: giọng văn "${params.tone}" ảnh hưởng nhịp và loại cảnh; kết cấu "${params.mode}" ảnh hưởng cách gieo/trả; tính cách "${params.character.personality || "chưa mô tả"}" phải xuất hiện thành lựa chọn/sai lầm/hành vi; các thể loại ${params.genres.join(", ") || "Tự do"} phải được triển khai thành biến cố cụ thể.
 - Chỉ dùng dữ kiện của tác phẩm hiện tại: hồ sơ, hướng truyện, Đại cục, Thiên Cơ Lục, Arc hiện tại và các chương đã viết. Không mượn tên chương, tên Arc, địa danh, thế lực hoặc sự kiện từ truyện khác.
 - Đoạn "Nội dung bắt buộc của Arc" là xương sống bắt buộc. Chia các chương thành từng lát cắt cụ thể đi từ tình thế mở, các biến cố chính, lực cản, lựa chọn/kết quả, biến chuyển cuối đến móc nối sang Arc sau; không được chỉ rải đều số chương.
 - Mỗi title/summary/objective phải cho thấy chương đó phục vụ phần nào của nội dung bắt buộc này. Không dùng câu mẫu chung như "dùng một cảnh quyết định", "giữ đúng tính cách", "không giải quyết mâu thuẫn trung tâm quá sớm", "mở cảnh bằng áp lực cụ thể" làm tên hoặc tóm tắt chương.
 - Nếu nội dung bắt buộc của Arc có nhiều tầng, chapter đầu phải mở đúng tình thế, chapter giữa phải tạo biến cố và lực cản mới, chapter cuối phải đổi trạng thái và để lại móc nối; không gom toàn bộ ý đồ vào một chương rồi lặp lại ở các chương sau.
-- Trả đúng ${chapterCount} chapter object, index liên tục từ ${start} đến ${end}; không thiếu, không trùng.
+- Trả đúng ${winCount} chapter object, index liên tục từ ${winStart} đến ${winEnd}; không thiếu, không trùng.
 - Mỗi chương chỉ là kế hoạch, chưa viết văn xuôi.
 - Mỗi chương có title, summary, objective, đúng 3 beats dạng cảnh, 2 mustInclude, cliffhanger là thay đổi cuối chương/lực kéo sang chương sau, targetWords=${params.length}, pacing là năng lượng cảm xúc chủ đạo của chương.
 - Title của từng chương phải là tên biến cố riêng 3-8 từ, không được bắt đầu bằng "Chương", "C.", "Chapter", không được lặp tên Arc, không được lặp title của chương khác. Ví dụ đúng: "Đêm Mưa Định Mệnh", "Tên Gọi Bên Bờ Nước", "Dấu Bùn Trên Áo Vải", "Lời Dặn Cấm Kỵ". Ví dụ sai: "Chương 2: Đứa trẻ của dòng nước", "Khai cục", "Đứa trẻ của dòng nước" lặp nhiều lần.
@@ -2830,7 +2872,7 @@ Trả về JSON:
 {
   "chapters": [
     {
-      "index": ${start},
+      "index": ${winStart},
       "title": "tên chương",
       "summary": "tóm tắt chương",
       "objective": "mục tiêu chương",
@@ -2842,34 +2884,75 @@ Trả về JSON:
     }
   ]
 }`;
+  };
 
-  let data: AnyRecord;
-  try {
-    data = await chatJson(WRITE_MODEL, SYSTEM_INSTRUCTION_CHAPTER_PLAN, prompt, 0.32, DEFAULT_MAX_OUTPUT_TOKENS, "writer");
-    data = await finalizeStructuredDraft(
-      params,
-      `Bản đồ chương cho Arc ${currentArc.index}: ${currentArc.title}`,
-      `Phạm vi bắt buộc: chương ${start}-${end}, đúng ${chapterCount} chương. Mỗi chương cần mục tiêu, beat cảnh, mustInclude và mốc nối.`,
-      data,
-      `{
+  // Ke hoach nao AI khong tra ve (bi normalizeChapterPlans lap bang mau chung) bi danh dau
+  // planFallback de UI khong dem la "ban do that" va luong viet se lap lai khi toi Arc do.
+  const markFallbackPlans = (rawData: AnyRecord, chapters: Chapter[], from: number, to: number): Chapter[] => {
+    const rawList = Array.isArray(rawData) ? rawData : Array.isArray(rawData?.chapters) ? rawData.chapters : [];
+    const rawIndexes = new Set(rawList.map((chapter: AnyRecord) => Number(chapter?.index)).filter(index => Number.isFinite(index)));
+    return chapters.map(chapter => (chapter.index >= from && chapter.index <= to && !rawIndexes.has(chapter.index) ? { ...chapter, planFallback: true } : chapter));
+  };
+
+  // Arc nho (<= 12 chuong): mot call + finalize nhu truoc — khong doi hanh vi da kiem chung.
+  if (chapterCount <= 12) {
+    let data: AnyRecord;
+    try {
+      data = await chatJson(WRITE_MODEL, SYSTEM_INSTRUCTION_CHAPTER_PLAN, buildPrompt(start, end, ""), 0.32, DEFAULT_MAX_OUTPUT_TOKENS, "writer");
+      data = await finalizeStructuredDraft(
+        params,
+        `Bản đồ chương cho Arc ${currentArc.index}: ${currentArc.title}`,
+        `Phạm vi bắt buộc: chương ${start}-${end}, đúng ${chapterCount} chương. Mỗi chương cần mục tiêu, beat cảnh, mustInclude và mốc nối.`,
+        data,
+        `{
   "chapters": [
     { "index": ${start}, "title": "tên chương riêng 3-8 từ, gắn với biến cố", "summary": "tóm tắt biến cố và kết quả riêng", "objective": "mục tiêu", "beats": ["beat 1", "beat 2", "beat 3"], "mustInclude": ["chi tiết 1", "chi tiết 2"], "cliffhanger": "móc nối", "targetWords": ${params.length}, "pacing": "nhịp độ" }
   ]
 }`,
-    );
-  } catch (error) {
-    if (!isAIJsonFormatError(error)) throw error;
-    console.warn("AI trả bản đồ chương không đúng JSON, dùng bản đồ chương dự phòng:", error);
-    data = { chapters: [] };
+      );
+    } catch (error) {
+      if (!isAIJsonFormatError(error)) throw error;
+      console.warn("AI trả bản đồ chương không đúng JSON, dùng bản đồ chương dự phòng:", error);
+      data = { chapters: [] };
+      return {
+        ...currentArc,
+        degraded: true,
+        chapters: normalizeChapterPlans(data, params, currentArc).map(chapter => ({ ...chapter, planFallback: true })),
+      };
+    }
     return {
       ...currentArc,
-      degraded: true,
-      chapters: normalizeChapterPlans(data, params, currentArc),
+      chapters: markFallbackPlans(data, normalizeChapterPlans(data, params, currentArc), start, end),
     };
   }
+
+  // Arc lon: chia cua so <= 12 chuong/call. Mot call cho ca Arc chi chua ~25-35 plan truoc khi
+  // tran output cat JSON — phan thieu bi lap mau lang le. Moi cua so noi tiep bang 3 ke hoach
+  // cuoi cua cua so truoc; cua so loi JSON bi danh dau degraded qua planFallback thay vi gia vo.
+  const WINDOW_SIZE = 12;
+  const mergedRawChapters: AnyRecord[] = [];
+  let continuity = "";
+  for (let winStart = start; winStart <= end; winStart += WINDOW_SIZE) {
+    const winEnd = Math.min(end, winStart + WINDOW_SIZE - 1);
+    let winData: AnyRecord;
+    try {
+      winData = await chatJson(WRITE_MODEL, SYSTEM_INSTRUCTION_CHAPTER_PLAN, buildPrompt(winStart, winEnd, continuity), 0.32, DEFAULT_MAX_OUTPUT_TOKENS, "writer");
+    } catch (error) {
+      if (!isAIJsonFormatError(error)) throw error;
+      console.warn(`AI trả bản đồ chương không đúng JSON ở cửa sổ ${winStart}-${winEnd}; cửa sổ này sẽ bị đánh dấu là kế hoạch mẫu:`, error);
+      winData = { chapters: [] };
+    }
+    const winRawList = Array.isArray(winData?.chapters) ? winData.chapters : [];
+    mergedRawChapters.push(...winRawList);
+    const winPlans = normalizeChapterPlans(winData, params, { ...currentArc, chapterStart: winStart, chapterEnd: winEnd });
+    continuity = winPlans.slice(-3).map(chapter => `[C.${chapter.index}] ${chapter.title}: ${chapter.objective || chapter.summary}`).join("\n");
+  }
+  const chapters = markFallbackPlans({ chapters: mergedRawChapters }, normalizeChapterPlans({ chapters: mergedRawChapters }, params, currentArc), start, end);
+  const allFallback = chapters.length > 0 && chapters.every(chapter => chapter.planFallback);
   return {
     ...currentArc,
-    chapters: normalizeChapterPlans(data, params, currentArc),
+    ...(allFallback ? { degraded: true } : {}),
+    chapters,
   };
 };
 

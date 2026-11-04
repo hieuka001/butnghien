@@ -6,7 +6,8 @@ import {
   generateChapterStream, 
   rewriteChapterWithReviewStream,
   updateWorldBibleAndSummary,
-  detectDraftRepetition, 
+  detectDraftRepetition,
+  refreshGeneralSummary, 
   generateShortStoryStream,
   generateStoryDirectionChoices,
   validateChapterLogic,
@@ -21,8 +22,12 @@ import {
   replaceAllProjectsInDb,
   saveProjectToDb,
 } from './services/databaseService';
+import { readLocalTombstones, persistLocalTombstones, writeLocalTombstone, clearLocalTombstone, applyTombstones, TombstoneMap } from './services/tombstoneStore';
 import {
   deleteProjectFromFirebase,
+  loadDeletedProjectIdsFromFirebase,
+  recordDeletedProjectOnFirebase,
+  clearDeletedProjectOnFirebase,
   type FirebaseAuthUser,
   getFirebaseProjectId,
   getStoredFirebaseUser,
@@ -136,7 +141,7 @@ const App: React.FC = () => {
   const [view, setView] = useState<'editor' | 'outline' | 'manuscript' | 'setup' | 'directions' | 'my-stories' | 'bible'>('setup');
   const volumesRef = useRef<Volume[]>([]);
   const writtenChaptersRef = useRef<Chapter[]>([]);
-  const tombstonedProjectIdsRef = useRef<Set<string>>(new Set());
+  const tombstonesRef = useRef<TombstoneMap>(readLocalTombstones());
   const lastPushedRef = useRef<Map<string, number>>(new Map());
   const cloudLoadFailedRef = useRef(false);
   useEffect(() => { volumesRef.current = volumes; }, [volumes]);
@@ -203,7 +208,15 @@ const App: React.FC = () => {
             if (cancelled) return;
             const firebaseProjects = detailed.projects.map(normalizeProjectRecord);
             const localProjects = (await loadProjectsFromDb()).map(normalizeProjectRecord);
-            const mergedProjects = mergeProjectsByUpdatedAt(localProjects, firebaseProjects);
+            try {
+              const cloudTombstones = await loadDeletedProjectIdsFromFirebase();
+              Object.entries(cloudTombstones).forEach(([id, ts]) => {
+                const time = Number(ts) || 0;
+                if (time > (tombstonesRef.current[id] || 0)) tombstonesRef.current[id] = time;
+              });
+              persistLocalTombstones(tombstonesRef.current);
+            } catch { /* tombstone cloud la lop phu — loi thi dung ban local */ }
+            const mergedProjects = applyTombstones(mergeProjectsByUpdatedAt(localProjects, firebaseProjects), tombstonesRef.current);
             cloudLoadFailedRef.current = false;
             mergedProjects.forEach(project => {
               const cloudVersion = firebaseProjects.find(item => item.id === project.id);
@@ -232,7 +245,7 @@ const App: React.FC = () => {
           }
         }
 
-        const dbProjects = (await loadProjectsFromDb()).map(normalizeProjectRecord);
+        const dbProjects = applyTombstones((await loadProjectsFromDb()).map(normalizeProjectRecord), tombstonesRef.current);
         if (cancelled) return;
 
         if (dbProjects.length > 0) {
@@ -296,7 +309,7 @@ const App: React.FC = () => {
     }
 
     const dirtyProjects = projects.filter(project =>
-      !tombstonedProjectIdsRef.current.has(project.id)
+      !((tombstonesRef.current[project.id] || 0) >= (project.updatedAt || 0) && tombstonesRef.current[project.id] > 0)
       && lastPushedRef.current.get(project.id) !== project.updatedAt
     );
     if (dirtyProjects.length === 0) {
@@ -461,6 +474,11 @@ const App: React.FC = () => {
   };
 
   const handleSignOut = () => {
+    const unsyncedCount = projects.filter(project => (lastPushedRef.current.get(project.id) || 0) !== (project.updatedAt || 0)).length;
+    if (cloudLoadFailedRef.current || unsyncedCount > 0) {
+      const proceed = window.confirm(`Còn ${unsyncedCount} tác phẩm chưa đồng bộ lên Firebase${cloudLoadFailedRef.current ? ' (và lần tải cloud gần nhất bị lỗi)' : ''}. Đăng xuất sẽ XÓA bản lưu trong máy này — phần chưa đồng bộ sẽ mất hẳn. Hãy xuất JSON sao lưu trước khi đăng xuất. Vẫn đăng xuất?`);
+      if (!proceed) return;
+    }
     signOutFromFirebase();
     localStorage.removeItem('but-nghien-v19-store');
     replaceAllProjectsInDb([]).catch(error => console.error('Không xóa được cache IndexedDB:', error));
@@ -725,7 +743,7 @@ const App: React.FC = () => {
     const chaptersByIndex = new Map((volume.chapters || []).map(chapter => [chapter.index, chapter]));
     for (let index = range.start; index <= range.end; index++) {
       const chapter = chaptersByIndex.get(index);
-      if (!chapter?.objective || !(chapter.beats || []).length) return false;
+      if (!chapter?.objective || chapter.planFallback || !(chapter.beats || []).length) return false;
     }
     return true;
   };
@@ -740,11 +758,12 @@ const App: React.FC = () => {
   const activeProject = projects.find(project => project.id === activeProjectId);
   const plannedChapters = sortChapters(volumes.flatMap(volume => volume.chapters || []));
   const generatedChapterPlanCount = plannedChapters.length;
+  const fallbackPlanCount = plannedChapters.filter(chapter => chapter.planFallback).length;
   const plannedChapterIndexes = new Set<number>();
   volumes.forEach(volume => {
     // Do phu lo trinh bang ban do chuong THAT (co objective), khong con lap day theo khoang Arc.
     (volume.chapters || []).forEach(chapter => {
-      if (chapter.objective) plannedChapterIndexes.add(chapter.index);
+      if (chapter.objective && !chapter.planFallback) plannedChapterIndexes.add(chapter.index);
     });
   });
   const writtenChapterIndexes = new Set(writtenChapters.map(chapter => chapter.index));
@@ -1241,15 +1260,36 @@ const App: React.FC = () => {
       return v;
     });
 
-    writtenChaptersRef.current = nextWrittenList;
-    volumesRef.current = updatedVolumes;
-    setWrittenChapters(nextWrittenList);
+    // Tia bibleSnapshot: moi chuong mang mot ban bible day du (~17-20k ky tu) lam payload phinh
+    // theo cap so nhan (sach 1.000 chuong ~ 20M ky tu chi rieng snapshot). Chi giu snapshot o:
+    // chuong vua luu, chuong viet moi nhat + chuong lien truoc, chuong cuoi moi Arc da viet va
+    // chuong dang cho cap nhat bible (can lam base cho nut chay lai). Rollback khi xoa chuong
+    // dung snapshot moc gan nhat phia truoc — van dung ham tim san co trong handleDeleteChapter.
+    const keepSnapshotIndexes = new Set<number>([newChapter.index]);
+    const sortedWrittenIndexes = nextWrittenList.map(chapter => chapter.index).sort((x, y) => x - y);
+    if (sortedWrittenIndexes.length) {
+      keepSnapshotIndexes.add(sortedWrittenIndexes[sortedWrittenIndexes.length - 1]);
+      if (sortedWrittenIndexes.length > 1) keepSnapshotIndexes.add(sortedWrittenIndexes[sortedWrittenIndexes.length - 2]);
+    }
+    nextWrittenList.forEach(chapter => { if (chapter.biblePending) keepSnapshotIndexes.add(chapter.index); });
+    updatedVolumes.forEach(volume => {
+      const writtenInArc = (volume.chapters || []).filter(chapter => chapter.content).map(chapter => chapter.index);
+      if (writtenInArc.length) keepSnapshotIndexes.add(Math.max(...writtenInArc));
+    });
+    const pruneSnapshot = (chapter: Chapter): Chapter =>
+      chapter.bibleSnapshot && !keepSnapshotIndexes.has(chapter.index) ? { ...chapter, bibleSnapshot: undefined } : chapter;
+    const prunedWrittenList = nextWrittenList.map(pruneSnapshot);
+    const prunedVolumes = updatedVolumes.map(volume => ({ ...volume, chapters: (volume.chapters || []).map(pruneSnapshot) }));
+
+    writtenChaptersRef.current = prunedWrittenList;
+    volumesRef.current = prunedVolumes;
+    setWrittenChapters(prunedWrittenList);
     setWorldBible(updates.updatedBible);
     setStory(actualText);
-    setVolumes(updatedVolumes);
+    setVolumes(prunedVolumes);
     clearDraftPipeline();
     setProjects(prevProjects => prevProjects.map(p => p.id === activeProjectId
-      ? { ...p, volumes: updatedVolumes, progressionSummary: updates.updatedBible, lastChapterWritten: Math.max(0, ...nextWrittenList.map(chapter => chapter.index)), updatedAt: Date.now() }
+      ? { ...p, volumes: prunedVolumes, progressionSummary: updates.updatedBible, lastChapterWritten: Math.max(0, ...prunedWrittenList.map(chapter => chapter.index)), updatedAt: Date.now() }
       : p
     ));
     if (bibleUpdateError) {
@@ -1731,13 +1771,13 @@ const App: React.FC = () => {
   const handleAddNextArc = async () => {
     if (isGenerating || isGeneratingOutline) return;
     if (getConfiguredGeminiKeyCount() === 0) return alert('Chưa có Gemini key khả dụng. Hãy kiểm tra các biến GEMINI_API_KEY_* trên Vercel rồi redeploy hoặc khởi động lại server.');
-    // FIX: truoc day nut nay tu y mo rong tong so chuong vuot qua thiet lap da khoa cua nguoi dung
-    // (test live: sach 3 chuong bi doi thanh 8 chuong). Lo trinh da phu du so chuong thi khong
-    // sinh Arc vuot nua; muon viet dai hon phai tang So chuong trong ho so truoc.
+    // Mo rong vuot ke hoach la tinh nang co chu dich (generateNextArc co nhanh extension rieng),
+    // nhung khong duoc lang le nhu truoc (test live: sach 3 chuong tu doi thanh 8 chuong).
+    // Lo trinh da phu du so chuong thi hoi xac nhan ro rang truoc khi mo rong.
     const coveredChapterEnd = volumes.reduce((max, volume) => Math.max(max, volume.chapterEnd || 0), 0);
     if (coveredChapterEnd >= params.totalChapters) {
-      alert(`Lộ trình hiện tại đã phủ đủ ${params.totalChapters} chương theo thiết lập. Muốn viết dài hơn, hãy tăng Số chương trong hồ sơ truyện trước.`);
-      return;
+      const confirmed = window.confirm(`Lộ trình hiện tại đã phủ đủ ${params.totalChapters} chương theo thiết lập. Thêm Arc mới sẽ MỞ RỘNG sách vượt kế hoạch ban đầu — tổng số chương sẽ tăng theo Arc mới. Tiếp tục?`);
+      if (!confirmed) return;
     }
     setIsGeneratingOutline(true);
     setGenerationStatus('Đang lập Arc mở rộng dựa trên Đại cục và Thiên Cơ Lục...');
@@ -1750,7 +1790,19 @@ const App: React.FC = () => {
       const updatedVolumes = [...volumes, nextVol];
       if (nextParams !== params) setParams(nextParams);
       setVolumes(updatedVolumes);
-      setProjects(prev => prev.map(p => p.id === activeProjectId ? { ...p, params: nextParams, volumes: updatedVolumes, updatedAt: Date.now() } : p));
+      // Dai cuoc dung yen tu luc tao trong khi Thien Co Luc va ban thao tien hoa — moi lan sang
+      // Arc moi, lam moi Dai cuc tu bible hien tai + dien tien da viet (loi thi giu ban cu).
+      let refreshedSummary = '';
+      if (writtenChapters.length > 0) {
+        try {
+          refreshedSummary = await refreshGeneralSummary(nextParams, worldBible, updatedVolumes, writtenChapters, generalSummary);
+        } catch { refreshedSummary = ''; }
+      }
+      if (refreshedSummary && refreshedSummary !== generalSummary) {
+        setGeneralSummary(refreshedSummary);
+        setCloudStatus('Đã làm mới Đại cục theo Thiên Cơ Lục và diễn tiến đã viết.');
+      }
+      setProjects(prev => prev.map(p => p.id === activeProjectId ? { ...p, params: nextParams, volumes: updatedVolumes, ...(refreshedSummary ? { generalSummary: refreshedSummary } : {}), updatedAt: Date.now() } : p));
     } catch (e) { console.error(e); alert(friendlyError(e)); }
     finally { setIsGeneratingOutline(false); setGenerationStatus(''); }
   };
@@ -1899,7 +1951,9 @@ const App: React.FC = () => {
   const handleDeleteProject = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (window.confirm("⚠️ Bạn có chắc chắn muốn xóa vĩnh viễn tác phẩm này khỏi Tàng Thư local và Firebase?")) {
-      tombstonedProjectIdsRef.current.add(id);
+      tombstonesRef.current[id] = Date.now();
+      writeLocalTombstone(id);
+      void recordDeletedProjectOnFirebase(id).catch(() => undefined);
       lastPushedRef.current.delete(id);
       void Promise.allSettled([deleteProjectFromDb(id), deleteProjectFromFirebase(id)]).then(results => {
         if (results.some(result => result.status === 'rejected')) {
@@ -2471,7 +2525,7 @@ const App: React.FC = () => {
                     </h3>
                     <p className="text-sm text-stone-700 mt-1">
                       {hasRoadmapReady
-                        ? `Đã khóa bản đồ chi tiết cho ${plannedChapterIndexes.size}/${params.totalChapters} chương trong ${volumes.length} Arc.${missingChapterIndexes.length > 0 ? ` ${missingChapterIndexes.length} chương còn lại sẽ được lập bản đồ tự động khi bắt đầu viết Arc tương ứng.` : ''} Chương kế tiếp nên viết: ${(firstUnwrittenChapterIndex || firstUnwrittenPlan) ? `C.${firstUnwrittenChapterIndex || firstUnwrittenPlan?.index}${firstUnwrittenPlan ? ` - ${firstUnwrittenPlan.title}` : ''}` : 'lộ trình đã hoàn tất'}.`
+                        ? `Đã khóa bản đồ chi tiết cho ${plannedChapterIndexes.size}/${params.totalChapters} chương trong ${volumes.length} Arc.${missingChapterIndexes.length > 0 ? ` ${missingChapterIndexes.length} chương còn lại sẽ được lập bản đồ tự động khi bắt đầu viết Arc tương ứng.` : ''}${fallbackPlanCount > 0 ? ` Có ${fallbackPlanCount} kế hoạch đang là mẫu tự lấp do AI trả thiếu — sẽ được lập lại khi viết tới Arc tương ứng.` : ''} Chương kế tiếp nên viết: ${(firstUnwrittenChapterIndex || firstUnwrittenPlan) ? `C.${firstUnwrittenChapterIndex || firstUnwrittenPlan?.index}${firstUnwrittenPlan ? ` - ${firstUnwrittenPlan.title}` : ''}` : 'lộ trình đã hoàn tất'}.`
                         : roadmapIssues.join(' ')}
                     </p>
                   </div>
@@ -2625,6 +2679,11 @@ const App: React.FC = () => {
                       const imported = JSON.parse(ev.target?.result as string);
                       if (!isStoryProject(imported)) throw new Error('Không phải file dự án Bút Nghiên.');
                       const normalizedImport = normalizeProjectRecord(imported);
+                      if (tombstonesRef.current[normalizedImport.id]) {
+                        delete tombstonesRef.current[normalizedImport.id];
+                        clearLocalTombstone(normalizedImport.id);
+                        void clearDeletedProjectOnFirebase(normalizedImport.id).catch(() => undefined);
+                      }
                       setProjects(prev => {
                           const existing = prev.find(p => p.id === normalizedImport.id);
                           if (existing) {

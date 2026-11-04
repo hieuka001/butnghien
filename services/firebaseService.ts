@@ -253,6 +253,10 @@ export const saveProjectToFirebase = async (project: StoryProject): Promise<void
   const payload = JSON.stringify(project);
   const chunks = chunkText(payload);
   const updatedAt = Date.now();
+  // saveId gan ca meta lan tung chunk cua MOT luot luu: hai thiet bi luu cung luc co the ghi
+  // chunk xen ke (saveChain chi noi tiep trong mot thiet bi). Khi nap, bo chunk khong cung
+  // saveId voi meta se bi tu choi thay vi ghep thanh payload lai lam hong JSON.
+  const saveId = `${updatedAt}-${Math.random().toString(36).slice(2, 10)}`;
 
   // Doc chunkCount cu de don chunk thua khi project ngan lai (tranh rac Firestore).
   let previousChunkCount = 0;
@@ -268,6 +272,7 @@ export const saveProjectToFirebase = async (project: StoryProject): Promise<void
         fields: {
           index: integerField(index),
           content: stringField(chunk),
+          saveId: stringField(saveId),
           updatedAt: timestampField(updatedAt),
         },
       }),
@@ -284,6 +289,7 @@ export const saveProjectToFirebase = async (project: StoryProject): Promise<void
         genres: stringField((project.params?.genres || []).join(", ")),
         generalSummary: stringField((project.generalSummary || "").slice(0, 1200)),
         chunkCount: integerField(chunks.length),
+        saveId: stringField(saveId),
         lastChapterWritten: integerField(project.lastChapterWritten || 0),
         createdAtMs: integerField(project.createdAt || updatedAt),
         updatedAtMs: integerField(updatedAt),
@@ -322,12 +328,20 @@ const loadProjectPayload = async (projectDoc: FirestoreDocument): Promise<StoryP
   const chunkCount = readInteger(projectDoc, "chunkCount", 0);
   if (!id || chunkCount <= 0) return null;
 
+  const metaSaveId = readString(projectDoc, "saveId");
   const basePath = await projectBasePath(id);
   const parts: string[] = new Array(chunkCount).fill("");
+  let mixedChunks = false;
   await mapPool(Array.from({ length: chunkCount }, (_, i) => i), 6, async (index) => {
     const chunkDoc = await firestoreFetch<FirestoreDocument>(`${basePath}/chunks/${String(index).padStart(4, "0")}`);
     parts[index] = readString(chunkDoc, "content");
+    // Doc cu (truoc khi co saveId) khong co truong nay ca meta lan chunk — chi doi chieu khi
+    // meta CO saveId. Chunk lech saveId = bo chunk bi tron hai luot luu -> tu choi nap.
+    if (metaSaveId && readString(chunkDoc, "saveId") !== metaSaveId) mixedChunks = true;
   });
+  if (mixedChunks) {
+    throw new Error("Chunk của tác phẩm thuộc nhiều lượt lưu khác nhau (nghi trộn chunk giữa hai thiết bị) — giữ bản local, không nạp bản lai.");
+  }
 
   const payload = parts.join("");
   return payload ? JSON.parse(payload) as StoryProject : null;
@@ -383,4 +397,63 @@ export const deleteProjectFromFirebase = async (projectId: string): Promise<void
     });
     pageToken = chunks?.nextPageToken || "";
   } while (pageToken);
+};
+
+// ===== Tombstone xoa du an tren cloud =====
+// Luu o users/{uid}/meta/tombstones (firestore.rules owner-only bao phu duong nay) de moi
+// thiet bi cung thay mot lan xoa, thay vi tombstone chi song trong RAM cua phien da xoa.
+const tombstonesPath = async () => {
+  const session = await getSession();
+  return `users/${session.localId}/meta/tombstones`;
+};
+
+const TOMBSTONE_CLOUD_TTL_MS = 30 * 24 * 3600 * 1000;
+
+const pruneCloudTombstones = (map: Record<string, number>): Record<string, number> => {
+  const cutoff = Date.now() - TOMBSTONE_CLOUD_TTL_MS;
+  const next: Record<string, number> = {};
+  Object.entries(map || {}).forEach(([id, ts]) => {
+    const time = Number(ts) || 0;
+    if (id && time >= cutoff) next[id] = time;
+  });
+  return next;
+};
+
+export const loadDeletedProjectIdsFromFirebase = async (): Promise<Record<string, number>> => {
+  if (!isFirebaseConfigured()) return {};
+  const doc = await firestoreFetch<FirestoreDocument>(await tombstonesPath());
+  if (!doc) return {};
+  try {
+    const parsed = JSON.parse(readString(doc, "deletedJson", "{}") || "{}");
+    return pruneCloudTombstones(parsed && typeof parsed === "object" ? parsed : {});
+  } catch {
+    return {};
+  }
+};
+
+const writeCloudTombstones = async (map: Record<string, number>): Promise<void> => {
+  await firestoreFetch(await tombstonesPath(), {
+    method: "PATCH",
+    body: JSON.stringify({
+      fields: {
+        deletedJson: stringField(JSON.stringify(pruneCloudTombstones(map))),
+        updatedAt: timestampField(Date.now()),
+      },
+    }),
+  });
+};
+
+export const recordDeletedProjectOnFirebase = async (projectId: string): Promise<void> => {
+  if (!isFirebaseConfigured()) return;
+  const existing = await loadDeletedProjectIdsFromFirebase().catch(() => ({} as Record<string, number>));
+  existing[projectId] = Date.now();
+  await writeCloudTombstones(existing);
+};
+
+export const clearDeletedProjectOnFirebase = async (projectId: string): Promise<void> => {
+  if (!isFirebaseConfigured()) return;
+  const existing = await loadDeletedProjectIdsFromFirebase().catch(() => ({} as Record<string, number>));
+  if (!existing[projectId]) return;
+  delete existing[projectId];
+  await writeCloudTombstones(existing);
 };
