@@ -1875,35 +1875,40 @@ const App: React.FC = () => {
 
   if (isFirebaseConfigured() && !authUser) {
     return (
-      <div className="min-h-screen bg-[#f8f5f2] text-stone-900 flex items-center justify-center p-6 bg-[url('https://www.transparenttextures.com/patterns/paper.png')]">
+      <div className="login-scene min-h-screen text-white flex items-center justify-center p-6">
         <section className="w-full max-w-5xl grid lg:grid-cols-[1fr_0.9fr] gap-6 items-stretch">
-          <div className="bg-white border border-stone-100 rounded-[2rem] p-8 md:p-12 shadow-xl flex flex-col justify-center">
-            <span className="inline-flex w-fit px-3 py-1 bg-amber-50 text-orange-700 rounded-full text-[9px] font-black uppercase tracking-widest mb-6">Không gian riêng</span>
-            <h1 className="story-font text-4xl md:text-6xl font-black italic leading-tight mb-4">
-              Bút Nghiên <span className="text-orange-700 not-italic">Thiên Cơ</span>
-            </h1>
-            <p className="story-font text-lg text-stone-500 leading-relaxed">
-              Đăng nhập để mở Tàng Thư, dữ liệu Firebase và bàn viết của bạn.
-            </p>
-            <div className="grid sm:grid-cols-3 gap-3 mt-8">
-              <div className="p-4 bg-stone-50 border border-stone-100 rounded-2xl">
-                <span className="block text-[8px] font-black uppercase text-stone-400">Firebase</span>
-                <strong className="text-xs font-black text-stone-800">{getFirebaseProjectId()}</strong>
-              </div>
-              <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-2xl">
-                <span className="block text-[8px] font-black uppercase text-emerald-700">Bảo mật</span>
-                <strong className="text-xs font-black text-emerald-900">Email / mật khẩu</strong>
-              </div>
-              <div className="p-4 bg-amber-50 border border-amber-100 rounded-2xl">
-                <span className="block text-[8px] font-black uppercase text-orange-600">Dữ liệu</span>
-                <strong className="text-xs font-black text-stone-900">Theo tài khoản</strong>
+          <div className="relative overflow-hidden rounded-[2rem] shadow-2xl flex flex-col justify-end min-h-[440px] ring-1 ring-white/25">
+            <img src="/img/xianxia-hero.webp" alt="Bút lông chấm vào nghiên mực ngọc phát sáng, khói mực vàng bay lên thành nét chữ giữa cảnh tiên hiệp" className="absolute inset-0 w-full h-full object-cover" />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#03211a]/90 via-[#03211a]/20 to-transparent"></div>
+            <div className="relative p-8 md:p-12">
+              <span className="inline-flex w-fit px-3 py-1 bg-white/10 border border-amber-200/40 text-amber-200 rounded-full text-[9px] font-black uppercase tracking-widest mb-6 backdrop-blur-md">Không gian riêng</span>
+              <h1 className="story-font text-4xl md:text-6xl font-black italic leading-tight mb-4 text-white drop-shadow-[0_4px_24px_rgba(0,0,0,0.55)]">
+                Bút Nghiên <span className="text-amber-300 not-italic">Thiên Cơ</span>
+              </h1>
+              <p className="story-font text-lg text-teal-50/85 leading-relaxed">
+                Đăng nhập để mở Tàng Thư, dữ liệu Firebase và bàn viết của bạn.
+              </p>
+              <div className="grid sm:grid-cols-3 gap-3 mt-8">
+                <div className="p-4 bg-white/10 border border-white/20 rounded-2xl backdrop-blur-md">
+                  <span className="block text-[8px] font-black uppercase text-amber-200/80">Firebase</span>
+                  <strong className="text-xs font-black text-white">{getFirebaseProjectId()}</strong>
+                </div>
+                <div className="p-4 bg-white/10 border border-white/20 rounded-2xl backdrop-blur-md">
+                  <span className="block text-[8px] font-black uppercase text-amber-200/80">Bảo mật</span>
+                  <strong className="text-xs font-black text-white">Email / mật khẩu</strong>
+                </div>
+                <div className="p-4 bg-white/10 border border-white/20 rounded-2xl backdrop-blur-md">
+                  <span className="block text-[8px] font-black uppercase text-amber-200/80">Dữ liệu</span>
+                  <strong className="text-xs font-black text-white">Theo tài khoản</strong>
+                </div>
               </div>
             </div>
           </div>
 
-          <form onSubmit={handleSignIn} className="bg-stone-950 text-white rounded-[2rem] p-6 md:p-8 shadow-2xl flex flex-col justify-center gap-5">
+          <form onSubmit={handleSignIn} className="bg-[#03211a]/60 backdrop-blur-2xl border border-white/15 text-white rounded-[2rem] p-6 md:p-8 shadow-[0_30px_80px_rgba(0,0,0,0.5)] flex flex-col justify-center gap-5">
             <div>
-              <span className="text-[9px] font-black uppercase text-emerald-300 tracking-widest">Đăng nhập</span>
+              <img src="/img/emblem-trim.webp" alt="Biểu tượng bút và nghiên mực" className="w-14 h-14 rounded-2xl object-cover ring-1 ring-amber-200/50 shadow-lg shadow-black/40 mb-4" />
+              <span className="text-[9px] font-black uppercase text-amber-300 tracking-widest">Đăng nhập</span>
               <h2 className="text-2xl font-black story-font mt-2">Chỉ tài khoản được cấp mới vào được app</h2>
             </div>
             <label className="space-y-2">
@@ -1913,7 +1918,7 @@ const App: React.FC = () => {
                 value={loginEmail}
                 onChange={event => setLoginEmail(event.target.value)}
                 autoComplete="email"
-                className="w-full p-4 rounded-2xl bg-white/10 border border-white/10 text-white outline-none focus:ring-2 focus:ring-orange-300"
+                className="w-full p-4 rounded-2xl bg-white/10 border border-white/10 text-white outline-none focus:ring-2 focus:ring-amber-300"
                 placeholder="ban@example.com"
               />
             </label>
@@ -1924,7 +1929,7 @@ const App: React.FC = () => {
                 value={loginPassword}
                 onChange={event => setLoginPassword(event.target.value)}
                 autoComplete="current-password"
-                className="w-full p-4 rounded-2xl bg-white/10 border border-white/10 text-white outline-none focus:ring-2 focus:ring-orange-300"
+                className="w-full p-4 rounded-2xl bg-white/10 border border-white/10 text-white outline-none focus:ring-2 focus:ring-amber-300"
                 placeholder="Mật khẩu Firebase"
               />
             </label>
@@ -1936,7 +1941,7 @@ const App: React.FC = () => {
             <button
               type="submit"
               disabled={isSigningIn}
-              className="w-full py-4 bg-orange-300 text-stone-950 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-white transition-all disabled:opacity-50"
+              className="w-full py-4 bg-gradient-to-r from-amber-200 via-amber-400 to-amber-200 text-stone-950 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-amber-500/25 hover:brightness-110 transition-all disabled:opacity-50"
             >
               {isSigningIn ? 'Đang kiểm tra...' : 'Mở Bút Nghiên'}
             </button>
@@ -1953,7 +1958,7 @@ const App: React.FC = () => {
     <div className="app-shell flex flex-col md:flex-row h-screen overflow-hidden text-stone-800 font-sans">
       <aside className="control-panel w-full md:w-[360px] max-h-[48vh] md:max-h-none border-b md:border-b-0 p-4 md:p-5 flex flex-col gap-4 shrink-0 z-20 overflow-y-auto custom-scrollbar">
         <div className="flex items-center gap-3 pb-4 border-b">
-          <div className="w-10 h-10 bg-orange-700 text-white rounded-xl flex items-center justify-center font-black italic shadow-lg shadow-orange-700/25">BN</div>
+          <img src="/img/emblem-trim.webp" alt="Bút Nghiên" className="w-10 h-10 rounded-xl object-cover ring-1 ring-amber-300/60 shadow-lg shadow-teal-950/30" />
           <h1 onClick={() => setView('setup')} className="text-xl font-black text-stone-900 cursor-pointer italic hover:text-orange-600 transition-all">Bút Nghiên AI</h1>
         </div>
         {isFirebaseConfigured() && authUser && (
@@ -1981,7 +1986,7 @@ const App: React.FC = () => {
             <span className="text-[9px] font-bold text-stone-500 line-clamp-2">{cloudStatus}</span>
           </div>
         </div>
-        <div className="p-4 bg-stone-950 text-white rounded-lg shadow-sm space-y-3">
+        <div className="p-4 bg-[#052e26]/85 backdrop-blur-xl border border-amber-200/20 text-white rounded-lg shadow-lg shadow-teal-950/30 space-y-3">
           <div className="flex items-center justify-between gap-3">
             <div>
               <span className="block text-[8px] font-black uppercase text-emerald-300 tracking-widest">Quy trình</span>
@@ -2035,12 +2040,12 @@ const App: React.FC = () => {
             {params.projectType === 'Trường Thiên' && (
               <div className="space-y-1">
                 <label className="text-[9px] font-black text-stone-400 uppercase">Số chương</label>
-                <input type="number" min={MIN_TOTAL_CHAPTERS} max={MAX_TOTAL_CHAPTERS} value={params.totalChapters} onChange={e => updateDraftParams(prev => ({...prev, totalChapters: parseInt(e.target.value) || 1}))} className="w-full p-2 bg-stone-50 border border-stone-200 rounded-lg text-xs font-bold focus:ring-1 focus:ring-orange-300 outline-none" />
+                <input type="number" min={MIN_TOTAL_CHAPTERS} max={MAX_TOTAL_CHAPTERS} value={params.totalChapters} onChange={e => updateDraftParams(prev => ({...prev, totalChapters: parseInt(e.target.value) || 1}))} className="w-full p-2 bg-stone-50 border border-stone-200 rounded-lg text-xs font-bold focus:ring-1 focus:ring-amber-300 outline-none" />
               </div>
             )}
             <div className="space-y-1">
               <label className="text-[9px] font-black text-stone-400 uppercase">{params.projectType === 'Trường Thiên' ? 'Số chữ/Chương' : 'Số chữ truyện'}</label>
-              <input type="number" min={MIN_CHAPTER_WORDS} max={MAX_CHAPTER_WORDS} step={100} value={params.length} onChange={e => updateDraftParams(prev => ({...prev, length: parseInt(e.target.value) || 500}))} className="w-full p-2 bg-stone-50 border border-stone-200 rounded-lg text-xs font-bold focus:ring-1 focus:ring-orange-300 outline-none" />
+              <input type="number" min={MIN_CHAPTER_WORDS} max={MAX_CHAPTER_WORDS} step={100} value={params.length} onChange={e => updateDraftParams(prev => ({...prev, length: parseInt(e.target.value) || 500}))} className="w-full p-2 bg-stone-50 border border-stone-200 rounded-lg text-xs font-bold focus:ring-1 focus:ring-amber-300 outline-none" />
             </div>
           </div>
 
@@ -2062,11 +2067,11 @@ const App: React.FC = () => {
 
           <div className="space-y-1">
             <label className="text-[10px] font-black text-stone-400 uppercase">Ý tưởng khởi nguồn</label>
-            <textarea value={params.seed} onChange={e => updateDraftParams(prev => ({...prev, seed: e.target.value}))} className="w-full h-24 p-3 text-xs bg-stone-50 border border-stone-200 rounded-xl outline-none resize-none font-medium focus:ring-1 focus:ring-orange-300" placeholder="Nhập khởi nguồn..." />
+            <textarea value={params.seed} onChange={e => updateDraftParams(prev => ({...prev, seed: e.target.value}))} className="w-full h-24 p-3 text-xs bg-stone-50 border border-stone-200 rounded-xl outline-none resize-none font-medium focus:ring-1 focus:ring-amber-300" placeholder="Nhập khởi nguồn..." />
           </div>
           <div className="space-y-1">
             <label className="text-[10px] font-black text-stone-400 uppercase">Truyện mẫu / lưu ý văn phong</label>
-            <textarea value={params.referenceStories} onChange={e => updateDraftParams(prev => ({...prev, referenceStories: e.target.value}))} className="w-full h-20 p-3 text-xs bg-stone-50 border border-stone-200 rounded-xl outline-none resize-none font-medium focus:ring-1 focus:ring-orange-300" placeholder="Ví dụ: nhịp chậm, ít giải thích, nhiều đối thoại, không copy tình tiết..." />
+            <textarea value={params.referenceStories} onChange={e => updateDraftParams(prev => ({...prev, referenceStories: e.target.value}))} className="w-full h-20 p-3 text-xs bg-stone-50 border border-stone-200 rounded-xl outline-none resize-none font-medium focus:ring-1 focus:ring-amber-300" placeholder="Ví dụ: nhịp chậm, ít giải thích, nhiều đối thoại, không copy tình tiết..." />
           </div>
           <button onClick={handleStartProject} disabled={isGeneratingOutline} className="btn-primary w-full py-4 font-black text-[10px] uppercase disabled:opacity-50">
             {isGeneratingOutline ? 'Đang xử lý...' : (params.projectType === 'Truyện Ngắn' ? 'Viết truyện ngắn' : 'Chọn hướng truyện')}
