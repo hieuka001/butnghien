@@ -11,6 +11,7 @@ import {
   validateChapterLogic,
   reviewStoryLogic,
   getConfiguredGeminiKeyCount,
+  getGeminiKeyStatusLabel,
   type ChapterValidationResult
 } from './services/geminiService';
 import {
@@ -1975,7 +1976,7 @@ const App: React.FC = () => {
         <div className="grid grid-cols-3 gap-2">
           <div className="p-3 bg-stone-50 rounded-xl border border-stone-100">
             <span className="block text-[8px] font-black uppercase text-stone-400">Gemini</span>
-            <span className="text-xs font-black text-orange-700">{getConfiguredGeminiKeyCount()} key</span>
+            <span className="text-xs font-black text-orange-700">{getGeminiKeyStatusLabel()}</span>
           </div>
           <div className="p-3 bg-stone-50 rounded-xl border border-stone-100">
             <span className="block text-[8px] font-black uppercase text-stone-400">Database</span>
@@ -2141,20 +2142,20 @@ const App: React.FC = () => {
                 </div>
               </section>
 
-              <section className="grid lg:grid-cols-[1fr_380px] gap-5 items-start">
+              <section className="grid xl:grid-cols-[1fr_380px] gap-5 items-start">
                 <div className="space-y-5">
                   <div className="grid sm:grid-cols-3 gap-3">
                     <div className="surface-muted p-4">
                       <span className="block text-[8px] font-black uppercase text-stone-400 tracking-widest">Dự án</span>
-                      <strong className="block mt-2 text-lg font-black text-stone-950">{params.projectType}</strong>
+                      <strong className="block mt-2 text-base 2xl:text-lg font-black text-stone-950 whitespace-nowrap">{params.projectType}</strong>
                     </div>
                     <div className="surface-muted p-4 border-amber-200 bg-amber-50/80">
                       <span className="block text-[8px] font-black uppercase text-amber-700 tracking-widest">Lộ trình</span>
-                      <strong className="block mt-2 text-lg font-black text-amber-950">{params.projectType === 'Trường Thiên' ? `${params.totalChapters} chương` : 'Truyện đơn'}</strong>
+                      <strong className="block mt-2 text-base 2xl:text-lg font-black text-amber-950 whitespace-nowrap">{params.projectType === 'Trường Thiên' ? `${params.totalChapters} chương` : 'Truyện đơn'}</strong>
                     </div>
                     <div className="surface-muted p-4 border-orange-200 bg-amber-50/80">
                       <span className="block text-[8px] font-black uppercase text-orange-600 tracking-widest">Mục tiêu</span>
-                      <strong className="block mt-2 text-lg font-black text-stone-950">{params.length} chữ</strong>
+                      <strong className="block mt-2 text-base 2xl:text-lg font-black text-stone-950 whitespace-nowrap">{params.length} chữ</strong>
                     </div>
                   </div>
 
@@ -2194,7 +2195,7 @@ const App: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="bg-stone-950 text-white rounded-lg p-5 shadow-sm space-y-5">
+                <div className="bg-[#052e26]/85 backdrop-blur-xl border border-amber-200/20 text-white rounded-lg p-5 shadow-lg shadow-teal-950/30 space-y-5">
                   <div>
                     <span className="text-[9px] font-black uppercase text-emerald-300 tracking-widest">Luồng bắt buộc</span>
                     <h3 className="text-xl font-black story-font mt-2">Không chấp bút khi chưa khóa khung truyện</h3>
@@ -2509,7 +2510,7 @@ const App: React.FC = () => {
 
           {view === 'my-stories' && (
             <div className="max-w-5xl mx-auto space-y-8 animate-in slide-in-from-bottom-5">
-              <section className="p-6 md:p-8 bg-stone-900 text-white rounded-3xl shadow-xl flex flex-col md:flex-row md:justify-between md:items-center gap-4">
+              <section className="p-6 md:p-8 bg-[#052e26]/85 backdrop-blur-xl border border-amber-200/20 text-white rounded-3xl shadow-xl flex flex-col md:flex-row md:justify-between md:items-center gap-4">
                 <h2 className="text-2xl font-black italic story-font">Tàng Thư Của Bạn</h2>
                 <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
                   <button onClick={() => fileInputRef.current?.click()} className="bg-white text-stone-900 px-8 py-3 rounded-xl text-[10px] font-black uppercase shadow-lg hover:bg-stone-100 transition-all">Nhập file (.json)</button>
@@ -2545,9 +2546,17 @@ const App: React.FC = () => {
                   reader.readAsText(file);
                 }} accept=".json" className="hidden" />
               </section>
+              {projects.length === 0 && (
+                <div className="surface p-10 text-center space-y-4">
+                  <img src="/img/emblem-trim.webp" alt="Bút và nghiên mực" className="w-20 h-20 mx-auto rounded-3xl object-cover ring-1 ring-amber-300/60 shadow-lg shadow-teal-950/25" />
+                  <p className="story-font text-2xl font-black text-stone-900">Tàng Thư đang trống</p>
+                  <p className="text-sm text-stone-500 max-w-md mx-auto leading-relaxed">Chưa có tác phẩm nào được lưu. Quay lại Studio, khóa hồ sơ rồi chọn hướng truyện để chấp bút tác phẩm đầu tiên.</p>
+                  <button onClick={() => setView('setup')} className="btn-primary px-6 py-3 text-[10px] font-black uppercase tracking-widest">Về Studio sáng tác</button>
+                </div>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {projects.map(p => (
-                  <div key={p.id} className="p-8 bg-white border rounded-[2rem] hover:shadow-2xl transition-all group flex flex-col h-80 border-stone-100 shadow-sm">
+                  <div key={p.id} className="surface p-8 hover:shadow-2xl transition-all group flex flex-col h-80">
                     <div className="flex-1">
                       <div className="flex justify-between items-start mb-4">
                         <span className="px-3 py-1 bg-amber-50 text-orange-600 rounded-full text-[9px] font-black uppercase">{p.params.projectType}</span>
@@ -2567,7 +2576,7 @@ const App: React.FC = () => {
                       <p className="text-[10px] text-stone-400 italic line-clamp-4 leading-relaxed">{p.generalSummary}</p>
                     </div>
                     <div className="flex gap-2 pt-6 border-t border-stone-50 mt-auto">
-                      <button onClick={() => loadProject(p)} className="flex-1 py-3 bg-stone-900 text-white rounded-xl text-[10px] font-black uppercase shadow-lg hover:bg-black transition-all">Mở dự án</button>
+                      <button onClick={() => loadProject(p)} className="btn-primary flex-1 py-3 rounded-xl text-[10px] font-black uppercase">Mở dự án</button>
                     </div>
                   </div>
                 ))}

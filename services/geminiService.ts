@@ -522,6 +522,11 @@ const getGeminiKeysForRole = (role: GeminiKeyRole) => {
 };
 
 export const getConfiguredGeminiKeyCount = () => getGeminiKeys().length || (USE_GEMINI_PROXY ? 1 : 0);
+export const getGeminiKeyStatusLabel = () => {
+  const count = getGeminiKeys().length;
+  if (count > 0) return `${count} key`;
+  return USE_GEMINI_PROXY ? "Qua proxy" : "Chưa cấu hình";
+};
 
 const isRotatableStatus = (status?: number) => {
   if (!status) return false;
