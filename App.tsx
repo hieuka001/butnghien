@@ -2513,7 +2513,7 @@ const App: React.FC = () => {
               <section className="p-6 md:p-8 bg-[#052e26]/85 backdrop-blur-xl border border-amber-200/20 text-white rounded-3xl shadow-xl flex flex-col md:flex-row md:justify-between md:items-center gap-4">
                 <h2 className="text-2xl font-black italic story-font">Tàng Thư Của Bạn</h2>
                 <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
-                  <button onClick={() => fileInputRef.current?.click()} className="bg-white text-stone-900 px-8 py-3 rounded-xl text-[10px] font-black uppercase shadow-lg hover:bg-stone-100 transition-all">Nhập file (.json)</button>
+                  <button onClick={() => fileInputRef.current?.click()} className="bg-gradient-to-b from-amber-200 to-amber-400 text-stone-900 px-8 py-3 rounded-xl text-[10px] font-black uppercase shadow-lg shadow-amber-500/20 hover:brightness-110 transition-all">Nhập file (.json)</button>
                 </div>
                 <input type="file" ref={fileInputRef} onChange={e => {
                   const file = e.target.files?.[0];
