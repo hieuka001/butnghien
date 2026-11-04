@@ -3586,11 +3586,12 @@ Hãy cập nhật hồ sơ truyện như một sổ canon dài kỳ:
 - Không đổi tên gọi/timeline/quan hệ cũ để làm đẹp hồ sơ nếu chương mới không thật sự thay đổi chúng.
 - Nếu chương có chi tiết chưa chắc, ghi "chưa khóa" thay vì biến nó thành sự thật tuyệt đối.
 - Nếu phát hiện nguy cơ lệch canon, nhảy cóc logic, dùng tên sai thời điểm hoặc lan man, ghi vào # ĐỐI CHIẾU LOGIC.
-- NGÂN SÁCH ĐỘ DÀI: toàn bộ Thiên Cơ Lục mới tối đa khoảng 3.000 từ. Mục/biến cố ĐÃ ĐÓNG hoặc đã giải quyết phải nén thành 1 dòng dạng "đã đóng: ..."; không chép lại nguyên văn diễn giải dài. Ưu tiên giữ nguyên: số liệu đã khóa, quan hệ hiện tại, mâu thuẫn đang mở, điều cấm phá logic, điểm nhìn và tên gọi.${strictTrace ? "\n- LƯU Ý QUAN TRỌNG: bản cập nhật trước của chương này đã bị từ chối vì chưa ghi nhận dữ kiện mới. Lần này bắt buộc ghi rõ tên chương, các tên riêng mới (người, địa danh, vật phẩm, tổ chức) và biến cố chính của chương vào # DIỄN TIẾN TRUYỆN cùng các mục liên quan." : ""}`;
+- BẢN MỚI LÀ BẢN CŨ ĐÃ CẬP NHẬT, KHÔNG PHẢI BẢN TÓM TẮT: giữ nguyên văn mọi mục và mọi dữ kiện còn hiệu lực của bản cũ (kể cả tên riêng, địa danh, tổ chức, số liệu, quan hệ), chỉ sửa/thêm đúng chỗ chương mới tác động. Tuyệt đối không gộp mục, không lược bỏ chi tiết "ít quan trọng", không viết lại theo giọng tóm tắt.
+- NGÂN SÁCH ĐỘ DÀI: toàn bộ Thiên Cơ Lục mới tối đa khoảng 3.000 từ — đây là TRẦN trên, không phải mục tiêu rút gọn; bản cũ đang dưới trần thì giữ nguyên gần như toàn bộ độ dài của nó. Mục/biến cố ĐÃ ĐÓNG hoặc đã giải quyết phải nén thành 1 dòng dạng "đã đóng: ..."; không chép lại nguyên văn diễn giải dài. Ưu tiên giữ nguyên: số liệu đã khóa, quan hệ hiện tại, mâu thuẫn đang mở, điều cấm phá logic, điểm nhìn và tên gọi.${strictTrace ? "\n- LƯU Ý QUAN TRỌNG: bản cập nhật trước của chương này đã bị từ chối vì chưa ghi nhận dữ kiện mới. Lần này bắt buộc ghi rõ tên chương, các tên riêng mới (người, địa danh, vật phẩm, tổ chức) và biến cố chính của chương vào # DIỄN TIẾN TRUYỆN cùng các mục liên quan." : ""}`;
 
   // Dung model chinh thay vi model re nhat: giu so canon la khau de sai tinh nhat,
   // model lite tung tra bible thieu du kien moi cua chuong ma khong loi nao bat duoc.
-  const result = await chatJson(
+  const requestBibleUpdate = (extraInstruction: string) => chatJson(
     WRITE_MODEL,
     `Nhiệm vụ: rút tên chương, tóm tắt chương, cập nhật Thiên Cơ Lục.
 Thiên Cơ Lục phải có các mục Markdown:
@@ -3612,42 +3613,61 @@ Chỉ trả về JSON hợp lệ:
   "chapterSummary": "tóm tắt chương trong 1-2 câu",
   "updatedBible": "Thiên Cơ Lục markdown đầy đủ các mục trên"
 }`,
-    prompt,
+    prompt + extraInstruction,
     0.3,
     DEFAULT_MAX_OUTPUT_TOKENS,
     "reviewer",
   );
 
-  // Guard mat mat canon: tu choi bible moi bi rut ngan bat thuong hoac mat muc lon,
-  // de App giu bible cu va canh bao nguoi dung thay vi am tham dong bang canon sai.
-  const newBible = String(result?.updatedBible || "");
-  const oldWords = countWords(currentBible);
-  if (newBible) {
-    if (oldWords > 600 && countWords(newBible) < oldWords * 0.55) {
-      throw new Error(`Thiên Cơ Lục cập nhật bị rút ngắn bất thường (${countWords(newBible)}/${oldWords} từ). Đã giữ bản cũ để tránh mất canon.`);
+  // Guard mat mat canon + kiem chung sau luu (dot 7) gom thanh mot ham cham: tra ve ly do
+  // tu choi hoac null neu dat. Bible RONG, KHONG THAY DOI, bi rut ngan bat thuong, mat muc
+  // lon, hoac khong ghi nhan ten rieng/du kien MOI cua chuong deu bi tu choi -> App danh dau
+  // biblePending va hien nut cap nhat lai, thay vi am tham dong bang canon thieu du kien.
+  const normalizeForCompare = (value: string) => value.replace(/\s+/g, " ").trim().toLowerCase();
+  const bibleRejectionReason = (candidate: AnyRecord): string | null => {
+    const candidateBible = String(candidate?.updatedBible || "");
+    if (!candidateBible.trim()) {
+      return "Thiên Cơ Lục cập nhật bị rỗng. Đã giữ bản cũ để tránh mất canon.";
+    }
+    const oldWords = countWords(currentBible);
+    if (oldWords > 600 && countWords(candidateBible) < oldWords * 0.55) {
+      return `Thiên Cơ Lục cập nhật bị rút ngắn bất thường (${countWords(candidateBible)}/${oldWords} từ). Đã giữ bản cũ để tránh mất canon.`;
     }
     const requiredHeadings = ["# DIỄN TIẾN", "# TIMELINE", "# SỐ LIỆU", "# NHÂN VẬT CHÍNH", "# MÂU THUẪN ĐANG MỞ", "# ĐIỀU CẤM"];
-    const missing = requiredHeadings.filter(heading => currentBible.includes(heading) && !newBible.includes(heading));
+    const missing = requiredHeadings.filter(heading => currentBible.includes(heading) && !candidateBible.includes(heading));
     if (missing.length >= 2) {
-      throw new Error(`Thiên Cơ Lục cập nhật thiếu các mục bắt buộc: ${missing.join(", ")}. Đã giữ bản cũ.`);
+      return `Thiên Cơ Lục cập nhật thiếu các mục bắt buộc: ${missing.join(", ")}. Đã giữ bản cũ.`;
     }
+    if (normalizeForCompare(candidateBible) === normalizeForCompare(currentBible)) {
+      return `Thiên Cơ Lục sau chương ${chapterIndex} không thay đổi so với bản cũ — AI chưa ghi nhận dữ kiện mới của chương. Đã giữ bản cũ và đánh dấu chờ cập nhật lại.`;
+    }
+    const summaryText = String(candidate?.chapterSummary || "");
+    const properSequences = (summaryText.match(/[\p{Lu}][\p{Ll}]+(?:\s+[\p{Lu}][\p{Ll}]+)+/gu) || []).map(item => item.trim());
+    const newSequences = [...new Set(properSequences)].filter(seq => !currentBible.toLowerCase().includes(seq.toLowerCase()));
+    if (newSequences.length && !newSequences.some(seq => candidateBible.toLowerCase().includes(seq.toLowerCase()))) {
+      return `Thiên Cơ Lục cập nhật chưa ghi nhận dữ kiện/tên riêng mới của chương ${chapterIndex} (${newSequences.slice(0, 3).join(", ")}...). Đã giữ bản cũ và đánh dấu chờ cập nhật lại.`;
+    }
+    return null;
+  };
+
+  let result = await requestBibleUpdate("");
+  let rejectionReason = bibleRejectionReason(result);
+  if (rejectionReason) {
+    // Chay lai MOT lan ngay trong service voi lenh giu nguyen do dai + chep du du kien.
+    // Kiem chung live sau dot 7: model tu tom tat bible con ~40% do dai (485-584/1240 tu)
+    // du prompt da yeu cau giu du kien, khien nut "Cap nhat lai" cua nguoi dung khong bao
+    // gio qua duoc guard. Lenh chay lai cu the ve san do dai + muc luc moi sua duoc loi nay;
+    // chi ton them mot call khi lan dau da bi tu choi (truong hop vo cung ton kem neu de
+    // nguoi dung bam thu lai nhieu lan va nhan cung mot loi).
+    const oldWords = countWords(currentBible);
+    const lengthFloor = Math.max(200, Math.round(oldWords * 0.9));
+    const retryInstruction = `\n- LẦN CHẠY LẠI BẮT BUỘC (bản cập nhật trước bị từ chối: ${rejectionReason}): lần này (1) chép lại ĐẦY ĐỦ mọi dữ kiện của THIÊN CƠ LỤC HIỆN TẠI kể cả chi tiết nhỏ, tên riêng, địa danh, tổ chức, số liệu — chỉ bổ sung/sửa đúng chỗ chương mới tác động, TUYỆT ĐỐI không tóm tắt hay gộp mục; (2) độ dài bản mới tối thiểu ${lengthFloor} từ (bản cũ ${oldWords} từ); (3) giữ đủ 10 mục Markdown theo đúng thứ tự trong hướng dẫn hệ thống.`;
+    try {
+      result = await requestBibleUpdate(retryInstruction);
+      rejectionReason = bibleRejectionReason(result);
+    } catch { /* loi API o lan chay lai: giu ly do tu choi cua lan dau de nem ra */ }
   }
-  // Kiem chung sau luu (dot 7): bible RONG, KHONG THAY DOI, hoac khong ghi nhan ten rieng/
-  // du kien MOI cua chuong deu bi tu choi -> App danh dau biblePending va hien nut cap nhat lai,
-  // thay vi am tham dong bang canon thieu du kien nhu truoc.
-  if (!newBible.trim()) {
-    throw new Error("Thiên Cơ Lục cập nhật bị rỗng. Đã giữ bản cũ để tránh mất canon.");
-  }
-  const normalizeForCompare = (value: string) => value.replace(/\s+/g, " ").trim().toLowerCase();
-  if (normalizeForCompare(newBible) === normalizeForCompare(currentBible)) {
-    throw new Error(`Thiên Cơ Lục sau chương ${chapterIndex} không thay đổi so với bản cũ — AI chưa ghi nhận dữ kiện mới của chương. Đã giữ bản cũ và đánh dấu chờ cập nhật lại.`);
-  }
-  const summaryText = String(result?.chapterSummary || "");
-  const properSequences = (summaryText.match(/[\p{Lu}][\p{Ll}]+(?:\s+[\p{Lu}][\p{Ll}]+)+/gu) || []).map(item => item.trim());
-  const newSequences = [...new Set(properSequences)].filter(seq => !currentBible.toLowerCase().includes(seq.toLowerCase()));
-  if (newSequences.length && !newSequences.some(seq => newBible.toLowerCase().includes(seq.toLowerCase()))) {
-    throw new Error(`Thiên Cơ Lục cập nhật chưa ghi nhận dữ kiện/tên riêng mới của chương ${chapterIndex} (${newSequences.slice(0, 3).join(", ")}...). Đã giữ bản cũ và đánh dấu chờ cập nhật lại.`);
-  }
+  if (rejectionReason) throw new Error(rejectionReason);
   return result;
 };
 
