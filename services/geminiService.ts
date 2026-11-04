@@ -1,10 +1,12 @@
 import { StoryParams, Chapter, Volume, StoryLogicReport, StoryDirectionChoice } from "../types";
+import { getFirebaseIdToken } from "./firebaseService";
 
 type AnyRecord = Record<string, any>;
 type GeminiKeyRole = "writer" | "reviewer" | "rewriter" | "direction";
 
 export type ChapterValidationResult = {
   isValid: boolean;
+  unverified?: boolean;
   reason?: string;
   structureIssues?: string[];
   setupIssues?: string[];
@@ -53,23 +55,32 @@ Tư duy bắt buộc:
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
+const DEFAULT_GEMINI_MODEL = "gemini-3-flash-preview";
 const normalizeGeminiModel = (model?: string) => {
   const cleaned = (model || "").trim().replace(/^models\//, "");
-  if (!cleaned) return "gemini-2.5-flash";
+  if (!cleaned) return DEFAULT_GEMINI_MODEL;
 
+  // Roster cu (1.5/2.0/2.5) da bi Google go khoi free tier / tra NOT_FOUND voi key moi
+  // (do truc tiep 2026-11-03/04). Map sang roster Gemini 3 dang song.
   const deprecatedModelMap: Record<string, string> = {
-    "gemini-1.5-flash": "gemini-2.5-flash",
-    "gemini-1.5-flash-latest": "gemini-2.5-flash",
-    "gemini-1.5-pro": "gemini-2.5-flash",
-    "gemini-1.5-pro-latest": "gemini-2.5-flash",
-    "gemini-pro": "gemini-2.5-flash",
+    "gemini-1.5-flash": DEFAULT_GEMINI_MODEL,
+    "gemini-1.5-flash-latest": DEFAULT_GEMINI_MODEL,
+    "gemini-1.5-flash-8b": "gemini-flash-lite-latest",
+    "gemini-1.5-pro": "gemini-3.8-flash",
+    "gemini-1.5-pro-latest": "gemini-3.8-flash",
+    "gemini-pro": DEFAULT_GEMINI_MODEL,
+    "gemini-2.0-flash": DEFAULT_GEMINI_MODEL,
+    "gemini-2.0-flash-lite": "gemini-flash-lite-latest",
+    "gemini-2.5-flash": DEFAULT_GEMINI_MODEL,
+    "gemini-2.5-flash-lite": "gemini-flash-lite-latest",
+    "gemini-2.5-pro": "gemini-3.8-flash",
   };
 
   return deprecatedModelMap[cleaned] || cleaned;
 };
-const PLAN_MODEL = normalizeGeminiModel(process.env.GEMINI_PLAN_MODEL || process.env.GEMINI_MODEL || "gemini-2.5-flash");
-const WRITE_MODEL = normalizeGeminiModel(process.env.GEMINI_WRITE_MODEL || process.env.GEMINI_MODEL || "gemini-2.5-flash");
-const DEFAULT_MAX_OUTPUT_TOKENS = clamp(Number(process.env.GEMINI_MAX_OUTPUT_TOKENS) || 8192, 512, 65536);
+const PLAN_MODEL = normalizeGeminiModel(process.env.GEMINI_PLAN_MODEL || process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL);
+const WRITE_MODEL = normalizeGeminiModel(process.env.GEMINI_WRITE_MODEL || process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL);
+const DEFAULT_MAX_OUTPUT_TOKENS = clamp(Number(process.env.GEMINI_MAX_OUTPUT_TOKENS) || 16384, 512, 65536);
 const USE_GEMINI_PROXY = process.env.GEMINI_SERVER_PROXY === "true";
 
 const SYSTEM_INSTRUCTION_ROADMAP = `${WRITER_ROLE_BRIEF}
@@ -292,6 +303,9 @@ Kết thúc truyện ngắn phải tạo dư âm phù hợp với giọng truy�
 Không tự ép báo ứng, bi kịch, nhân quả nặng hoặc triết lý đau khổ nếu người dùng không yêu cầu.
 Truyện ngắn phải cho cảm giác hoàn chỉnh, có chủ đề, có chuyển động cảm xúc, có hình ảnh đọng lại và có bản sắc riêng của truyện hiện tại.`;
 
+// FIX: truoc day system prompt nhoi ca hai bo luat trung nhau (ban "code" + ban USER_*),
+// moi call viet/tham dinh ton them ~8-12k token va hai ban dien dat lech nhau gay nhieu.
+// Nay chi giu MOT bo luat + brief rieng cua Cum 1.
 const ACTIVE_WRITER_SYSTEM_INSTRUCTION = `${WRITER_SYSTEM_INSTRUCTION}
 
 ${STORY_ARCHITECTURE_RULES}
@@ -302,15 +316,17 @@ ${SCENE_LOGIC_RULES}
 
 ${IMMERSIVE_LOGIC_RULES}
 
-${USER_ARCHITECTURE_PROMPT}
-
-${USER_PROSE_PROMPT}
-
-${USER_SCENE_PROMPT}
-
-${USER_POV_PROMPT}
-
 ${USER_CLUSTER_1_PROMPT}`;
+
+const SHORT_STORY_SYSTEM_INSTRUCTION = `${WRITER_ROLE_BRIEF}
+
+${PROSE_RHYTHM_RULES}
+
+${SCENE_LOGIC_RULES}
+
+${IMMERSIVE_LOGIC_RULES}
+
+${USER_SHORT_STORY_PROMPT}`;
 
 const EDITOR_SYSTEM_INSTRUCTION = `${REVIEWER_ROLE_BRIEF}
 
@@ -375,6 +391,67 @@ class AIJsonParseError extends Error {
     }
   }
 }
+
+const REQUEST_TIMEOUT_MS = 90_000;
+const STREAM_IDLE_TIMEOUT_MS = 120_000;
+
+const fetchWithTimeout = async (url: string, init: RequestInit, timeoutMs: number = REQUEST_TIMEOUT_MS): Promise<Response> => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if ((error as Error)?.name === "AbortError") {
+      throw new GeminiRequestError(`Gemini qua ${Math.round(timeoutMs / 1000)} giay khong phan hoi (timeout).`, 408, undefined, true);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+// Trich Thien Co Luc theo muc: luon giu cac muc canon nhay cam (diem nhin/ten goi,
+// so lieu, mau thuan dang mo, dieu cam, doi chieu) thay vi cat theo dau lam roi muc cuoi.
+const BIBLE_PRIORITY_HEADING = /(DIEM NHIN|TEN GOI|SO LIEU|MAU THUAN DANG MO|DIEU CAM|DOI CHIEU|QUY TAC|LUAT)/;
+const stripDiacriticsForMatch = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").toUpperCase();
+const bibleExcerptFor = (bible: string, limit = 9000): string => {
+  const text = String(bible || "");
+  if (text.length <= limit) return text;
+  const blocks: Array<{ heading: string; body: string }> = [];
+  let current: { heading: string; body: string } | null = null;
+  for (const line of text.split("\n")) {
+    if (/^#\s+/.test(line)) {
+      if (current) blocks.push(current);
+      current = { heading: line, body: "" };
+    } else if (current) {
+      current.body += (current.body ? "\n" : "") + line;
+    } else {
+      current = { heading: "", body: line };
+    }
+  }
+  if (current) blocks.push(current);
+  if (blocks.length <= 1) {
+    return `${text.slice(0, Math.floor(limit * 0.55))}\n[...da cat bot phan giua cua Thien Co Luc...]\n${text.slice(-Math.floor(limit * 0.4))}`;
+  }
+  const scored = blocks.map((block, index) => ({
+    index,
+    block,
+    priority: BIBLE_PRIORITY_HEADING.test(stripDiacriticsForMatch(block.heading)) ? 0 : 1,
+  }));
+  const chosen = new Set<number>();
+  let used = 0;
+  const tryAdd = (index: number) => {
+    const block = blocks[index];
+    const size = block.heading.length + block.body.length + 2;
+    if (used + size > limit && chosen.size > 0) return;
+    if (!chosen.has(index)) { chosen.add(index); used += size; }
+  };
+  scored.filter(item => item.priority === 0).forEach(item => tryAdd(item.index));
+  tryAdd(0);
+  for (let i = 0; i < blocks.length && used < limit; i++) tryAdd(i);
+  const result = blocks.filter((_, index) => chosen.has(index)).map(block => `${block.heading}\n${block.body}`.trim()).join("\n\n");
+  return result.length > limit ? result.slice(0, limit) : result;
+};
 
 const keyCursorByRole: Record<GeminiKeyRole, number> = {
   writer: 0,
@@ -510,7 +587,7 @@ const parseErrorBody = async (response: Response) => {
   }
 };
 
-const requestGeminiProxy = (
+const requestGeminiProxy = async (
   model: string,
   systemInstruction: string,
   prompt: string,
@@ -519,20 +596,26 @@ const requestGeminiProxy = (
   jsonMode: boolean,
   stream: boolean,
   role: GeminiKeyRole,
-) => fetch("/api/gemini", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    model,
-    systemInstruction,
-    prompt,
-    temperature,
-    maxTokens,
-    jsonMode,
-    stream,
-    role,
-  }),
-});
+): Promise<Response> => {
+  const idToken = await getFirebaseIdToken().catch(() => "");
+  return fetchWithTimeout("/api/gemini", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+    },
+    body: JSON.stringify({
+      model,
+      systemInstruction,
+      prompt,
+      temperature,
+      maxTokens,
+      jsonMode,
+      stream,
+      role,
+    }),
+  }, stream ? REQUEST_TIMEOUT_MS : 150_000);
+};
 
 const withGeminiKeys = async <T,>(role: GeminiKeyRole, requester: (apiKey: string, keyIndex: number) => Promise<T>): Promise<T> => {
   const keys = getGeminiKeysForRole(role);
@@ -860,7 +943,7 @@ const chatJson = async (
   }
 
   return withGeminiKeys(role, async (apiKey, keyIndex) => {
-  const response = await fetch(`${GEMINI_API_BASE}/models/${model}:generateContent`, {
+  const response = await fetchWithTimeout(`${GEMINI_API_BASE}/models/${model}:generateContent`, {
     method: "POST",
     headers: requestHeaders(apiKey),
     body: JSON.stringify({
@@ -870,9 +953,10 @@ const chatJson = async (
         temperature,
         maxOutputTokens: outputTokens,
         responseMimeType: "application/json",
+        thinkingConfig: { thinkingLevel: "low" },
       },
     }),
-  });
+  }, 150_000);
 
   if (!response.ok) {
     const message = await parseErrorBody(response);
@@ -937,7 +1021,7 @@ const chatText = async (
   }
 
   return withGeminiKeys(role, async (apiKey, keyIndex) => {
-    const response = await fetch(`${GEMINI_API_BASE}/models/${model}:generateContent`, {
+    const response = await fetchWithTimeout(`${GEMINI_API_BASE}/models/${model}:generateContent`, {
       method: "POST",
       headers: requestHeaders(apiKey),
       body: JSON.stringify({
@@ -946,9 +1030,10 @@ const chatText = async (
         generationConfig: {
           temperature,
           maxOutputTokens: outputTokens,
+          thinkingConfig: { thinkingLevel: "low" },
         },
       }),
-    });
+    }, 150_000);
 
     if (!response.ok) {
       const message = await parseErrorBody(response);
@@ -983,6 +1068,7 @@ const streamChat = async (
   temperature = 0.78,
   maxTokens = 8000,
   role: GeminiKeyRole = "writer",
+  onFinishReason?: (reason: string) => void,
 ): Promise<string> => {
   const outputTokens = capOutputTokens(maxTokens);
   let emittedAnyToken = false;
@@ -991,7 +1077,7 @@ const streamChat = async (
     ? await requestGeminiProxy(model, systemInstruction, prompt, temperature, outputTokens, false, true, role)
     : await withGeminiKeys(role, async (apiKey, selectedKeyIndex) => {
         keyIndex = selectedKeyIndex;
-        const directResponse = await fetch(`${GEMINI_API_BASE}/models/${model}:streamGenerateContent?alt=sse`, {
+        const directResponse = await fetchWithTimeout(`${GEMINI_API_BASE}/models/${model}:streamGenerateContent?alt=sse`, {
           method: "POST",
           headers: requestHeaders(apiKey),
           body: JSON.stringify({
@@ -1000,6 +1086,7 @@ const streamChat = async (
             generationConfig: {
               temperature,
               maxOutputTokens: outputTokens,
+              thinkingConfig: { thinkingLevel: "low" },
             },
           }),
         });
@@ -1015,7 +1102,7 @@ const streamChat = async (
     const affordableTokens = extractAffordableTokens(message);
     const nextMaxTokens = affordableTokens ? capOutputTokens(affordableTokens - 160) : Math.floor(outputTokens * 0.65);
     if ((response.status === 429 || response.status === 400) && nextMaxTokens >= 512 && nextMaxTokens < outputTokens) {
-      return streamChat(model, systemInstruction, prompt, onChunk, temperature, nextMaxTokens, role);
+      return streamChat(model, systemInstruction, prompt, onChunk, temperature, nextMaxTokens, role, onFinishReason);
     }
     throw new GeminiRequestError(`Gemini lỗi ${response.status}: ${message}`, response.status, keyIndex, isRotatableStatus(response.status));
   }
@@ -1028,6 +1115,7 @@ const streamChat = async (
   const decoder = new TextDecoder();
   let buffer = "";
   let fullText = "";
+  let lastFinishReason = "";
 
   const processSseEvent = (event: string) => {
     const dataLines = event
@@ -1056,6 +1144,8 @@ const streamChat = async (
         );
       }
 
+      const finishReason = payload?.candidates?.[0]?.finishReason;
+      if (finishReason) lastFinishReason = String(finishReason);
       const content = extractGeminiText(payload);
       if (content) {
         const cleaned = cleanStoryText(content);
@@ -1067,7 +1157,18 @@ const streamChat = async (
   };
 
   while (true) {
-    const { value, done } = await reader.read();
+    let readResult: ReadableStreamReadResult<Uint8Array>;
+    try {
+      readResult = await Promise.race([
+        reader.read(),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("STREAM_IDLE_TIMEOUT")), STREAM_IDLE_TIMEOUT_MS)),
+      ]);
+    } catch {
+      // Stream treo qua lau: giu phan da nhan, de lop tren viet tiep thay vi treo vo han.
+      try { await reader.cancel(); } catch { /* bo qua */ }
+      break;
+    }
+    const { value, done } = readResult;
     if (done) break;
 
     buffer += decoder.decode(value, { stream: true });
@@ -1082,6 +1183,7 @@ const streamChat = async (
   buffer += decoder.decode();
   if (buffer.trim()) processSseEvent(buffer);
 
+  if (lastFinishReason && onFinishReason) onFinishReason(lastFinishReason);
   if (!fullText.trim()) {
     const fallbackText = await chatText(model, systemInstruction, prompt, temperature, outputTokens, role);
     if (fallbackText.trim()) {
@@ -1097,7 +1199,7 @@ const desiredVolumeCount = (totalChapters: number) => {
   if (totalChapters <= 6) return 1;
   if (totalChapters <= 12) return 2;
   if (totalChapters <= 80) return clamp(Math.ceil(totalChapters / 10), 3, 8);
-  return clamp(Math.ceil(totalChapters / 40), 8, 30);
+  return clamp(Math.ceil(totalChapters / 35), 3, 30);
 };
 
 const plainText = (value: unknown) => String(value || "")
@@ -1415,7 +1517,6 @@ const sentenceCount = (value: string) =>
   String(value || "").split(/[.!?…。！？]+/).map(item => item.trim()).filter(Boolean).length;
 
 const ARC_ADMIN_TEXT_PATTERN = /(?:#\s*tai lieu|#\s*world|world[-\s]?building|tai lieu thiet lap|ten tac pham|su phu ta la nguoi choi|huong truyen da chon|logic cot truyen|nhip arc|bat buoc khi lap lo trinh|truyen chi su dung|khong su dung tuyen|dung tai lieu nay lam quy chuan|khong de .* xuat hien)/i;
-const LEGACY_WATER_STORY_PATTERN = /(?:cuu long|lac minh|dai nam|dong nuoc|song nuoc|luat nuoc|thuy lan|ca tom|ha moc)/i;
 
 const STORY_STOP_WORDS = new Set([
   "va", "voi", "cua", "cho", "mot", "nhung", "cac", "nhan", "vat", "chinh", "truyen", "chuong", "arc",
@@ -1456,7 +1557,6 @@ const isOffProjectArcText = (value: string, params: StoryParams) => {
   const normalized = textFingerprint(value);
   const storySignal = textFingerprint(storySignalFromParams(params));
   if (ARC_ADMIN_TEXT_PATTERN.test(normalized)) return true;
-  if (LEGACY_WATER_STORY_PATTERN.test(normalized) && !LEGACY_WATER_STORY_PATTERN.test(storySignal)) return true;
   const tokens = meaningfulTokens(value, 24);
   return tokens.length >= 5 && !sharesStoryKeywords(value, params);
 };
@@ -1466,7 +1566,6 @@ const isOffProjectArcTitle = (title: string, params: StoryParams, arcContent = "
   if (!normalizedTitle) return true;
   const storySignal = textFingerprint(storySignalFromParams(params));
   if (ARC_ADMIN_TEXT_PATTERN.test(normalizedTitle)) return true;
-  if (LEGACY_WATER_STORY_PATTERN.test(normalizedTitle) && !LEGACY_WATER_STORY_PATTERN.test(storySignal)) return true;
   const titleTokens = meaningfulTokens(title, 8).map(token => plainText(token));
   if (titleTokens.length === 0) return true;
   const context = storyKeywordSet(params, arcContent);
@@ -1675,8 +1774,17 @@ const sliderBrief = (params: StoryParams) => {
     ...(params.sliders || {}),
   };
 
+  const band = (value: number) => value <= 10
+    ? "gần như vắng mặt, chỉ điểm xuyết khi thật cần"
+    : value <= 35
+      ? "gia vị nhẹ, xuất hiện điểm xuyết có chủ đích"
+      : value <= 65
+        ? "trụ cột phụ, xuất hiện đều qua các chương và phải tạo tác dụng rõ"
+        : value <= 85
+          ? "trụ cột chính, chi phối nhiều cảnh và lựa chọn của nhân vật"
+          : "trục trung tâm, có thể lấn át tuyến khác nhưng không phá mục tiêu chương/Arc";
   return (Object.keys(labels) as Array<keyof StoryParams["sliders"]>)
-    .map(key => `${labels[key]} ${sliders[key]}/100`)
+    .map(key => `${labels[key]} ${sliders[key]}/100 (${band(sliders[key])})`)
     .join(", ");
 };
 
@@ -1747,6 +1855,7 @@ const buildProjectBrief = (params: StoryParams) => `HỒ SƠ ĐẦU VÀO
 - Mục tiêu số chữ mỗi chương: ${params.length}
 - Thể loại: ${params.genres.join(", ") || "Tự do"}
 - Tông giọng: ${params.tone}
+- Ngôi kể/điểm nhìn đã khóa: ${params.narrativeView || "Ngôi thứ ba hạn chế bám nhân vật chính"} — mọi chương phải giữ nhất quán ngôi kể/điểm nhìn này, chỉ đổi điểm nhìn khi bản đồ chương ghi rõ.
 - Kiểu kết cấu/kết truyện: ${params.mode}
 - Nhân vật chính: ${params.character.name || "Chưa đặt tên"}
 - Lưu ý tên gọi: tên trong hồ sơ không đồng nghĩa nhân vật đã có/biết tên trong cảnh mở đầu; truyện chỉ được dùng tên này sau khi logic đặt tên/gọi tên đã xảy ra.
@@ -1767,16 +1876,19 @@ const cleanDirectionField = (value: unknown, fallback = "") =>
     .replace(/\s+/g, " ")
     .trim();
 
-const profileExplicitlyAllowsMoralFormula = (params: StoryParams) =>
-  /trả giá|cái giá|món nợ|báo ứng|nhân quả/i.test(plainText([
+const profileExplicitlyAllowsMoralFormula = (params: StoryParams) => {
+  // FIX: truoc day regex co dau duoc test tren chuoi da qua plainText (bi strip het dau)
+  // nen khong bao gio khop -> bo loc luon xoa "tra gia" ke ca khi ho so chon mode tra gia/bi kich.
+  if (params.mode === "Happy ending nhưng có giá phải trả" || params.mode === "Bi kịch không cứu vãn" || params.mode === "Twist ending") return true;
+  return /trả giá|cái giá|món nợ|báo ứng|nhân quả|bi kịch/i.test([
     params.seed,
     params.referenceStories,
     params.tone,
-    params.mode,
     params.character.personality,
     params.character.goal,
     ...(params.genres || []),
-  ].join(" ")));
+  ].join(" "));
+};
 
 const neutralizeUnrequestedMoralFormula = (text: string, params: StoryParams) => {
   if (!text || profileExplicitlyAllowsMoralFormula(params)) return text;
@@ -1933,7 +2045,7 @@ const normalizeChapter = (
     objective: asText(raw?.objective, `Dùng một cảnh quyết định để ${phase}.`),
     beats: beats.length >= 3 ? beats : fallbackBeats(index, params.totalChapters, volumeTitle),
     mustInclude: mustInclude.length >= 2 ? mustInclude : fallbackMustInclude(params, index),
-    cliffhanger: asText(raw?.cliffhanger, index === params.totalChapters ? "Dư âm kết cục phản chiếu lựa chọn của nhân vật." : "Một kết quả mới buộc nhân vật phải bước tiếp."),
+    cliffhanger: asText(raw?.cliffhanger, index === params.totalChapters ? "Dư âm kết cục phản chiếu lựa chọn của nhân vật." : ""),
     targetWords: Number(raw?.targetWords) > 0 ? Number(raw?.targetWords) : params.length,
     pacing: (["Chậm", "Trung bình", "Nhanh", "Cao trào"].includes(raw?.pacing) ? raw?.pacing : pacingForChapter(index, params.totalChapters)) as Chapter["pacing"],
   };
@@ -2017,54 +2129,11 @@ const normalizeChapterPlans = (
 
   const chapters = Array.from({ length: end - start + 1 }, (_, offset) => {
     const chapterIndex = start + offset;
-    const rawChapter = rawChapters.find((chapter: AnyRecord) => Number(chapter?.index) === chapterIndex) || rawChapters[offset];
+    const rawChapter = rawChapters.find((chapter: AnyRecord) => Number(chapter?.index) === chapterIndex);
     return normalizeChapter(rawChapter, chapterIndex, params, volume.title || `Arc ${chapterIndex}`);
   });
 
   return refineChapterSequence(chapters, params, volume);
-};
-
-const buildEmergencyChapterDraft = (
-  params: StoryParams,
-  chapterIndex: number,
-  currentArc: Volume | { title: string; summary: string; chapters?: Chapter[]; purpose?: string; content?: string; theme?: string; objective?: string },
-  chapterPlan: Chapter | undefined,
-  userIdea: string,
-  minWords: number,
-) => {
-  const handle = protagonistHandleForDraft(
-    params,
-    `${userIdea} ${currentArc.summary} ${chapterPlan?.summary || ""} ${chapterPlan?.objective || ""}`,
-  );
-  const characterName = handle.label;
-  const pronoun = handle.pronoun;
-  const sentencePronoun = pronoun.charAt(0).toUpperCase() + pronoun.slice(1);
-  const title = chapterPlan?.title || `Chương ${chapterIndex}`;
-  const objective = chapterPlan?.objective || chapterPlan?.summary || currentArc.summary || "đẩy câu chuyện tiến lên bằng một lựa chọn tạo biến chuyển";
-  const beats = (chapterPlan?.beats?.length ? chapterPlan.beats : fallbackBeats(chapterIndex, params.totalChapters, currentArc.title)).slice(0, 4);
-  const mustInclude = (chapterPlan?.mustInclude?.length ? chapterPlan.mustInclude : fallbackMustInclude(params, chapterIndex)).slice(0, 4);
-  const storyHint = userIdea || params.seed || "mạch truyện đã khởi tạo";
-  const paragraphs = [
-    `Tên chương: ${title}`,
-    `${characterName} bị đặt vào phần việc của mình trong ${currentArc.title} với cảm giác mọi thứ đã lệch đi một nấc rất nhỏ. Điều cần làm không còn là nghĩ xem chuyện nào đáng tin, mà là chọn một hành động đủ cụ thể để kiểm chứng ${objective}. ${sentencePronoun} giữ lại những chi tiết đã được khóa trong Thiên Cơ Lục, không vội đặt thêm con số mới, cũng không tự ý mở một bí mật ngoài đường dây đang có.`,
-  ];
-  const templates = [
-    (beat: string, detail: string) => `${beat}. Cảnh này được kéo xuống mặt đất bằng một việc nhìn thấy được: ${characterName} quan sát, đối chiếu rồi buộc phải phản ứng trước ${detail}. Mỗi lời nói trong cảnh đều có mục đích, hoặc che giấu, hoặc thử lòng, hoặc đẩy nhân vật tiến gần hơn đến biến chuyển cuối chương.`,
-    (beat: string, detail: string) => `Khi ${detail} hiện ra rõ hơn, ${characterName} không thắng bằng may mắn. ${sentencePronoun} phải dùng một hành động có căn cứ để mở thêm một manh mối nhỏ, và chính lựa chọn ấy khiến ${beat.toLowerCase()} trở thành biến chuyển không thể đảo ngược của chương.`,
-    (beat: string, detail: string) => `Nhịp truyện chậm lại đủ để người đọc thấy áp lực bên trong nhân vật. ${characterName} không cần một hồi tưởng dài; ${pronoun} chỉ giữ lại một dấu hiệu ngắn rồi quay về hiện tại, nơi ${detail} đang buộc ${pronoun} xử lý ${beat.toLowerCase()}.`,
-    (_beat: string, detail: string) => `Đến cuối cảnh, ${detail} không còn là thông tin rời rạc. Nó trở thành bằng chứng, rủi ro hoặc lời cảnh báo. Tình thế buộc ${characterName} bước tiếp: nếu đứng yên, toàn bộ ${storyHint} sẽ đứt mạch; nếu đi tiếp, một chuyển biến mới bắt đầu hiện hình.`,
-  ];
-
-  let cursor = 0;
-  while (countWords(paragraphs.join("\n\n")) < minWords && cursor < 48) {
-    const beat = beats[cursor % beats.length] || objective;
-    const detail = mustInclude[cursor % mustInclude.length] || "một dữ kiện đã khóa";
-    paragraphs.push(templates[cursor % templates.length](beat, detail));
-    cursor++;
-  }
-
-  paragraphs.push(`Chương khép lại ở một điểm chưa giải quyết hết. ${characterName} đã bị đẩy sang một hướng đi mới, còn tác động của lựa chọn vừa rồi bắt đầu lộ ra, đủ để kéo thẳng sang chương kế tiếp mà không phá kết cục toàn truyện.`);
-  return paragraphs.join("\n\n");
 };
 
 const normalizeLogicReport = (raw: AnyRecord): StoryLogicReport => ({
@@ -2222,6 +2291,7 @@ const buildFallbackNextArcData = (
 
 type PipelineReview = {
   isValid: boolean;
+  unverified?: boolean;
   shouldRewrite: boolean;
   reason: string;
   issues: string[];
@@ -2243,7 +2313,9 @@ const normalizePipelineReview = (data: AnyRecord): PipelineReview => {
   ].filter((item, index, all) => all.indexOf(item) === index);
   const fixPlan = asText(data?.fixPlan || data?.rewritePlan || data?.proposal);
   const isValid = data?.isValid === true || data?.valid === true;
-  const shouldRewrite = data?.shouldRewrite === true || !isValid || issues.length > 0 || suggestions.length > 0 || Boolean(fixPlan);
+  // FIX: truoc day chi can co 1 "suggestion" la shouldRewrite=true -> Cum 3 viet lai gan nhu vo dieu kien.
+  // Nay chi viet lai khi khong dat hoac co issue that; suggestion thuan tuy khong kich hoat viet lai.
+  const shouldRewrite = !isValid || issues.length > 0;
 
   return {
     isValid,
@@ -2306,7 +2378,7 @@ ${USER_CHAPTER_MAP_PROMPT}
 ${USER_CLUSTER_2_PROMPT}
 
 [BẢN NHÁP TỪ KEY 1]
-${JSON.stringify(draft, null, 2).slice(0, 16000)}
+${JSON.stringify(draft, null, 2).slice(0, 120000)}
 
 Hãy thẩm định như Cụm 2:
 - Không viết lại.
@@ -2336,9 +2408,10 @@ Trả JSON:
     if (!isAIJsonFormatError(error)) throw error;
     console.warn("Cụm 2 trả thẩm định lộ trình không đúng JSON, giữ bản nháp Cụm 1:", error);
     return {
-      isValid: true,
+      isValid: false,
+      unverified: true,
       shouldRewrite: false,
-      reason: "Không đọc được báo cáo Cụm 2; giữ bản nháp Cụm 1 để tránh kẹt luồng.",
+      reason: "CHƯA THẨM ĐỊNH ĐƯỢC: Cụm 2 trả báo cáo không đúng JSON; bản nháp Cụm 1 được giữ nguyên nhưng chưa được xác nhận đạt.",
       issues: [],
       suggestions: [],
       fixPlan: "",
@@ -2367,7 +2440,7 @@ ${subject}
 ${context}
 
 [BẢN NHÁP KEY 1]
-${JSON.stringify(draft, null, 2).slice(0, 16000)}
+${JSON.stringify(draft, null, 2).slice(0, 120000)}
 
 [BÁO CÁO KEY 2]
 ${JSON.stringify(review, null, 2)}
@@ -2418,6 +2491,7 @@ const finalizeStructuredDraft = async (
 ): Promise<AnyRecord> => {
   try {
     const review = await reviewStructuredDraft(params, subject, context, draft);
+    if (review.unverified) return draft;
     return await rewriteStructuredDraft(params, subject, context, draft, review, expectedJson);
   } catch (error) {
     console.warn("Dây chuyền Cụm 2/Cụm 3 không hoàn tất, giữ bản nháp Cụm 1:", error);
@@ -2551,7 +2625,11 @@ export const generateNextArc = async (
   const arcSize = remainingInsidePlan > 0
     ? clamp(profileArcSize, 1, remainingInsidePlan)
     : clamp(profileArcSize, 3, params.totalChapters >= 80 ? 70 : 18);
-  const end = start + arcSize - 1;
+  // Tranh "duoi mo coi" 1-3 chuong: neu phan con lai sau Arc nay chi con <4 chuong thi gon not vao Arc nay.
+  const mergedArcSize = remainingInsidePlan > 0 && remainingInsidePlan - arcSize > 0 && remainingInsidePlan - arcSize < 4
+    ? remainingInsidePlan
+    : arcSize;
+  const end = start + mergedArcSize - 1;
   const history = [...writtenChapters]
     .sort((a, b) => a.index - b.index)
     .slice(-10)
@@ -2579,8 +2657,11 @@ ${USER_ROADMAP_PROMPT}
 ĐẠI CỤC TRUYỆN:
 ${generalSummary}
 
+CÁC ARC ĐÃ CÓ (không được trùng tên/chủ đề/biến cố với các Arc này, phải nối tiếp từ trạng thái cuối của Arc gần nhất):
+${safeVolumes.map(volume => `- Arc ${volume.index} (chương ${volume.chapterStart || "?"}-${volume.chapterEnd || "?"}): ${volume.title} — ${volume.objective || volume.summary || ""}`).join("\n") || "Chưa có Arc nào."}
+
 THIÊN CƠ LỤC:
-${worldBible}
+${bibleExcerptFor(worldBible, 10000)}
 
 LỊCH SỬ GẦN NHẤT:
 ${history || "Chưa có chương đã viết."}
@@ -2675,7 +2756,7 @@ ${USER_POV_PROMPT}
 ${generalSummary}
 
 [THIÊN CƠ LỤC]
-${worldBible.slice(0, 7000)}
+${bibleExcerptFor(worldBible, 9000)}
 
 [ARC CẦN LẬP BẢN ĐỒ CHƯƠNG]
 - Arc ${currentArc.index}: ${currentArc.title}
@@ -2783,15 +2864,6 @@ ${isRetry ? "\nCHẾ ĐỘ SỬA: Bản trước chưa đạt thẩm định. H�
 
 ${buildProjectBrief(params)}
 
-[LUẬT NHỊP VĂN VÀ LOGIC CẢNH]
-${STORY_ARCHITECTURE_RULES}
-
-${PROSE_RHYTHM_RULES}
-
-${SCENE_LOGIC_RULES}
-
-${IMMERSIVE_LOGIC_RULES}
-
 [ĐẠI CỤC]
 ${generalSummary}
 
@@ -2813,7 +2885,7 @@ ${generalSummary}
 - Hook/cuối chương: ${chapterPlan?.cliffhanger || "Kết bằng một kết quả, câu hỏi hoặc móc nối đủ mạnh để sang chương sau."}
 
 [THIÊN CƠ LỤC]
-${worldBible}
+${bibleExcerptFor(worldBible, 18000)}
 
 [KHÓA CANON]
 - Giữ nguyên tên riêng, số liệu, mốc thời gian, quan hệ, cấp bậc, luật thế giới và vật phẩm đã khóa trong Thiên Cơ Lục.
@@ -2870,20 +2942,25 @@ YÊU CẦU VIẾT:
 - Nếu chương là phần giữa truyện, cuối chương phải tạo lực kéo sang chương sau.`;
 
   let fullText = "";
+  let streamFinishReason = "";
   try {
-    fullText = await streamChat(WRITE_MODEL, ACTIVE_WRITER_SYSTEM_INSTRUCTION, prompt, onChunk, 0.78, estimateMaxTokens(targetWords, 3600), "writer");
+    fullText = await streamChat(WRITE_MODEL, ACTIVE_WRITER_SYSTEM_INSTRUCTION, prompt, onChunk, 0.78, estimateMaxTokens(targetWords, 3600), "writer", (reason) => { streamFinishReason = reason; });
   } catch (error) {
     if (!(error instanceof GeminiRequestError) || !error.message.includes("không trả về nội dung")) throw error;
   }
   if (!fullText.trim()) {
-    const emergencyDraft = buildEmergencyChapterDraft(params, newIndex, currentArc, chapterPlan, userIdea, minWords);
-    onChunk(emergencyDraft);
-    return emergencyDraft;
+    // FIX: truoc day tra "ban nhap khan cap" toan van mau lap vong, va App luu no nhu chuong that
+    // roi cap nhat Thien Co Luc tu van mau. Nay thu lai mot lan; van rong thi bao loi ro rang,
+    // tuyet doi khong luu van mau, khong cap nhat canon.
+    fullText = await streamChat(WRITE_MODEL, ACTIVE_WRITER_SYSTEM_INSTRUCTION, prompt, onChunk, 0.78, estimateMaxTokens(targetWords, 3600), "writer", (reason) => { streamFinishReason = reason; });
+  }
+  if (!fullText.trim()) {
+    throw new GeminiRequestError("Gemini không trả về nội dung chương ở cả hai lần gọi. Chương chưa được lưu; hãy thử lại sau ít phút.", 503, undefined, true);
   }
   let rounds = 0;
-  const maxContinuationRounds = targetWords <= 2500 ? 6 : targetWords <= 6000 ? 7 : targetWords <= 12000 ? 9 : 12;
+  const maxContinuationRounds = targetWords <= 2500 ? 8 : targetWords <= 6000 ? 10 : targetWords <= 12000 ? 14 : 20;
 
-  while (chapterNeedsContinuation(fullText, minWords) && rounds < maxContinuationRounds) {
+  while ((chapterNeedsContinuation(fullText, minWords) || (streamFinishReason === "MAX_TOKENS" && countWords(fullText) < minWords)) && rounds < maxContinuationRounds) {
     rounds++;
     const currentWords = countWords(fullText);
     const remainingWords = Math.max(450, Math.min(1400, minWords - currentWords + 180));
@@ -2941,7 +3018,14 @@ ${finalDraft.slice(-2600)}`;
     finalDraft = normalizeGeneratedDraft(fullText);
   }
 
-  return assertCompleteGeneratedDraft(finalDraft, minWords, targetWords, "Bản nháp Cụm 1");
+  try {
+    return assertCompleteGeneratedDraft(finalDraft, minWords, targetWords, "Bản nháp Cụm 1");
+  } catch (error) {
+    // Giu ban nhap da viet duoc lam ban nhap treo trong trinh soan thao thay vi xoa sach;
+    // cong luu cua App van chan khong cho thanh ban chinh thuc khi chua du chu/chua khep canh.
+    console.warn("Bản nháp Cụm 1 chưa đạt ngưỡng hoàn chỉnh, trả về dạng nháp treo:", error);
+    return finalDraft;
+  }
 };
 
 export const rewriteChapterWithReviewStream = async (
@@ -3031,14 +3115,14 @@ ${userIdea || "Không có bổ sung."}
 ${JSON.stringify(review, null, 2)}
 
 [BẢN NHÁP KEY 1 CẦN SỬA]
-${excerptForAudit(originalDraft, 18000)}
+${excerptForAudit(originalDraft, 150000)}
 
 YÊU CẦU KEY 3:
-- Viết lại toàn bộ chương, không chỉ vá vài đoạn.
+- Sửa theo vùng lỗi Cụm 2 chỉ ra (theo beat/cảnh/vị trí dẫn chứng); chỉ viết lại toàn bộ chương khi lỗi thuộc cấu trúc diện rộng. Các đoạn đã đạt và preserveStrengths phải được giữ nguyên tác dụng và nội dung.
 - Sửa đúng toàn bộ lỗi Cụm 2 nêu trong các nhóm: structureIssues, setupIssues, logicIssues, canonIssues, povIssues, metricIssues, ramblingIssues, styleIssues, repetitionIssues, dictionIssues, suggestions và rewriteDirectives.
 - Nếu Cụm 2 có preserveStrengths, giữ các điểm mạnh đó; nếu phải sửa, giữ tác dụng truyện của chúng nhưng thay cách thể hiện.
 - Dùng báo cáo Cụm 2 như bản giao việc: lỗi nào có dẫn chứng/vị trí thì xử lý trực tiếp tại vùng đó; lỗi nào là nguyên tắc chung thì rà toàn chương.
-- Không chỉ thay vài câu. Hãy viết lại thành một bản chương liền mạch, đã tự sửa lặp chữ, lặp ý, câu sáo, đoạn quá dài, thoại sai quan hệ và các chỗ nhân vật biết/làm điều không hợp logic.
+- Bản sửa cuối phải liền mạch như một chương hoàn chỉnh (đoạn giữ nguyên và đoạn sửa khớp giọng, nhịp, mốc nối), đã xử lý lặp chữ, lặp ý, câu sáo, đoạn quá dài, thoại sai quan hệ và các chỗ nhân vật biết/làm điều không hợp logic.
 - Nếu báo cáo Cụm 2 nêu lặp đoạn/câu dài, tuyệt đối không giữ lại hai đoạn giống nhau. Chỉ giữ một lần thông tin cần thiết, phần còn lại phải thay bằng diễn biến mới có mục tiêu, va chạm và kết quả riêng.
 - Khi sửa, vẫn phải khóa theo hồ sơ thiết lập: giữ giọng văn "${params.tone}", kết cấu "${params.mode}", thể loại ${params.genres.join(", ") || "Tự do"}, ý tưởng khởi nguồn, truyện mẫu/lưu ý, tên nhân vật chính và tính cách "${params.character.personality || "chưa mô tả"}". Không được sửa lỗi bằng cách đổi truyện hoặc đổi chất văn đã chọn.
 - Không đưa dữ kiện từ tác phẩm khác vào bản sửa. Nếu bản nháp có tên Arc/nhân vật/địa danh/hệ thống ngoại lai, xóa và thay bằng dữ kiện của hồ sơ hiện tại.
@@ -3108,7 +3192,12 @@ ${finalDraft.slice(-2600)}`;
     finalDraft = normalizeGeneratedDraft(fullText);
   }
 
-  return assertCompleteGeneratedDraft(finalDraft, minWords, targetWords, "Bản sửa Cụm 3");
+  try {
+    return assertCompleteGeneratedDraft(finalDraft, minWords, targetWords, "Bản sửa Cụm 3");
+  } catch (error) {
+    console.warn("Bản sửa Cụm 3 chưa đạt ngưỡng, giữ bản nháp Cụm 1 gốc:", error);
+    return originalDraft;
+  }
 };
 
 export const validateChapterLogic = async (
@@ -3207,7 +3296,7 @@ ${generalSummary}
 ${chapterPlan ? JSON.stringify(chapterPlan, null, 2) : "Không có kế hoạch chi tiết, thẩm định theo Arc."}
 
 [THIÊN CƠ LỤC]
-${worldBible.slice(0, 5000)}
+${bibleExcerptFor(worldBible, 9000)}
 
 [CHƯƠNG TRƯỚC]
 ${lastChapter ? `${lastChapter.title}: ${lastChapter.summary}` : "Không có."}
@@ -3260,11 +3349,12 @@ Trả về JSON đúng schema:
     return normalizeChapterValidationResult(await chatJson(PLAN_MODEL, EDITOR_SYSTEM_INSTRUCTION, prompt, 0.2, 5600, "reviewer"));
   } catch (error) {
     if (!isAIJsonFormatError(error)) throw error;
-    console.warn("AI trả thẩm định không đúng JSON; giữ bản thảo nếu đã qua kiểm tra cục bộ số chữ và đoạn cuối:", error);
+    console.warn("AI trả thẩm định không đúng JSON; đánh dấu CHƯA THẨM ĐỊNH ĐƯỢC thay vì đóng dấu đạt:", error);
     return {
-      isValid: true,
-      reason: "Cụm 2 trả thẩm định không đúng JSON. App đã bỏ qua lớp thẩm định AI cho lượt này và vẫn giữ các kiểm tra cục bộ về số chữ, bản đồ chương, Thiên Cơ Lục và đoạn cuối.",
-      preserveStrengths: ["Giữ bản thảo Cụm 1 vì báo cáo Cụm 2 không đọc được và kiểm tra cục bộ đã đạt."],
+      isValid: false,
+      unverified: true,
+      reason: "CHƯA THẨM ĐỊNH ĐƯỢC: Cụm 2 trả báo cáo không đúng JSON nên lượt này chưa có kết luận đạt. Kiểm tra cục bộ về số chữ/đoạn cuối vẫn chạy, nhưng tác giả nên thẩm định lại trước khi coi là bản chính thức.",
+      preserveStrengths: ["Giữ bản thảo Cụm 1 vì báo cáo Cụm 2 không đọc được."],
     };
   }
 };
@@ -3286,9 +3376,10 @@ export const reviewStoryLogic = async (
       beats: chapter.beats,
     })))
     .sort((a, b) => a.index - b.index);
-  const manuscript = [...writtenChapters]
-    .sort((a, b) => a.index - b.index)
-    .map(chapter => {
+  const sortedWritten = [...writtenChapters].sort((a, b) => a.index - b.index);
+  const detailedChapters = sortedWritten.slice(-30);
+  const olderChapters = sortedWritten.slice(0, Math.max(0, sortedWritten.length - detailedChapters.length));
+  const manuscript = detailedChapters.map(chapter => {
       const content = chapter.content || "";
       const middleStart = Math.max(0, Math.floor(content.length / 2) - 450);
       return {
@@ -3301,6 +3392,9 @@ export const reviewStoryLogic = async (
         excerptEnd: content.slice(-900),
       };
     });
+  const olderSummary = olderChapters
+    .map(chapter => `[C.${chapter.index}] ${chapter.title}: ${chapter.summary || ""}`)
+    .join("\n");
 
   const prompt = `${buildProjectBrief(params)}
 
@@ -3314,12 +3408,15 @@ ${STORY_ARCHITECTURE_RULES}
 ${generalSummary}
 
 [THIÊN CƠ LỤC]
-${worldBible.slice(0, 8000)}
+${bibleExcerptFor(worldBible, 10000)}
 
 [BẢN ĐỒ CHƯƠNG]
 ${JSON.stringify(plannedChapters, null, 2)}
 
-[BẢN THẢO ĐÃ VIẾT]
+[TÓM TẮT CÁC CHƯƠNG CŨ HƠN - CHỈ Ở MỨC TÓM TẮT ĐỂ GIỮ NGÂN SÁCH NGỮ CẢNH]
+${olderSummary || "Không có."}
+
+[BẢN THẢO ĐÃ VIẾT - TỐI ĐA 30 CHƯƠNG GẦN NHẤT, KÈM TRÍCH ĐOẠN]
 ${JSON.stringify(manuscript, null, 2)}
 
 Hãy kiểm tra logic toàn truyện đã viết:
@@ -3398,9 +3495,10 @@ Hãy cập nhật hồ sơ truyện như một sổ canon dài kỳ:
 - Ghi rõ chuỗi tác động mới: lựa chọn/hành động nào tạo kết quả nào, kết quả đó buộc chương sau xử lý việc gì.
 - Không đổi tên gọi/timeline/quan hệ cũ để làm đẹp hồ sơ nếu chương mới không thật sự thay đổi chúng.
 - Nếu chương có chi tiết chưa chắc, ghi "chưa khóa" thay vì biến nó thành sự thật tuyệt đối.
-- Nếu phát hiện nguy cơ lệch canon, nhảy cóc logic, dùng tên sai thời điểm hoặc lan man, ghi vào # ĐỐI CHIẾU LOGIC.`;
+- Nếu phát hiện nguy cơ lệch canon, nhảy cóc logic, dùng tên sai thời điểm hoặc lan man, ghi vào # ĐỐI CHIẾU LOGIC.
+- NGÂN SÁCH ĐỘ DÀI: toàn bộ Thiên Cơ Lục mới tối đa khoảng 3.000 từ. Mục/biến cố ĐÃ ĐÓNG hoặc đã giải quyết phải nén thành 1 dòng dạng "đã đóng: ..."; không chép lại nguyên văn diễn giải dài. Ưu tiên giữ nguyên: số liệu đã khóa, quan hệ hiện tại, mâu thuẫn đang mở, điều cấm phá logic, điểm nhìn và tên gọi.`;
 
-  return chatJson(
+  const result = await chatJson(
     PLAN_MODEL,
     `Nhiệm vụ: rút tên chương, tóm tắt chương, cập nhật Thiên Cơ Lục.
 Thiên Cơ Lục phải có các mục Markdown:
@@ -3424,9 +3522,25 @@ Chỉ trả về JSON hợp lệ:
 }`,
     prompt,
     0.3,
-    6000,
+    10000,
     "reviewer",
   );
+
+  // Guard mat mat canon: tu choi bible moi bi rut ngan bat thuong hoac mat muc lon,
+  // de App giu bible cu va canh bao nguoi dung thay vi am tham dong bang canon sai.
+  const newBible = String(result?.updatedBible || "");
+  const oldWords = countWords(currentBible);
+  if (newBible) {
+    if (oldWords > 600 && countWords(newBible) < oldWords * 0.55) {
+      throw new Error(`Thiên Cơ Lục cập nhật bị rút ngắn bất thường (${countWords(newBible)}/${oldWords} từ). Đã giữ bản cũ để tránh mất canon.`);
+    }
+    const requiredHeadings = ["# DIỄN TIẾN", "# TIMELINE", "# SỐ LIỆU", "# NHÂN VẬT CHÍNH", "# MÂU THUẪN ĐANG MỞ", "# ĐIỀU CẤM"];
+    const missing = requiredHeadings.filter(heading => currentBible.includes(heading) && !newBible.includes(heading));
+    if (missing.length >= 2) {
+      throw new Error(`Thiên Cơ Lục cập nhật thiếu các mục bắt buộc: ${missing.join(", ")}. Đã giữ bản cũ.`);
+    }
+  }
+  return result;
 };
 
 export const generateShortStoryStream = async (params: StoryParams, onChunk: (text: string) => void, userIdea = ""): Promise<string> => {
@@ -3434,23 +3548,6 @@ export const generateShortStoryStream = async (params: StoryParams, onChunk: (te
   const minWords = minimumShortStoryWords(targetWords);
   const maxWords = Math.ceil(targetWords * 1.28);
   const prompt = `${buildProjectBrief(params)}
-
-[LUẬT NHỊP VĂN VÀ LOGIC CẢNH]
-${STORY_ARCHITECTURE_RULES}
-
-${PROSE_RHYTHM_RULES}
-
-${SCENE_LOGIC_RULES}
-
-${IMMERSIVE_LOGIC_RULES}
-
-${USER_ARCHITECTURE_PROMPT}
-
-${USER_PROSE_PROMPT}
-
-${USER_SCENE_PROMPT}
-
-${USER_POV_PROMPT}
 
 ${USER_SHORT_STORY_PROMPT}
 
@@ -3476,7 +3573,14 @@ Yêu cầu:
 [Ý ĐỒ BỔ SUNG CỦA NGƯỜI DÙNG]
 ${userIdea || "Không có bổ sung."}`;
 
-  let fullText = await streamChat(WRITE_MODEL, ACTIVE_WRITER_SYSTEM_INSTRUCTION, prompt, onChunk, 0.82, estimateMaxTokens(targetWords, 3600), "writer");
+  let fullText = await streamChat(WRITE_MODEL, SHORT_STORY_SYSTEM_INSTRUCTION, prompt, onChunk, 0.82, estimateMaxTokens(targetWords, 3600), "writer");
+  if (!fullText.trim()) {
+    // Stream rong: thu lai bang luot goi chinh thay vi di duong "viet tiep" tren truyen chua co chu nao.
+    fullText = await streamChat(WRITE_MODEL, SHORT_STORY_SYSTEM_INSTRUCTION, prompt, onChunk, 0.82, estimateMaxTokens(targetWords, 3600), "writer");
+  }
+  if (!fullText.trim()) {
+    throw new GeminiRequestError("Gemini không trả về nội dung truyện ngắn ở cả hai lần gọi. Hãy thử lại sau ít phút.", 503, undefined, true);
+  }
   let rounds = 0;
   const maxContinuationRounds = targetWords <= 2500 ? 6 : targetWords <= 6000 ? 7 : targetWords <= 12000 ? 9 : 12;
 
@@ -3495,7 +3599,7 @@ Giữ nhịp văn, ngắt đoạn và mức chi tiết như phần đã có; kh�
 ${fullText.slice(-3500)}`;
     onChunk("\n\n");
     fullText += "\n\n";
-    const continuationText = await streamChat(WRITE_MODEL, ACTIVE_WRITER_SYSTEM_INSTRUCTION, continuationPrompt, onChunk, 0.76, estimateMaxTokens(Math.max(remainingWords, minWords - countWords(fullText)), 1800), "writer");
+    const continuationText = await streamChat(WRITE_MODEL, SHORT_STORY_SYSTEM_INSTRUCTION, continuationPrompt, onChunk, 0.76, estimateMaxTokens(Math.max(remainingWords, minWords - countWords(fullText)), 1800), "writer");
     fullText = appendDraftPart(fullText, continuationText);
   }
 
@@ -3510,7 +3614,7 @@ Kết bằng dư âm cụ thể từ hành động/hình ảnh/câu thoại/kế
 ${fullText.slice(-2200)}`;
     onChunk("\n\n");
     fullText += "\n\n";
-    const closingText = await streamChat(WRITE_MODEL, ACTIVE_WRITER_SYSTEM_INSTRUCTION, closingPrompt, onChunk, 0.7, estimateMaxTokens(420, 1200), "writer");
+    const closingText = await streamChat(WRITE_MODEL, SHORT_STORY_SYSTEM_INSTRUCTION, closingPrompt, onChunk, 0.7, estimateMaxTokens(420, 1200), "writer");
     fullText = appendDraftPart(fullText, closingText);
   }
 

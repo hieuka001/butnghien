@@ -30,7 +30,7 @@ npm.cmd run dev
 
 ## Cấu Hình Gemini
 
-Mặc định app dùng `gemini-2.5-flash`, phù hợp hơn cho viết truyện vì cân bằng giữa tốc độ, chất lượng và context dài.
+Mặc định app dùng `gemini-3-flash-preview` (roster Gemini 3 đã đo thực tế còn hoạt động với key free-tier). Các tên model cũ 1.5/2.0/2.5 tự động được đổi sang model Gemini 3 tương ứng để tránh lỗi 404 NOT_FOUND. Trên Vercel, `/api/gemini` yêu cầu Firebase ID token của người dùng đã đăng nhập (khi server đã cấu hình `FIREBASE_PROJECT_ID`) để tránh người lạ đốt quota key.
 
 - Cụm 1 viết/lập khung: `GEMINI_API_KEY_1`, `GEMINI_API_KEY_2`.
 - Cụm 2 thẩm định logic/canon: `GEMINI_API_KEY_3`, `GEMINI_API_KEY_4`.

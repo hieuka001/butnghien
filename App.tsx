@@ -44,9 +44,10 @@ const DEFAULT_PARAMS: StoryParams = {
   projectType: 'Trường Thiên',
   totalChapters: 50,
   length: 2000,
-  genres: ['Tiên hiệp'],
-  tone: 'Bi tráng',
-  character: { name: 'Lâm Phong', gender: 'Nam', personality: 'Kiên định, lạnh lùng', goal: 'Báo thù' },
+  genres: [],
+  tone: 'Kịch tính',
+  narrativeView: 'Ngôi thứ ba hạn chế bám nhân vật chính',
+  character: { name: '', gender: 'Không xác định', personality: '', goal: '' },
   sliders: { romance: 0, violence: 0, philosophy: 0, psychology: 0, action: 0, strategy: 0 },
   mode: 'Truyện hoàn chỉnh',
   seed: '',
@@ -468,8 +469,13 @@ const App: React.FC = () => {
     };
     const validation = await validateChapterLogic(body, [], shortStoryCanon, shortStoryArc, workingParams.seed || title, workingParams, 1);
     if (!validation.isValid) {
-      throw new Error(`Truyện ngắn chưa đạt thẩm định logic/canon: ${validation.reason || 'cần viết lại trước khi lưu.'}`);
+      // Khong huy truyen da viet xong chi vi mot nhan dinh cua Cum 2: giu truyen, hien bao cao de tac gia quyet dinh.
+      setDraftReview(validation);
+      setGenerationStatus(validation.unverified
+        ? 'Truyện ngắn đã viết xong nhưng CHƯA thẩm định được — hãy thẩm định lại trước khi coi là bản chính thức.'
+        : `Truyện ngắn đã viết xong; Cụm 2 còn góp ý: ${validation.reason || 'xem báo cáo thẩm định.'} Truyện vẫn được giữ lại.`);
     }
+    return validation;
   };
 
   const renderStoryParagraphs = (text: string) => {
@@ -607,6 +613,11 @@ const App: React.FC = () => {
       '# NHÂN VẬT PHỤ VÀ QUAN HỆ',
       '- Chưa khóa. Mỗi nhân vật phụ mới phải có quan hệ, chức năng trong Arc và trạng thái sau khi xuất hiện.',
       '',
+      '# ĐIỂM NHÌN VÀ TÊN GỌI',
+      `- Ngôi kể đã khóa: ${draft.narrativeView || 'Ngôi thứ ba hạn chế bám nhân vật chính'}.`,
+      `- Tên hồ sơ "${draft.character.name || 'chưa đặt'}" chỉ được dùng trong văn xuôi sau khi có cảnh đặt/gọi/nhận biết tên; trước mốc đó dùng cách gọi theo quan hệ/hoàn cảnh.`,
+      '- Nhân vật chỉ được biết, nói và hành động theo tuổi, ký ức và thông tin đã xuất hiện trong truyện.',
+      '',
       '# ĐỊA DANH/VẬT PHẨM/HỆ THỐNG',
       rawWorldBuilding?.trim() || 'Thế giới sẽ được giữ nhất quán theo thể loại, luật diễn tiến và các giới hạn đã đặt.',
       '',
@@ -707,6 +718,7 @@ const App: React.FC = () => {
     && draftAutosavedMeta.arcIndex === activeArcIndex,
   );
   const draftReviewIssues = draftReview ? [
+    ...(draftReview.setupIssues || []),
     ...(draftReview.structureIssues || []),
     ...(draftReview.logicIssues || []),
     ...(draftReview.canonIssues || []),
@@ -813,7 +825,6 @@ const App: React.FC = () => {
     String(value || '').split(/[.!?…。！？]+/).map(item => item.trim()).filter(Boolean).length;
 
   const ARC_ADMIN_TEXT_PATTERN = /(?:huong truyen da chon|logic cot truyen|nhip arc|bat buoc khi lap lo trinh|truyen chi su dung|khong su dung tuyen|tai lieu thiet lap|world building|ten tac pham|dung tai lieu nay lam quy chuan|content bat buoc|arc cau noi ngan|arc nhip vua|arc trong tam dai|phuc vu huong|dung \d+ chuong de)/;
-  const LEGACY_WATER_STORY_PATTERN = /(?:cuu long|lac minh|dai nam|dong nuoc|song nuoc|luat nuoc|thuy lan|ca tom|ha moc)/;
   const ARC_STOP_WORDS = new Set([
     'arc', 'chuong', 'truyen', 'nhan', 'vat', 'chinh', 'muc', 'tieu', 'noi', 'dung', 'the', 'gioi',
     'phai', 'duoc', 'khong', 'trong', 'ngoai', 'mot', 'nhung', 'cac', 'voi', 'cua', 'cho', 'vao', 'chi',
@@ -850,7 +861,6 @@ const App: React.FC = () => {
     if (!normalized) return false;
     const projectSignal = planFingerprint(currentStorySignal());
     if (ARC_ADMIN_TEXT_PATTERN.test(normalized)) return true;
-    if (LEGACY_WATER_STORY_PATTERN.test(normalized) && !LEGACY_WATER_STORY_PATTERN.test(projectSignal)) return true;
     const tokens = meaningfulArcTokens(value, 24);
     return tokens.length >= 5 && !sharesCurrentStorySignal(value);
   };
@@ -859,7 +869,6 @@ const App: React.FC = () => {
     const normalized = planFingerprint(title);
     if (!normalized) return true;
     const projectSignal = planFingerprint(currentStorySignal());
-    if (LEGACY_WATER_STORY_PATTERN.test(normalized) && !LEGACY_WATER_STORY_PATTERN.test(projectSignal)) return true;
     if (ARC_ADMIN_TEXT_PATTERN.test(normalized)) return true;
     const titleTokens = meaningfulArcTokens(title, 8);
     if (titleTokens.length === 0) return true;
@@ -1096,15 +1105,24 @@ const App: React.FC = () => {
     }
 
     setGenerationStatus('Đang lưu chương và cập nhật Thiên Cơ Lục...');
+    // Khi viet lai chuong da co: phai cap nhat canon tu bible TRUOC chuong do (snapshot cua chuong truoc),
+    // neu khong du kien cua ban cu va ban moi se cung ton tai trong Thien Co Luc.
+    const previousSnapshot = [...writtenChapters]
+      .filter(c => c.index < currentChapterIndex && c.bibleSnapshot)
+      .sort((a, b) => b.index - a.index)[0]?.bibleSnapshot;
+    const isRewritePersist = writtenChapters.some(c => c.index === currentChapterIndex && c.content);
+    const baseBible = isRewritePersist && previousSnapshot ? previousSnapshot : worldBible;
     let updates: { chapterTitle?: string; chapterSummary?: string; updatedBible: string };
+    let bibleUpdateError: string | null = null;
     try {
-      updates = await updateWorldBibleAndSummary(worldBible, finalContent, currentChapterIndex, generalSummary, params, currentArc);
+      updates = await updateWorldBibleAndSummary(baseBible, finalContent, currentChapterIndex, generalSummary, params, currentArc);
     } catch (updateError) {
       console.warn('Không cập nhật được Thiên Cơ Lục, vẫn lưu chương đã viết:', updateError);
+      bibleUpdateError = updateError instanceof Error ? updateError.message : 'lỗi không rõ';
       updates = {
         chapterTitle: chapterPlan?.title || `Chương ${currentChapterIndex}`,
         chapterSummary: chapterPlan?.summary || finalContent.slice(0, 240),
-        updatedBible: worldBible,
+        updatedBible: baseBible,
       };
     }
 
@@ -1149,6 +1167,9 @@ const App: React.FC = () => {
       ? { ...p, volumes: updatedVolumes, progressionSummary: updates.updatedBible, lastChapterWritten: Math.max(0, ...nextWrittenList.map(chapter => chapter.index)), updatedAt: Date.now() }
       : p
     ));
+    if (bibleUpdateError) {
+      setCloudStatus(`⚠ Chương ${currentChapterIndex} đã lưu nhưng Thiên Cơ Lục chưa cập nhật được (${bibleUpdateError}). Chương sau có thể lệch canon — hãy thẩm định lại trước khi viết tiếp.`);
+    }
   };
 
   const handleWriteChapter = async () => {
@@ -1280,10 +1301,12 @@ const App: React.FC = () => {
 
   const chapterReviewNeedsRewrite = (review: ChapterValidationResult | null, authorNote = '') => {
     if (!review) return Boolean(authorNote.trim());
+    if (review.unverified) return Boolean(authorNote.trim());
     return !review.isValid
       || Boolean(authorNote.trim())
       || Boolean(review.fixPlan)
       || [
+        review.setupIssues,
         review.structureIssues,
         review.logicIssues,
         review.canonIssues,
@@ -1680,6 +1703,10 @@ const App: React.FC = () => {
     e.stopPropagation();
     if (confirm(`⚠️ Xóa vĩnh viễn nội dung chương ${chapterIndex}?`)) {
       const nextWrittenList = writtenChapters.filter(c => c.index !== chapterIndex);
+      // Rollback canon ve snapshot cua chuong truoc chuong bi xoa, tranh du kien "ma" cua ban da xoa.
+      const previousSnapshot = [...writtenChapters]
+        .filter(c => c.index < chapterIndex && c.bibleSnapshot)
+        .sort((a, b) => b.index - a.index)[0]?.bibleSnapshot;
       const updatedVolumes = volumes.map(v => ({
         ...v,
         chapters: (v.chapters || []).map(c => c.index === chapterIndex
@@ -1689,8 +1716,9 @@ const App: React.FC = () => {
       }));
       setWrittenChapters(nextWrittenList);
       setVolumes(updatedVolumes);
+      if (previousSnapshot) setWorldBible(previousSnapshot);
       setProjects(prevProjects => prevProjects.map(p => p.id === activeProjectId
-        ? { ...p, volumes: updatedVolumes, lastChapterWritten: Math.max(0, ...nextWrittenList.map(chapter => chapter.index)), updatedAt: Date.now() }
+        ? { ...p, volumes: updatedVolumes, ...(previousSnapshot ? { progressionSummary: previousSnapshot } : {}), lastChapterWritten: Math.max(0, ...nextWrittenList.map(chapter => chapter.index)), updatedAt: Date.now() }
         : p
       ));
     }
@@ -1918,6 +1946,13 @@ const App: React.FC = () => {
                 {MODES.map(mode => <option key={mode} value={mode}>{mode}</option>)}
               </select>
             </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[9px] font-black text-slate-400 uppercase">Ngôi kể / Điểm nhìn</label>
+            <select value={params.narrativeView || 'Ngôi thứ ba hạn chế bám nhân vật chính'} onChange={e => updateDraftParams(prev => ({...prev, narrativeView: e.target.value}))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-bold outline-none">
+              {['Ngôi thứ ba hạn chế bám nhân vật chính', 'Ngôi thứ nhất (nhân vật chính kể)', 'Ngôi thứ ba toàn tri', 'Đa điểm nhìn (ghi rõ trong bản đồ chương)'].map(viewOption => <option key={viewOption} value={viewOption}>{viewOption}</option>)}
+            </select>
           </div>
 
           <div className={`grid ${params.projectType === 'Trường Thiên' ? 'grid-cols-2' : 'grid-cols-1'} gap-3`}>
@@ -2560,7 +2595,7 @@ const App: React.FC = () => {
                       />
                       {draftReview && (
                         <div className={`p-4 rounded-2xl border ${draftReview.isValid ? 'bg-emerald-50 border-emerald-100 text-emerald-900' : 'bg-amber-50 border-amber-100 text-amber-900'}`}>
-                          <p className="text-[9px] font-black uppercase tracking-widest">{draftReview.isValid ? 'Cụm 2: đạt cơ bản' : 'Cụm 2: cần sửa'}</p>
+                          <p className="text-[9px] font-black uppercase tracking-widest">{draftReview.unverified ? 'Cụm 2: chưa thẩm định được' : draftReview.isValid ? 'Cụm 2: đạt cơ bản' : 'Cụm 2: cần sửa'}</p>
                           <p className="mt-1 text-xs leading-5">{draftReview.reason}</p>
                           {draftReviewIssues.length > 0 && (
                             <ul className="mt-3 space-y-1 text-xs leading-5 list-disc pl-4">

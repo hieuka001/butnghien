@@ -158,6 +158,26 @@ const getSession = async () => {
   throw new Error("Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại.");
 };
 
+export const getFirebaseIdToken = async (): Promise<string> => {
+  try {
+    const session = await getSession();
+    return session.idToken || "";
+  } catch {
+    return "";
+  }
+};
+
+const mapPool = async <T,>(items: T[], limit: number, worker: (item: T, index: number) => Promise<void>): Promise<void> => {
+  let cursor = 0;
+  const runners = Array.from({ length: Math.max(1, Math.min(limit, items.length || 1)) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor++;
+      await worker(items[index], index);
+    }
+  });
+  await Promise.all(runners);
+};
+
 const databaseRoot = () =>
   `${FIRESTORE_API}/projects/${encodeURIComponent(firebaseConfig.projectId)}/databases/${encodeURIComponent(firebaseConfig.databaseId)}/documents`;
 
@@ -226,18 +246,25 @@ export const saveProjectToFirebase = async (project: StoryProject): Promise<void
   const chunks = chunkText(payload);
   const updatedAt = Date.now();
 
-  for (let index = 0; index < chunks.length; index++) {
+  // Doc chunkCount cu de don chunk thua khi project ngan lai (tranh rac Firestore).
+  let previousChunkCount = 0;
+  try {
+    const existing = await firestoreFetch<FirestoreDocument>(basePath);
+    previousChunkCount = readInteger(existing, "chunkCount", 0);
+  } catch { /* chua co doc cu thi bo qua */ }
+
+  await mapPool(chunks, 6, async (chunk, index) => {
     await firestoreFetch(`${basePath}/chunks/${String(index).padStart(4, "0")}`, {
       method: "PATCH",
       body: JSON.stringify({
         fields: {
           index: integerField(index),
-          content: stringField(chunks[index]),
+          content: stringField(chunk),
           updatedAt: timestampField(updatedAt),
         },
       }),
     });
-  }
+  });
 
   await firestoreFetch(basePath, {
     method: "PATCH",
@@ -257,6 +284,13 @@ export const saveProjectToFirebase = async (project: StoryProject): Promise<void
       },
     }),
   });
+
+  if (previousChunkCount > chunks.length) {
+    const staleIndexes = Array.from({ length: previousChunkCount - chunks.length }, (_, i) => chunks.length + i);
+    await mapPool(staleIndexes, 6, async (index) => {
+      await firestoreFetch(`${basePath}/chunks/${String(index).padStart(4, "0")}`, { method: "DELETE" }).catch(() => null);
+    });
+  }
 };
 
 export const saveProjectsToFirebase = async (projects: StoryProject[]): Promise<void> => {
@@ -272,11 +306,11 @@ const loadProjectPayload = async (projectDoc: FirestoreDocument): Promise<StoryP
   if (!id || chunkCount <= 0) return null;
 
   const basePath = await projectBasePath(id);
-  const parts: string[] = [];
-  for (let index = 0; index < chunkCount; index++) {
+  const parts: string[] = new Array(chunkCount).fill("");
+  await mapPool(Array.from({ length: chunkCount }, (_, i) => i), 6, async (index) => {
     const chunkDoc = await firestoreFetch<FirestoreDocument>(`${basePath}/chunks/${String(index).padStart(4, "0")}`);
-    parts.push(readString(chunkDoc, "content"));
-  }
+    parts[index] = readString(chunkDoc, "content");
+  });
 
   const payload = parts.join("");
   return payload ? JSON.parse(payload) as StoryProject : null;

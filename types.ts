@@ -14,7 +14,7 @@ export type Genre =
   | 'Tây huyễn' | 'Ma pháp' | 'Luyện đan' | 'Làm ruộng' | 'Xây dựng thế lực'
   | 'Cổ xuyên kim' | 'Vô địch lưu' | 'Phế vật lưu' | 'Bình đạm là thật'
   | 'Showbiz' | 'Trinh thám cổ điển' | 'Mô phỏng' | 'Đa vũ trụ'
-  | 'Thần thoại Bắc Âu' | 'Thần thoại Hy Lạp' | 'Trùng sinh' | 'Thú nhân'
+  | 'Thần thoại Bắc Âu' | 'Thần thoại Hy Lạp' | 'Thú nhân'
   | 'Hệ thống tu luyện' | 'Reviewer' | 'Livestream' | 'Xây dựng thành trì';
 
 export type Tone = 
@@ -72,6 +72,7 @@ export interface Volume {
 
 export interface StoryParams {
   projectType: ProjectType;
+  narrativeView?: string;
   totalChapters: number;
   length: number;
   genres: Genre[];
