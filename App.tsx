@@ -2386,7 +2386,7 @@ const App: React.FC = () => {
                     </h3>
                     <p className="text-sm text-stone-700 mt-1">
                       {hasRoadmapReady
-                        ? `Đã khóa bản đồ chi tiết cho ${plannedChapterIndexes.size}/${params.totalChapters} chương trong ${volumes.length} Arc (tổng ${generatedChapterPlanCount} mục chương trong lộ trình).${missingChapterIndexes.length > 0 ? ` ${missingChapterIndexes.length} chương còn lại sẽ được lập bản đồ tự động khi bắt đầu viết Arc tương ứng.` : ''} Chương kế tiếp nên viết: ${(firstUnwrittenChapterIndex || firstUnwrittenPlan) ? `C.${firstUnwrittenChapterIndex || firstUnwrittenPlan?.index}${firstUnwrittenPlan ? ` - ${firstUnwrittenPlan.title}` : ''}` : 'lộ trình đã hoàn tất'}.`
+                        ? `Đã khóa bản đồ chi tiết cho ${plannedChapterIndexes.size}/${params.totalChapters} chương trong ${volumes.length} Arc.${missingChapterIndexes.length > 0 ? ` ${missingChapterIndexes.length} chương còn lại sẽ được lập bản đồ tự động khi bắt đầu viết Arc tương ứng.` : ''} Chương kế tiếp nên viết: ${(firstUnwrittenChapterIndex || firstUnwrittenPlan) ? `C.${firstUnwrittenChapterIndex || firstUnwrittenPlan?.index}${firstUnwrittenPlan ? ` - ${firstUnwrittenPlan.title}` : ''}` : 'lộ trình đã hoàn tất'}.`
                         : roadmapIssues.join(' ')}
                     </p>
                   </div>
