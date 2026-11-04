@@ -1963,7 +1963,7 @@ const App: React.FC = () => {
           <h1 onClick={() => setView('setup')} className="text-xl font-black text-stone-900 cursor-pointer italic hover:text-orange-600 transition-all">Bút Nghiên AI</h1>
         </div>
         {isFirebaseConfigured() && authUser && (
-          <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100 flex items-center justify-between gap-3">
+          <div className="antique-frame p-3 rounded-xl flex items-center justify-between gap-3">
             <div className="min-w-0">
               <span className="block text-[8px] font-black uppercase text-emerald-700">Đã đăng nhập</span>
               <span className="block text-[10px] font-bold text-emerald-950 truncate">{authUser.email}</span>
@@ -1974,16 +1974,16 @@ const App: React.FC = () => {
           </div>
         )}
         <div className="grid grid-cols-3 gap-2">
-          <div className="p-3 bg-stone-50 rounded-xl border border-stone-100">
-            <span className="block text-[8px] font-black uppercase text-stone-400">Gemini</span>
+          <div className="antique-frame p-3 rounded-xl">
+            <span className="block text-[8px] font-black uppercase text-[#96762a]">Gemini</span>
             <span className="text-xs font-black text-orange-700">{getGeminiKeyStatusLabel()}</span>
           </div>
-          <div className="p-3 bg-stone-50 rounded-xl border border-stone-100">
-            <span className="block text-[8px] font-black uppercase text-stone-400">Database</span>
+          <div className="antique-frame p-3 rounded-xl">
+            <span className="block text-[8px] font-black uppercase text-[#96762a]">Database</span>
             <span className="text-[9px] font-bold text-stone-500 line-clamp-2">{storageStatus}</span>
           </div>
-          <div className="p-3 bg-stone-50 rounded-xl border border-stone-100">
-            <span className="block text-[8px] font-black uppercase text-stone-400">Firebase</span>
+          <div className="antique-frame p-3 rounded-xl">
+            <span className="block text-[8px] font-black uppercase text-[#96762a]">Firebase</span>
             <span className="text-[9px] font-bold text-stone-500 line-clamp-2">{cloudStatus}</span>
           </div>
         </div>
@@ -2009,9 +2009,9 @@ const App: React.FC = () => {
           </div>
         </div>
         <div className="space-y-5">
-          <div className="flex bg-stone-100 p-1 rounded-xl">
+          <div className="seg-antique flex p-1 rounded-xl">
             {(['Truyện Ngắn', 'Trường Thiên'] as const).map(t => (
-              <button key={t} onClick={() => handleProjectTypeChange(t)} className={`flex-1 py-2 text-[10px] font-bold uppercase rounded-lg transition-all ${params.projectType === t ? 'bg-white shadow text-orange-600' : 'text-stone-400'}`}>{t}</button>
+              <button key={t} onClick={() => handleProjectTypeChange(t)} className={`flex-1 py-2 text-[10px] font-bold uppercase rounded-lg transition-all ${params.projectType === t ? 'bg-gradient-to-b from-amber-200 to-amber-400 shadow text-stone-900' : 'text-amber-100/60 hover:text-amber-100'}`}>{t}</button>
             ))}
           </div>
 
@@ -2059,9 +2059,9 @@ const App: React.FC = () => {
 
           <div className="space-y-1">
             <label className="text-[10px] font-black text-stone-400 uppercase">Thể loại</label>
-            <div className="flex flex-wrap gap-1 max-h-40 overflow-y-auto p-2 border rounded-xl bg-stone-50 custom-scrollbar">
+            <div className="flex flex-wrap gap-1 max-h-40 overflow-y-auto p-2 border border-[#d8c491] rounded-xl bg-[#fffaf0]/70 custom-scrollbar">
               {GENRES.map(g => (
-                <button key={g} onClick={() => toggleGenre(g)} className={`px-2 py-1 text-[9px] rounded-md border transition-all ${params.genres.includes(g) ? 'bg-orange-600 text-white border-orange-600 shadow-md' : 'bg-white text-stone-500 border-stone-200 hover:border-orange-200'}`}>{g}</button>
+                <button key={g} onClick={() => toggleGenre(g)} className={`px-2 py-1 text-[9px] rounded-md border transition-all ${params.genres.includes(g) ? 'bg-[#07503f] text-amber-200 border-[#07503f] shadow-md' : 'bg-[#fffdf6]/80 text-stone-600 border-[#d8c491] hover:border-amber-500 hover:text-[#7c5a10]'}`}>{g}</button>
               ))}
             </div>
           </div>
@@ -2108,7 +2108,7 @@ const App: React.FC = () => {
             <button onClick={() => setView('manuscript')} className={`text-[10px] font-black uppercase tracking-widest h-full border-b-2 transition-all shrink-0 ${view === 'manuscript' ? 'border-orange-600 text-orange-600' : 'border-transparent text-stone-300 hover:text-stone-500'}`}>Bản thảo ({writtenChapters.length})</button>
             <button onClick={() => setView('bible')} className={`text-[10px] font-black uppercase tracking-widest h-full border-b-2 transition-all shrink-0 ${view === 'bible' ? 'border-orange-600 text-orange-600' : 'border-transparent text-stone-300 hover:text-stone-500'}`}>Thiên Cơ Lục</button>
             <button onClick={openEditorWithGuard} className={`text-[10px] font-black uppercase tracking-widest h-full border-b-2 transition-all shrink-0 ${view === 'editor' ? 'border-orange-600 text-orange-600' : 'border-transparent text-stone-300 hover:text-stone-500'}`}>Chấp bút</button>
-            <button onClick={handleReviewStoryLogic} disabled={isCheckingLogic || writtenChapters.length === 0} className="ml-auto px-4 py-2 bg-amber-50 text-orange-600 rounded-full text-[9px] font-black uppercase tracking-widest disabled:opacity-40 hover:bg-stone-900 hover:text-white transition-all shrink-0">
+            <button onClick={handleReviewStoryLogic} disabled={isCheckingLogic || writtenChapters.length === 0} className="ml-auto px-4 py-2 bg-[#07503f] text-amber-200 rounded-full text-[9px] font-black uppercase tracking-widest disabled:opacity-40 hover:bg-[#0a6a54] hover:text-amber-100 transition-all shrink-0">
               {isCheckingLogic ? 'Đang soi logic...' : 'Kiểm tra logic'}
             </button>
           </nav>
@@ -2121,7 +2121,7 @@ const App: React.FC = () => {
                 <div className="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-5">
                   <div className="max-w-3xl">
                     <div className="flex items-center gap-3 mb-4">
-                      <span className="inline-flex px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-md text-[9px] font-black uppercase tracking-widest border border-emerald-100">Studio sáng tác</span>
+                      <span className="inline-flex px-2.5 py-1 bg-[#07503f] text-amber-200 rounded-md text-[9px] font-black uppercase tracking-widest border border-amber-200/40 shadow-sm">Studio sáng tác</span>
                       <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Quy trình khóa logic</span>
                     </div>
                     <h2 className="text-3xl md:text-4xl font-black text-stone-950 story-font leading-tight">
@@ -2146,7 +2146,7 @@ const App: React.FC = () => {
                 <div className="space-y-5">
                   <div className="grid sm:grid-cols-3 gap-3">
                     <div className="surface-muted p-4">
-                      <span className="block text-[8px] font-black uppercase text-stone-400 tracking-widest">Dự án</span>
+                      <span className="block text-[8px] font-black uppercase text-[#96762a] tracking-widest">Dự án</span>
                       <strong className="block mt-2 text-base 2xl:text-lg font-black text-stone-950 whitespace-nowrap">{params.projectType}</strong>
                     </div>
                     <div className="surface-muted p-4 border-amber-200 bg-amber-50/80">
@@ -2171,16 +2171,16 @@ const App: React.FC = () => {
                     </div>
                     <div className="grid md:grid-cols-2 gap-3">
                       <div className="surface-muted p-4">
-                        <span className="text-[8px] font-black uppercase tracking-widest text-stone-400">Nhân vật</span>
+                        <span className="text-[8px] font-black uppercase tracking-widest text-[#96762a]">Nhân vật</span>
                         <p className="mt-2 text-sm font-black text-stone-900">{params.character.name || 'Chưa đặt tên'}</p>
                         <p className="mt-1 text-xs text-stone-500 line-clamp-2">{params.character.personality || 'Chưa có tính cách khóa.'}</p>
                       </div>
                       <div className="surface-muted p-4">
-                        <span className="text-[8px] font-black uppercase tracking-widest text-stone-400">Mục tiêu nhân vật</span>
+                        <span className="text-[8px] font-black uppercase tracking-widest text-[#96762a]">Mục tiêu nhân vật</span>
                         <p className="mt-2 text-xs text-stone-600 line-clamp-4">{params.character.goal || 'Chưa có mục tiêu hoặc vết thương lòng.'}</p>
                       </div>
                       <div className="surface-muted p-4">
-                        <span className="text-[8px] font-black uppercase tracking-widest text-stone-400">Thể loại</span>
+                        <span className="text-[8px] font-black uppercase tracking-widest text-[#96762a]">Thể loại</span>
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           {params.genres.slice(0, 6).map(genre => (
                             <span key={genre} className="px-2 py-1 rounded-md bg-white border border-stone-200 text-[9px] font-bold text-stone-600">{genre}</span>
@@ -2188,7 +2188,7 @@ const App: React.FC = () => {
                         </div>
                       </div>
                       <div className="surface-muted p-4">
-                        <span className="text-[8px] font-black uppercase tracking-widest text-stone-400">Văn phong</span>
+                        <span className="text-[8px] font-black uppercase tracking-widest text-[#96762a]">Văn phong</span>
                         <p className="mt-2 text-xs text-stone-600 line-clamp-4">{params.referenceStories || params.tone}</p>
                       </div>
                     </div>
@@ -2241,15 +2241,15 @@ const App: React.FC = () => {
                     </p>
                     <div className="mt-5 grid sm:grid-cols-3 gap-3">
                       <div className="surface-muted p-3 bg-white">
-                        <span className="block text-[8px] font-black uppercase tracking-widest text-stone-400">Tư duy Arc</span>
+                        <span className="block text-[8px] font-black uppercase tracking-widest text-[#96762a]">Tư duy Arc</span>
                         <p className="mt-1 text-xs font-bold text-stone-700">Dài/ngắn theo trọng lượng tình tiết.</p>
                       </div>
                       <div className="surface-muted p-3 bg-white">
-                        <span className="block text-[8px] font-black uppercase tracking-widest text-stone-400">Khóa canon</span>
+                        <span className="block text-[8px] font-black uppercase tracking-widest text-[#96762a]">Khóa canon</span>
                         <p className="mt-1 text-xs font-bold text-stone-700">Mỗi lựa chọn sinh Thiên Cơ Lục riêng.</p>
                       </div>
                       <div className="surface-muted p-3 bg-white">
-                        <span className="block text-[8px] font-black uppercase tracking-widest text-stone-400">Văn phong</span>
+                        <span className="block text-[8px] font-black uppercase tracking-widest text-[#96762a]">Văn phong</span>
                         <p className="mt-1 text-xs font-bold text-stone-700">Hiện đại, gọn, rõ cảnh, ít sáo ngữ.</p>
                       </div>
                     </div>
@@ -2301,15 +2301,15 @@ const App: React.FC = () => {
                     </div>
                     <div className="mt-4 space-y-3">
                       <div>
-                        <p className="text-[8px] font-black uppercase tracking-widest text-stone-400">Động cơ truyện</p>
+                        <p className="text-[8px] font-black uppercase tracking-widest text-[#96762a]">Động cơ truyện</p>
                         <p className="mt-1 text-xs leading-5 text-stone-700">{choice.engine}</p>
                       </div>
                       <div>
-                        <p className="text-[8px] font-black uppercase tracking-widest text-stone-400">Tiền đề</p>
+                        <p className="text-[8px] font-black uppercase tracking-widest text-[#96762a]">Tiền đề</p>
                         <p className="mt-1 text-sm leading-6 text-stone-700">{choice.premise}</p>
                       </div>
                       <div>
-                        <p className="text-[8px] font-black uppercase tracking-widest text-stone-400">Logic cốt truyện</p>
+                        <p className="text-[8px] font-black uppercase tracking-widest text-[#96762a]">Logic cốt truyện</p>
                         <p className="mt-1 text-xs leading-5 text-stone-600">{choice.logic}</p>
                       </div>
                       <div className="grid grid-cols-1 gap-2">
@@ -2345,19 +2345,19 @@ const App: React.FC = () => {
               </section>
               <section className="grid grid-cols-1 md:grid-cols-4 gap-3">
                 <div className="p-4 bg-white border border-stone-100 rounded-2xl shadow-sm">
-                  <span className="block text-[8px] font-black uppercase text-stone-400 tracking-widest">Số chương</span>
+                  <span className="block text-[8px] font-black uppercase text-[#96762a] tracking-widest">Số chương</span>
                   <strong className="text-2xl font-black text-stone-900">{plannedChapterIndexes.size}/{params.totalChapters}</strong>
                 </div>
                 <div className="p-4 bg-white border border-stone-100 rounded-2xl shadow-sm">
-                  <span className="block text-[8px] font-black uppercase text-stone-400 tracking-widest">Arc</span>
+                  <span className="block text-[8px] font-black uppercase text-[#96762a] tracking-widest">Arc</span>
                   <strong className="text-2xl font-black text-stone-900">{volumes.length}</strong>
                 </div>
                 <div className="p-4 bg-white border border-stone-100 rounded-2xl shadow-sm">
-                  <span className="block text-[8px] font-black uppercase text-stone-400 tracking-widest">Canon</span>
+                  <span className="block text-[8px] font-black uppercase text-[#96762a] tracking-widest">Canon</span>
                   <strong className={`text-2xl font-black ${canonReadyCount === canonChecklist.length ? 'text-emerald-600' : 'text-amber-600'}`}>{canonReadyCount}/{canonChecklist.length}</strong>
                 </div>
                 <div className="p-4 bg-white border border-stone-100 rounded-2xl shadow-sm">
-                  <span className="block text-[8px] font-black uppercase text-stone-400 tracking-widest">Trạng thái</span>
+                  <span className="block text-[8px] font-black uppercase text-[#96762a] tracking-widest">Trạng thái</span>
                   <strong className={`text-sm font-black ${hasRoadmapReady ? 'text-emerald-600' : 'text-red-500'}`}>
                     {hasRoadmapReady ? 'Sẵn sàng chấp bút' : 'Thiếu lộ trình'}
                   </strong>
@@ -2416,7 +2416,7 @@ const App: React.FC = () => {
                           </div>
                           <div className="mt-3">
                             <div className="flex flex-wrap items-center gap-2">
-                              <span className="block text-[8px] font-black uppercase tracking-widest text-stone-400">Nội dung Arc bắt buộc</span>
+                              <span className="block text-[8px] font-black uppercase tracking-widest text-[#96762a]">Nội dung Arc bắt buộc</span>
                               <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase border ${arcSynopsis.isFallback ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-emerald-50 text-emerald-700 border-emerald-100'}`}>
                                 {arcSynopsis.isFallback ? 'Bản dự phòng' : 'Đã khóa'}
                               </span>
@@ -2432,7 +2432,7 @@ const App: React.FC = () => {
                           </div>
                           <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2">
                             <div className="rounded-2xl bg-stone-50 border border-stone-100 p-3">
-                              <span className="block text-[8px] font-black uppercase tracking-widest text-stone-400">Chủ đề Arc</span>
+                              <span className="block text-[8px] font-black uppercase tracking-widest text-[#96762a]">Chủ đề Arc</span>
                               <p className="mt-1 text-[11px] leading-relaxed text-stone-600 font-semibold">{getArcTheme(vol)}</p>
                             </div>
                             <div className="rounded-2xl bg-amber-50/60 border border-amber-100 p-3">
@@ -2442,7 +2442,7 @@ const App: React.FC = () => {
                           </div>
                           {vol.purpose && (
                             <div className="mt-2">
-                              <span className="block text-[8px] font-black uppercase tracking-widest text-stone-400">Vai trò Arc</span>
+                              <span className="block text-[8px] font-black uppercase tracking-widest text-[#96762a]">Vai trò Arc</span>
                               <p className="text-[10px] text-orange-500 font-bold mt-1 uppercase tracking-widest">{vol.purpose}</p>
                             </div>
                           )}
