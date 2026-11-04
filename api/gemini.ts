@@ -132,7 +132,9 @@ const getFallbackModels = (requestedModel?: string) => {
     "gemini-3-flash-preview",
     "gemini-flash-lite-latest",
     "gemini-3.5-flash-lite",
-    "gemini-3.8-flash",
+    // gemini-3.8-flash rat khan hiem (~20 call/ngay): chi vao chuoi fallback khi duoc bat ro rang,
+    // tranh dot quota lang le trong nhung ngay Google chap chon.
+    ...(process.env.GEMINI_ALLOW_SCARCE_FALLBACK === "true" ? ["gemini-3.8-flash"] : []),
   ];
 
   return [primaryModel, ...envFallbacks, ...defaultFallbacks]

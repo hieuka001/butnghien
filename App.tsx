@@ -5,7 +5,8 @@ import {
   generateChapterPlansForArc,
   generateChapterStream, 
   rewriteChapterWithReviewStream,
-  updateWorldBibleAndSummary, 
+  updateWorldBibleAndSummary,
+  detectDraftRepetition, 
   generateShortStoryStream,
   generateStoryDirectionChoices,
   validateChapterLogic,
@@ -370,6 +371,9 @@ const App: React.FC = () => {
 
   const friendlyError = (error: unknown) => {
     const message = error instanceof Error ? error.message : String(error || '');
+    if (/CONTENT_BLOCKED|Gemini chặn prompt|từ chối tạo nội dung/i.test(message)) {
+      return 'Gemini đã từ chối tạo nội dung này vì bộ lọc an toàn của Google — đây không phải lỗi key. Hãy thử: giảm slider Bạo lực/Tình cảm, diễn đạt lại ý tưởng hoặc đoạn nhạy cảm theo hướng hàm ý hơn, rồi chạy lại. Trần nội dung do Gemini quyết định, app không nới được.';
+    }
     if (/Key 6 chọn hướng|Key 6 chon huong|direction/i.test(message)) {
       return 'Chưa tạo được các hướng truyện: Gemini đang từ chối kho key dùng chung. Hãy kiểm tra các biến GEMINI_API_KEY_* trên Vercel đã bật Generative Language API, không bị giới hạn referrer/IP với Vercel Serverless, rồi redeploy.';
     }
@@ -1176,6 +1180,10 @@ const App: React.FC = () => {
     if (finalWords < hardMinimumWords || draftLooksCutOff(finalContent)) {
       throw new Error(`Chương đang bị thiếu phần cuối hoặc chưa đủ chữ: hiện khoảng ${finalWords}/${targetWords} chữ. App chưa lưu bản này để tránh mất nội dung.`);
     }
+    const repetitionIssues = detectDraftRepetition(finalContent);
+    if (repetitionIssues.length) {
+      throw new Error(`Chương còn ${repetitionIssues.length} đoạn/câu bị lặp gần như nguyên văn. App chưa lưu bản này — hãy viết lại vùng bị lặp rồi lưu lại.`);
+    }
 
     setGenerationStatus('Đang lưu chương và cập nhật Thiên Cơ Lục...');
     // Khi viet lai chuong da co: phai cap nhat canon tu bible TRUOC chuong do (snapshot cua chuong truoc),
@@ -1546,6 +1554,7 @@ const App: React.FC = () => {
     try {
       setGenerationStatus('Cụm 3 đang viết lại theo báo cáo Cụm 2 và yêu cầu tác giả...');
       setStory('');
+      let rewriteDiscardedReason = '';
       const rewritten = await rewriteChapterWithReviewStream(
         params,
         writtenChapters,
@@ -1557,14 +1566,18 @@ const App: React.FC = () => {
         originalDraft,
         draftReview,
         (chunk) => setStory(prev => prev + chunk),
+        (reason) => { rewriteDiscardedReason = reason; },
       );
+      if (rewriteDiscardedReason) {
+        setCloudStatus(`⚠ Cụm 3 chưa đạt chuẩn nên bản sửa đã bị loại (${rewriteDiscardedReason}). Chương được lưu là bản Cụm 1 đã giữ — bạn có thể thẩm định lại hoặc chạy Cụm 3 lần nữa.`);
+      }
       const targetWords = currentArc.chapters?.find(ch => ch.index === currentChapterIndex)?.targetWords || params.length;
       const rewrittenWords = countDraftWords(rewritten);
       if (rewrittenWords < Math.max(650, Math.floor(targetWords * 0.95)) || draftLooksCutOff(rewritten)) {
         setStory(originalDraft);
         throw new Error(`Bản sửa Cụm 3 vẫn thiếu phần cuối hoặc chưa đủ chữ: hiện khoảng ${rewrittenWords}/${targetWords} chữ. App chưa lưu bản này.`);
       }
-      setGenerationStatus('Cụm 3 đã viết lại. Đang lưu bản sửa vào bản thảo chính...');
+      setGenerationStatus(rewriteDiscardedReason ? 'Đang lưu bản Cụm 1 đã giữ vào bản thảo chính...' : 'Cụm 3 đã viết lại. Đang lưu bản sửa vào bản thảo chính...');
       await persistChapterContent(rewritten, currentArc);
       setPendingDraftMeta({ chapterIndex: currentChapterIndex, arcIndex: currentArc.index });
       setDraftAutosavedMeta({ chapterIndex: currentChapterIndex, arcIndex: currentArc.index });

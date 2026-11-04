@@ -733,7 +733,7 @@ const removeDuplicateLongBlocks = (text: string) => {
   return kept.join("\n\n").trim();
 };
 
-const detectDraftRepetition = (text: string, maxIssues = 6) => {
+export const detectDraftRepetition = (text: string, maxIssues = 6) => {
   const issues: string[] = [];
   const seenBlocks = new Map<string, number>();
 
@@ -927,6 +927,18 @@ const extractGeminiText = (data: AnyRecord) => (data?.candidates?.[0]?.content?.
   .map((part: AnyRecord) => part.text || "")
   .join("");
 
+// Phan loai loi "Gemini khong tra noi dung": neu do bo loc an toan chan (promptFeedback hoac
+// finishReason SAFETY/PROHIBITED_CONTENT/RECITATION) thi la loi CONTENT_BLOCKED, KHONG xoay key
+// (doi key khac cung bi chan) va App se bao dung ly do cho nguoi dung thay vi loi key/thieu chu.
+const geminiEmptyContentError = (data: AnyRecord, status?: number, keyIndex?: number) => {
+  const blockReason = data?.promptFeedback?.blockReason;
+  const finishReason = String(data?.candidates?.[0]?.finishReason || "");
+  if (blockReason || finishReason === "SAFETY" || finishReason === "PROHIBITED_CONTENT" || finishReason === "RECITATION") {
+    return new GeminiRequestError(`CONTENT_BLOCKED: Gemini tu choi tao noi dung nay (ly do an toan${blockReason ? `: ${blockReason}` : finishReason ? `: ${finishReason}` : ""}).`, status, keyIndex, false);
+  }
+  return new GeminiRequestError("Gemini không trả về nội dung.", status, keyIndex, true);
+};
+
 const chatJson = async (
   model: string,
   systemInstruction: string,
@@ -957,8 +969,7 @@ const chatJson = async (
 
     const content = extractGeminiText(data);
     if (!content) {
-      const blockReason = data?.promptFeedback?.blockReason;
-      throw new GeminiRequestError(blockReason ? `Gemini chặn prompt: ${blockReason}` : "Gemini không trả về nội dung.", response.status, undefined, true);
+      throw geminiEmptyContentError(data, response.status, undefined);
     }
 
     return parseAIResponse(content);
@@ -998,8 +1009,7 @@ const chatJson = async (
 
   const content = extractGeminiText(data);
   if (!content) {
-    const blockReason = data?.promptFeedback?.blockReason;
-    throw new GeminiRequestError(blockReason ? `Gemini chặn prompt: ${blockReason}` : "Gemini không trả về nội dung.", response.status, keyIndex, true);
+    throw geminiEmptyContentError(data, response.status, keyIndex);
   }
 
   return parseAIResponse(content);
@@ -1036,8 +1046,7 @@ const chatText = async (
 
     const content = extractGeminiText(data);
     if (!content) {
-      const blockReason = data?.promptFeedback?.blockReason;
-      throw new GeminiRequestError(blockReason ? `Gemini chặn prompt: ${blockReason}` : "Gemini không trả về nội dung.", response.status, undefined, true);
+      throw geminiEmptyContentError(data, response.status, undefined);
     }
     return cleanStoryText(content);
   }
@@ -1075,8 +1084,7 @@ const chatText = async (
 
     const content = extractGeminiText(data);
     if (!content) {
-      const blockReason = data?.promptFeedback?.blockReason;
-      throw new GeminiRequestError(blockReason ? `Gemini chặn prompt: ${blockReason}` : "Gemini không trả về nội dung.", response.status, keyIndex, true);
+      throw geminiEmptyContentError(data, response.status, keyIndex);
     }
     return cleanStoryText(content);
   });
@@ -1206,6 +1214,9 @@ const streamChat = async (
   if (buffer.trim()) processSseEvent(buffer);
 
   if (lastFinishReason && onFinishReason) onFinishReason(lastFinishReason);
+  if (lastFinishReason === "SAFETY" || lastFinishReason === "PROHIBITED_CONTENT" || lastFinishReason === "RECITATION") {
+    throw new GeminiRequestError(`CONTENT_BLOCKED: Gemini tu choi tao noi dung nay (ly do an toan: ${lastFinishReason}).`, undefined, undefined, false);
+  }
   if (!fullText.trim()) {
     const fallbackText = await chatText(model, systemInstruction, prompt, temperature, outputTokens, role);
     if (fallbackText.trim()) {
@@ -2598,7 +2609,7 @@ JSON bắt buộc:
   
   let data: AnyRecord;
   try {
-    data = await chatJson(PLAN_MODEL, SYSTEM_INSTRUCTION_ROADMAP, prompt, 0.35, DEFAULT_MAX_OUTPUT_TOKENS, "writer");
+    data = await chatJson(WRITE_MODEL, SYSTEM_INSTRUCTION_ROADMAP, prompt, 0.35, DEFAULT_MAX_OUTPUT_TOKENS, "writer");
     data = await finalizeStructuredDraft(
       params,
       "Lộ trình Arc ban đầu",
@@ -2703,7 +2714,7 @@ Trả về JSON của một Volume có index, title, summary, content, theme, ob
   
   let data: AnyRecord;
   try {
-    data = await chatJson(PLAN_MODEL, SYSTEM_INSTRUCTION_NEXT_ARC, prompt, 0.35, DEFAULT_MAX_OUTPUT_TOKENS, "writer");
+    data = await chatJson(WRITE_MODEL, SYSTEM_INSTRUCTION_NEXT_ARC, prompt, 0.35, DEFAULT_MAX_OUTPUT_TOKENS, "writer");
     data = await finalizeStructuredDraft(
       params,
       `Arc ${safeVolumes.length + 1} mở rộng`,
@@ -2834,7 +2845,7 @@ Trả về JSON:
 
   let data: AnyRecord;
   try {
-    data = await chatJson(PLAN_MODEL, SYSTEM_INSTRUCTION_CHAPTER_PLAN, prompt, 0.32, DEFAULT_MAX_OUTPUT_TOKENS, "writer");
+    data = await chatJson(WRITE_MODEL, SYSTEM_INSTRUCTION_CHAPTER_PLAN, prompt, 0.32, DEFAULT_MAX_OUTPUT_TOKENS, "writer");
     data = await finalizeStructuredDraft(
       params,
       `Bản đồ chương cho Arc ${currentArc.index}: ${currentArc.title}`,
@@ -3067,6 +3078,7 @@ export const rewriteChapterWithReviewStream = async (
   originalDraft: string,
   review: ChapterValidationResult,
   onChunk: (text: string) => void,
+  onRewriteDiscarded?: (reason: string) => void,
 ): Promise<string> => {
   const reviewIssueGroups = [
     review.structureIssues,
@@ -3128,7 +3140,7 @@ ${generalSummary}
 ${chapterPlan ? JSON.stringify(chapterPlan, null, 2) : "Không có bản đồ chi tiết; bám Arc và Thiên Cơ Lục."}
 
 [THIÊN CƠ LỤC]
-${worldBible}
+${bibleExcerptFor(worldBible, 18000)}
 
 [LỊCH SỬ GẦN NHẤT]
 ${history || "Chưa có."}
@@ -3224,6 +3236,7 @@ ${finalDraft.slice(-2600)}`;
     return assertCompleteGeneratedDraft(finalDraft, minWords, targetWords, "Bản sửa Cụm 3");
   } catch (error) {
     console.warn("Bản sửa Cụm 3 chưa đạt ngưỡng, giữ bản nháp Cụm 1 gốc:", error);
+    onRewriteDiscarded?.(error instanceof Error ? error.message : "Bản sửa chưa đạt ngưỡng hoàn thiện.");
     return originalDraft;
   }
 };
@@ -3256,6 +3269,21 @@ export const validateChapterLogic = async (
     return {
       isValid: false,
       reason: `Chương quá ngắn so với mục tiêu ${targetWords} chữ, hiện khoảng ${wordCount} chữ.`,
+    };
+  }
+  if (targetWords && wordCount > Math.ceil(targetWords * 1.6)) {
+    return {
+      isValid: false,
+      reason: `Chương quá dài so với mục tiêu ${targetWords} chữ, hiện khoảng ${wordCount} chữ (vượt trần 160%).`,
+      suggestions: [
+        "Cụm 3 cần rút gọn chương về quanh mục tiêu, ưu tiên cắt đoạn lan man, tả lặp và hồi tưởng không đổi trạng thái truyện.",
+        "Giữ nguyên beat bắt buộc của bản đồ chương và kết cảnh; không cắt phần gieo/móc nối sang chương sau.",
+      ],
+      rewriteDirectives: [
+        `Rút gọn toàn chương xuống quanh ${targetWords} chữ (tối đa ${Math.ceil(targetWords * 1.28)}), giữ beat và kết chương.`,
+        "Cắt hoặc nén các đoạn không tạo biến chuyển mới thay vì viết lại toàn bộ bằng văn mới dài tương đương.",
+      ],
+      fixPlan: "Ưu tiên rút gọn trước: xác định các đoạn dài không đổi trạng thái truyện, nén chúng lại, giữ nguyên biến cố và kết quả cảnh.",
     };
   }
   if (isLikelyCutOffText(currentChapterContent)) {
@@ -3374,7 +3402,14 @@ Trả về JSON đúng schema:
 }.`;
 
   try {
-    return normalizeChapterValidationResult(await chatJson(PLAN_MODEL, EDITOR_SYSTEM_INSTRUCTION, prompt, 0.2, 5600, "reviewer"));
+    const validationResult = normalizeChapterValidationResult(await chatJson(WRITE_MODEL, EDITOR_SYSTEM_INSTRUCTION, prompt, 0.2, 8000, "reviewer"));
+    if (targetWords && wordCount > Math.ceil(targetWords * 1.28)) {
+      validationResult.metricIssues = [
+        ...(validationResult.metricIssues || []),
+        `Chương dài hơn trần mềm: khoảng ${wordCount} chữ so với mục tiêu ${targetWords} chữ (trần mềm ${Math.ceil(targetWords * 1.28)} chữ). Cân nhắc rút gọn nếu có đoạn lan man.`,
+      ];
+    }
+    return validationResult;
   } catch (error) {
     if (!isAIJsonFormatError(error)) throw error;
     console.warn("AI trả thẩm định không đúng JSON; đánh dấu CHƯA THẨM ĐỊNH ĐƯỢC thay vì đóng dấu đạt:", error);
@@ -3394,30 +3429,39 @@ export const reviewStoryLogic = async (
   worldBible: string,
   generalSummary: string,
 ): Promise<StoryLogicReport> => {
+  const writtenIndexSet = new Set(writtenChapters.map(chapter => chapter.index));
   const plannedChapters = volumes
-    .flatMap(volume => (volume.chapters || []).map(chapter => ({
-      index: chapter.index,
-      arc: volume.title,
-      title: chapter.title,
-      objective: chapter.objective,
-      summary: chapter.summary,
-      beats: chapter.beats,
-    })))
+    .flatMap(volume => {
+      // Arc da viet xong: bo beats khoi prompt ra soat (chi can index/title/objective/summary)
+      // de call khong phinh theo do dai sach. Arc dang do van giu beats de doi chieu.
+      const arcIndexes = (volume.chapters || []).map(chapter => chapter.index);
+      const arcSettled = arcIndexes.length > 0 && arcIndexes.every(index => writtenIndexSet.has(index));
+      return (volume.chapters || []).map(chapter => ({
+        index: chapter.index,
+        arc: volume.title,
+        title: chapter.title,
+        objective: chapter.objective,
+        summary: chapter.summary,
+        ...(arcSettled ? {} : { beats: chapter.beats }),
+      }));
+    })
     .sort((a, b) => a.index - b.index);
   const sortedWritten = [...writtenChapters].sort((a, b) => a.index - b.index);
   const detailedChapters = sortedWritten.slice(-30);
   const olderChapters = sortedWritten.slice(0, Math.max(0, sortedWritten.length - detailedChapters.length));
-  const manuscript = detailedChapters.map(chapter => {
+  const manuscript = detailedChapters.map((chapter, idx) => {
       const content = chapter.content || "";
-      const middleStart = Math.max(0, Math.floor(content.length / 2) - 450);
+      // 10 chuong gan nhat trich 900x3; cac chuong cu hon trong cua so 30 trich 500x3 cho nhe prompt.
+      const excerptSize = detailedChapters.length - idx <= 10 ? 900 : 500;
+      const middleStart = Math.max(0, Math.floor(content.length / 2) - Math.floor(excerptSize / 2));
       return {
         index: chapter.index,
         title: chapter.title,
         summary: chapter.summary,
         wordCount: countWords(content),
-        excerptStart: content.slice(0, 900),
-        excerptMiddle: content.slice(middleStart, middleStart + 900),
-        excerptEnd: content.slice(-900),
+        excerptStart: content.slice(0, excerptSize),
+        excerptMiddle: content.slice(middleStart, middleStart + excerptSize),
+        excerptEnd: content.slice(-excerptSize),
       };
     });
   const olderSummary = olderChapters
@@ -3553,7 +3597,7 @@ Chỉ trả về JSON hợp lệ:
 }`,
     prompt,
     0.3,
-    10000,
+    DEFAULT_MAX_OUTPUT_TOKENS,
     "reviewer",
   );
 
