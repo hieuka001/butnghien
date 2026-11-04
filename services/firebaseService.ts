@@ -39,6 +39,8 @@ const firebaseConfig = {
 
 const sessionStorageKey = () => `but-nghien-firebase-session:${firebaseConfig.projectId}`;
 
+let refreshInFlight: Promise<FirebaseSession> | null = null;
+
 export const isFirebaseConfigured = () => Boolean(firebaseConfig.apiKey && firebaseConfig.projectId);
 
 export const getFirebaseProjectId = () => firebaseConfig.projectId;
@@ -150,7 +152,13 @@ const getSession = async () => {
   if (existing?.idToken && existing.expiresAt > Date.now() + 90_000) return existing;
   if (existing?.refreshToken) {
     try {
-      return await refreshSession(existing.refreshToken, existing.email);
+      // Single-flight: nhieu loi goi dong thoi chi refresh mot lan, tranh Firebase
+      // xoay refresh token lam cac loi goi sau bi INVALID_REFRESH_TOKEN va xoa session oan.
+      if (!refreshInFlight) {
+        refreshInFlight = refreshSession(existing.refreshToken, existing.email)
+          .finally(() => { refreshInFlight = null; });
+      }
+      return await refreshInFlight;
     } catch {
       localStorage.removeItem(sessionStorageKey());
     }
@@ -293,11 +301,20 @@ export const saveProjectToFirebase = async (project: StoryProject): Promise<void
   }
 };
 
-export const saveProjectsToFirebase = async (projects: StoryProject[]): Promise<void> => {
+const saveProjectsInternal = async (projects: StoryProject[]): Promise<void> => {
   if (!isFirebaseConfigured()) return;
   for (const project of projects) {
     await saveProjectToFirebase(project);
   }
+};
+
+let saveChain: Promise<void> = Promise.resolve();
+export const saveProjectsToFirebase = async (projects: StoryProject[]): Promise<void> => {
+  // Noi tiep moi luot luu cloud: hai luot luu chong nhau tung gay tinh trang chunk
+  // cua hai phien ban bi tron vao nhau lam hong payload JSON cua project.
+  const run = saveChain.then(() => saveProjectsInternal(projects));
+  saveChain = run.catch(() => undefined);
+  return run;
 };
 
 const loadProjectPayload = async (projectDoc: FirestoreDocument): Promise<StoryProject | null> => {
@@ -316,8 +333,11 @@ const loadProjectPayload = async (projectDoc: FirestoreDocument): Promise<StoryP
   return payload ? JSON.parse(payload) as StoryProject : null;
 };
 
-export const loadProjectsFromFirebase = async (): Promise<StoryProject[]> => {
-  if (!isFirebaseConfigured()) return [];
+export const loadProjectsFromFirebase = async (): Promise<StoryProject[]> =>
+  (await loadProjectsFromFirebaseDetailed()).projects;
+
+export const loadProjectsFromFirebaseDetailed = async (): Promise<{ projects: StoryProject[]; failed: number }> => {
+  if (!isFirebaseConfigured()) return { projects: [], failed: 0 };
   const session = await getSession();
   const docs: FirestoreDocument[] = [];
   let pageToken = "";
@@ -330,29 +350,37 @@ export const loadProjectsFromFirebase = async (): Promise<StoryProject[]> => {
   } while (pageToken);
 
   const projects: StoryProject[] = [];
+  let failed = 0;
 
   for (const doc of docs) {
     try {
       const project = await loadProjectPayload(doc);
       if (project) projects.push(project);
+      else failed++;
     } catch (error) {
+      failed++;
       console.warn("Không tải được một tác phẩm từ Firebase:", error);
     }
   }
 
-  return projects.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  return { projects: projects.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)), failed };
 };
 
 export const deleteProjectFromFirebase = async (projectId: string): Promise<void> => {
   if (!isFirebaseConfigured()) return;
   const basePath = await projectBasePath(projectId);
-  const chunksUrl = `${collectionUrl(`${basePath}/chunks`)}?pageSize=300`;
-  const chunks = await firestoreFetch<{ documents?: FirestoreDocument[] }>(chunksUrl);
-
-  for (const doc of chunks?.documents || []) {
-    if (doc.name) {
-      await firestoreFetch(doc.name, { method: "DELETE" });
-    }
-  }
-  await firestoreFetch(basePath, { method: "DELETE" });
+  // Xoa meta truoc de project khong nap lai duoc nua, roi don chunk theo pagination day du.
+  await firestoreFetch(basePath, { method: "DELETE" }).catch(() => null);
+  let pageToken = "";
+  do {
+    const chunksUrl = `${collectionUrl(`${basePath}/chunks`)}?pageSize=300${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ""}`;
+    const chunks = await firestoreFetch<{ documents?: FirestoreDocument[]; nextPageToken?: string }>(chunksUrl);
+    const docs = chunks?.documents || [];
+    await mapPool(docs, 6, async (doc) => {
+      if (doc.name) {
+        await firestoreFetch(doc.name, { method: "DELETE" }).catch(() => null);
+      }
+    });
+    pageToken = chunks?.nextPageToken || "";
+  } while (pageToken);
 };

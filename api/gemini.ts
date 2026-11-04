@@ -150,30 +150,39 @@ const getFallbackModels = (requestedModel?: string) => {
 const shouldTryFallbackModel = (error: unknown) =>
   error instanceof GeminiProxyError && isFallbackStatus(error.status);
 
-const roleCooldownKey = (role: GeminiKeyRole, keyIndex: number) => `${role}:${keyIndex}`;
+const keyFingerprint = (key: string) => {
+  let hash = 5381;
+  for (let i = 0; i < key.length; i++) hash = ((hash << 5) + hash + key.charCodeAt(i)) | 0;
+  return `k${(hash >>> 0).toString(36)}`;
+};
 
 const normalizeRole = (role?: string): GeminiKeyRole =>
   role === "reviewer" || role === "rewriter" || role === "direction" ? role : "writer";
 
-const markKeyCooling = (role: GeminiKeyRole, keyIndex: number, status: number) => {
-  keyCooldownUntil.set(roleCooldownKey(role, keyIndex), Date.now() + (status === 429 ? 90_000 : 20_000));
+const markKeyCooling = (keyValue: string, status: number) => {
+  const cooldownMs = status === 429 ? 90_000 : (status === 401 || status === 403) ? 10 * 60_000 : 20_000;
+  keyCooldownUntil.set(keyFingerprint(keyValue), Date.now() + cooldownMs);
 };
 
 const pickKeyIndex = (keys: string[], role: GeminiKeyRole) => {
   const now = Date.now();
+  let earliestIndex = 0;
+  let earliestUntil = Infinity;
   for (let offset = 0; offset < keys.length; offset++) {
     const index = (keyCursorByRole[role] + offset) % keys.length;
-    const coolingUntil = keyCooldownUntil.get(roleCooldownKey(role, index)) || 0;
+    const coolingUntil = keyCooldownUntil.get(keyFingerprint(keys[index])) || 0;
     if (coolingUntil <= now) {
       keyCursorByRole[role] = (index + 1) % keys.length;
       return index;
     }
+    if (coolingUntil < earliestUntil) {
+      earliestUntil = coolingUntil;
+      earliestIndex = index;
+    }
   }
 
-  keyCooldownUntil.clear();
-  const index = keyCursorByRole[role] % keys.length;
-  keyCursorByRole[role] = (index + 1) % keys.length;
-  return index;
+  keyCursorByRole[role] = (earliestIndex + 1) % keys.length;
+  return earliestIndex;
 };
 
 const withGeminiKeys = async <T,>(role: GeminiKeyRole, requester: (apiKey: string, keyIndex: number) => Promise<T>) => {
@@ -191,8 +200,10 @@ const withGeminiKeys = async <T,>(role: GeminiKeyRole, requester: (apiKey: strin
     } catch (error) {
       lastError = error;
       lastStatus = error instanceof GeminiProxyError ? error.status : 500;
-      if (error instanceof GeminiProxyError && error.rotatable) {
-        markKeyCooling(role, keyIndex, error.status);
+      const errorMessage = error instanceof Error ? error.message : "";
+      const keyDead = /API_KEY_INVALID|PERMISSION_DENIED|API key not valid/i.test(errorMessage);
+      if (error instanceof GeminiProxyError && (error.rotatable || keyDead)) {
+        markKeyCooling(keys[keyIndex], keyDead ? 403 : error.status);
         if (attempt < keys.length - 1) continue;
         break;
       }

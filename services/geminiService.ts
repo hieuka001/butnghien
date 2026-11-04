@@ -536,28 +536,39 @@ const isRotatableStatus = (status?: number) => {
   return [401, 402, 403, 408, 429, 500, 502, 503].includes(status);
 };
 
-const roleCooldownKey = (role: GeminiKeyRole, keyIndex: number) => `${role}:${keyIndex}`;
+const keyFingerprint = (key: string) => {
+  let hash = 5381;
+  for (let i = 0; i < key.length; i++) hash = ((hash << 5) + hash + key.charCodeAt(i)) | 0;
+  return `k${(hash >>> 0).toString(36)}`;
+};
 
-const markKeyCooling = (role: GeminiKeyRole, keyIndex: number, status?: number) => {
-  const cooldownMs = status === 429 ? 90 * 1000 : 20 * 1000;
-  keyCooldownUntil.set(roleCooldownKey(role, keyIndex), Date.now() + cooldownMs);
+// Cooldown tinh theo KEY THAT (khong theo role+index): cung mot key dung o nhieu cum
+// khong con cac "dong ho" doc lap, va key chet quyen bi nghi dai han thay vi 20 giay.
+const markKeyCooling = (keyValue: string, status?: number) => {
+  const cooldownMs = status === 429 ? 90 * 1000 : (status === 401 || status === 403) ? 10 * 60 * 1000 : 20 * 1000;
+  keyCooldownUntil.set(keyFingerprint(keyValue), Date.now() + cooldownMs);
 };
 
 const pickKeyIndex = (keys: string[], role: GeminiKeyRole) => {
   const now = Date.now();
+  let earliestIndex = 0;
+  let earliestUntil = Infinity;
   for (let offset = 0; offset < keys.length; offset++) {
     const index = (keyCursorByRole[role] + offset) % keys.length;
-    const coolingUntil = keyCooldownUntil.get(roleCooldownKey(role, index)) || 0;
+    const coolingUntil = keyCooldownUntil.get(keyFingerprint(keys[index])) || 0;
     if (coolingUntil <= now) {
       keyCursorByRole[role] = (index + 1) % keys.length;
       return index;
     }
+    if (coolingUntil < earliestUntil) {
+      earliestUntil = coolingUntil;
+      earliestIndex = index;
+    }
   }
 
-  keyCooldownUntil.clear();
-  const index = keyCursorByRole[role] % keys.length;
-  keyCursorByRole[role] = (index + 1) % keys.length;
-  return index;
+  // Tat ca dang nguội: chon key het nguội som nhat thay vi xoa sach so cooldown cua moi role.
+  keyCursorByRole[role] = (earliestIndex + 1) % keys.length;
+  return earliestIndex;
 };
 
 const requestHeaders = (apiKey: string) => ({
@@ -632,8 +643,10 @@ const withGeminiKeys = async <T,>(role: GeminiKeyRole, requester: (apiKey: strin
     } catch (error) {
       lastError = error;
       lastStatus = error instanceof GeminiRequestError ? error.status : undefined;
-      if (error instanceof GeminiRequestError && error.rotatable) {
-        markKeyCooling(role, keyIndex, error.status);
+      const errorMessage = error instanceof Error ? error.message : "";
+      const keyDead = /API_KEY_INVALID|PERMISSION_DENIED|API key not valid/i.test(errorMessage);
+      if (error instanceof GeminiRequestError && (error.rotatable || keyDead)) {
+        markKeyCooling(keys[keyIndex], keyDead ? 403 : error.status);
         if (attempt < keys.length - 1) continue;
         break;
       }
@@ -829,9 +842,8 @@ const protagonistHandleForDraft = (params: StoryParams, context = "") => {
 };
 
 const stripJsonFence = (text: string) => text
-  .replace(/^\uFEFF/, "")
-  .replace(/```(?:json|JSON)?/g, "")
-  .replace(/```/g, "")
+  .replace(/^\s*```(?:json)?\s*/i, "")
+  .replace(/\s*```\s*$/i, "")
   .trim();
 
 const extractBalancedJsonCandidates = (text: string) => {
@@ -877,24 +889,37 @@ const extractBalancedJsonCandidates = (text: string) => {
 };
 
 const parseAIResponse = (text: string) => {
-  const candidates = [
+  const rawCandidates = [
     ...extractBalancedJsonCandidates(text),
     stripJsonFence(text),
   ]
-    .map(candidate => candidate
-      .replace(/[“”]/g, "\"")
-      .replace(/[‘’]/g, "'")
-      .replace(/,\s*([}\]])/g, "$1")
-      .trim())
-    .filter((candidate, index, all) => Boolean(candidate) && all.indexOf(candidate) === index);
+    .filter((candidate, index, all) => Boolean(candidate && candidate.trim()) && all.indexOf(candidate) === index)
+    .sort((a, b) => b.length - a.length)
+    .slice(0, 40);
 
   let lastError: unknown;
-  for (const candidate of candidates) {
+  // Pass 1: parse nguyen ban, ung vien lon nhat (JSON ngoai cung) duoc uu tien;
+  // tranh mot object con/vi du nho "thang" JSON that va tranh bien dang noi dung string.
+  for (const candidate of rawCandidates) {
     try {
       return JSON.parse(candidate);
     } catch (error) {
       lastError = error;
-      // Thử ứng viên kế tiếp trước khi báo lỗi định dạng.
+    }
+  }
+
+  // Pass 2: chi khi pass 1 that bai moi ap cac phep cuu (nhay cong, phay cuoi).
+  for (const candidate of rawCandidates) {
+    const cleaned = candidate
+      .replace(/[\u201c\u201d]/g, "\"")
+      .replace(/[\u2018\u2019]/g, "'")
+      .replace(/,\s*([}\]])/g, "$1")
+      .trim();
+    if (cleaned === candidate) continue;
+    try {
+      return JSON.parse(cleaned);
+    } catch (error) {
+      lastError = error;
     }
   }
 
@@ -2046,7 +2071,7 @@ const normalizeChapter = (
     beats: beats.length >= 3 ? beats : fallbackBeats(index, params.totalChapters, volumeTitle),
     mustInclude: mustInclude.length >= 2 ? mustInclude : fallbackMustInclude(params, index),
     cliffhanger: asText(raw?.cliffhanger, index === params.totalChapters ? "Dư âm kết cục phản chiếu lựa chọn của nhân vật." : ""),
-    targetWords: Number(raw?.targetWords) > 0 ? Number(raw?.targetWords) : params.length,
+    targetWords: clamp(Math.round(Number(raw?.targetWords) || params.length), 300, 20000),
     pacing: (["Chậm", "Trung bình", "Nhanh", "Cao trào"].includes(raw?.pacing) ? raw?.pacing : pacingForChapter(index, params.totalChapters)) as Chapter["pacing"],
   };
 };
@@ -2494,7 +2519,8 @@ const finalizeStructuredDraft = async (
     if (review.unverified) return draft;
     return await rewriteStructuredDraft(params, subject, context, draft, review, expectedJson);
   } catch (error) {
-    console.warn("Dây chuyền Cụm 2/Cụm 3 không hoàn tất, giữ bản nháp Cụm 1:", error);
+    if (!isAIJsonFormatError(error)) throw error;
+    console.warn("Dây chuyền Cụm 2/Cụm 3 lỗi định dạng, giữ bản nháp Cụm 1:", error);
     return draft;
   }
 };
@@ -2827,6 +2853,11 @@ Trả về JSON:
     if (!isAIJsonFormatError(error)) throw error;
     console.warn("AI trả bản đồ chương không đúng JSON, dùng bản đồ chương dự phòng:", error);
     data = { chapters: [] };
+    return {
+      ...currentArc,
+      degraded: true,
+      chapters: normalizeChapterPlans(data, params, currentArc),
+    };
   }
   return {
     ...currentArc,
@@ -2848,7 +2879,7 @@ export const generateChapterStream = async (
   const previousChapters = [...allWrittenChapters]
     .filter(chapter => chapter.index !== newIndex)
     .sort((a, b) => a.index - b.index);
-  const lastChapter = [...previousChapters].filter(chapter => chapter.index < newIndex).pop() || previousChapters[previousChapters.length - 1];
+  const lastChapter = [...previousChapters].filter(chapter => chapter.index < newIndex).pop();
   const lastContent = lastChapter?.content ? lastChapter.content.slice(-2600) : "Truyện mới bắt đầu.";
   const chapterPlan = currentArc.chapters?.find(chapter => chapter.index === newIndex);
   const targetWords = chapterPlan?.targetWords || params.length || 2000;
@@ -3066,7 +3097,7 @@ export const rewriteChapterWithReviewStream = async (
   const previousChapters = [...allWrittenChapters]
     .filter(chapter => chapter.index !== newIndex)
     .sort((a, b) => a.index - b.index);
-  const lastChapter = [...previousChapters].filter(chapter => chapter.index < newIndex).pop() || previousChapters[previousChapters.length - 1];
+  const lastChapter = [...previousChapters].filter(chapter => chapter.index < newIndex).pop();
   const chapterPlan = currentArc.chapters?.find(chapter => chapter.index === newIndex);
   const targetWords = chapterPlan?.targetWords || params.length || 2000;
   const minWords = minimumChapterWords(targetWords);

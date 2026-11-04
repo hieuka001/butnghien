@@ -49,6 +49,7 @@ export interface Chapter {
   summary: string;
   content?: string;
   bibleSnapshot?: string;
+  biblePending?: boolean;
   objective?: string;
   beats?: string[];
   mustInclude?: string[];
@@ -58,6 +59,7 @@ export interface Chapter {
 }
 
 export interface Volume {
+  degraded?: boolean;
   index: number;
   title: string;
   summary: string;

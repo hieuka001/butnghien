@@ -8,7 +8,10 @@ const rootDir = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     const isVercel = process.env.VERCEL === '1' || Boolean(process.env.VERCEL_ENV);
-    const exposeClientGeminiKeys = !isVercel || env.GEMINI_CLIENT_EXPOSE === 'true';
+    const exposeClientGeminiKeys = env.GEMINI_CLIENT_EXPOSE === 'true';
+    if (exposeClientGeminiKeys) {
+      console.warn('[butnghien] CANH BAO: GEMINI_CLIENT_EXPOSE=true - key Gemini se bi nhung vao bundle JS cong khai.');
+    }
     const devDependencyAliases = mode === 'development'
       ? {
           react: path.resolve(rootDir, 'node_modules/react/cjs/react.development.js'),

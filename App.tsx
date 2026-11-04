@@ -25,7 +25,7 @@ import {
   getFirebaseProjectId,
   getStoredFirebaseUser,
   isFirebaseConfigured,
-  loadProjectsFromFirebase,
+  loadProjectsFromFirebaseDetailed,
   saveProjectToFirebase,
   saveProjectsToFirebase,
   signInToFirebase,
@@ -85,6 +85,16 @@ const normalizeProjectRecord = (project: StoryProject): StoryProject => ({
   lastChapterWritten: Math.max(project.lastChapterWritten || 0, highestWrittenChapterIndex(project.volumes || [])),
 });
 
+const mergeProjectsByUpdatedAt = (local: StoryProject[], cloud: StoryProject[]): StoryProject[] => {
+  const byId = new Map<string, StoryProject>();
+  for (const project of local) byId.set(project.id, project);
+  for (const project of cloud) {
+    const current = byId.get(project.id);
+    if (!current || (project.updatedAt || 0) >= (current.updatedAt || 0)) byId.set(project.id, project);
+  }
+  return [...byId.values()].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+};
+
 const App: React.FC = () => {
   const [projects, setProjects] = useState<StoryProject[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
@@ -121,6 +131,13 @@ const App: React.FC = () => {
   const [draftReview, setDraftReview] = useState<ChapterValidationResult | null>(null);
   const [revisionRequest, setRevisionRequest] = useState<string>('');
   const [view, setView] = useState<'editor' | 'outline' | 'manuscript' | 'setup' | 'directions' | 'my-stories' | 'bible'>('setup');
+  const volumesRef = useRef<Volume[]>([]);
+  const writtenChaptersRef = useRef<Chapter[]>([]);
+  const tombstonedProjectIdsRef = useRef<Set<string>>(new Set());
+  const lastPushedRef = useRef<Map<string, number>>(new Map());
+  const cloudLoadFailedRef = useRef(false);
+  useEffect(() => { volumesRef.current = volumes; }, [volumes]);
+  useEffect(() => { writtenChaptersRef.current = writtenChapters; }, [writtenChapters]);
 
   const clearDraftPipeline = () => {
     setPendingDraftMeta(null);
@@ -130,6 +147,19 @@ const App: React.FC = () => {
   };
 
   const updateDraftParams = (updater: (previous: StoryParams) => StoryParams) => {
+    if (activeProjectId) {
+      // Dang mo mot du an: sua ho so chi cap nhat ho so cua chinh du an do,
+      // khong con xoa sach workspace/ban nhap chi vi go mot ky tu o form thiet lap.
+      setParams(previous => {
+        const next = { ...updater(previous) };
+        setProjects(prevProjects => prevProjects.map(project => project.id === activeProjectId
+          ? { ...project, params: next, updatedAt: Date.now() }
+          : project
+        ));
+        return next;
+      });
+      return;
+    }
     clearDraftPipeline();
     setDirectionChoices([]);
     setPendingDirectionParams(null);
@@ -166,23 +196,35 @@ const App: React.FC = () => {
       try {
         if (isFirebaseConfigured()) {
           try {
-            const firebaseProjects = (await loadProjectsFromFirebase()).map(normalizeProjectRecord);
+            const detailed = await loadProjectsFromFirebaseDetailed();
             if (cancelled) return;
-
-            setProjects(firebaseProjects);
-            await replaceAllProjectsInDb(firebaseProjects);
-            setStorageStatus(`IndexedDB đã lưu cache ${firebaseProjects.length} tác phẩm`);
-            setCloudStatus(firebaseProjects.length > 0
-              ? `Firebase đã tải ${firebaseProjects.length} tác phẩm từ ${getFirebaseProjectId()}`
-              : `Firebase sẵn sàng cho ${authUser?.email || 'tài khoản này'}`
+            const firebaseProjects = detailed.projects.map(normalizeProjectRecord);
+            const localProjects = (await loadProjectsFromDb()).map(normalizeProjectRecord);
+            const mergedProjects = mergeProjectsByUpdatedAt(localProjects, firebaseProjects);
+            cloudLoadFailedRef.current = false;
+            mergedProjects.forEach(project => {
+              const cloudVersion = firebaseProjects.find(item => item.id === project.id);
+              if (cloudVersion && (cloudVersion.updatedAt || 0) >= (project.updatedAt || 0)) {
+                lastPushedRef.current.set(project.id, project.updatedAt);
+              }
+            });
+            setProjects(mergedProjects);
+            await replaceAllProjectsInDb(mergedProjects);
+            setStorageStatus(`IndexedDB đã lưu cache ${mergedProjects.length} tác phẩm`);
+            setCloudStatus(detailed.failed > 0
+              ? `Firebase tải lỗi ${detailed.failed} tác phẩm — đã giữ bản local, không đồng bộ đè.`
+              : mergedProjects.length > 0
+                ? `Firebase đã tải ${mergedProjects.length} tác phẩm từ ${getFirebaseProjectId()}`
+                : `Firebase sẵn sàng cho ${authUser?.email || 'tài khoản này'}`
             );
             return;
           } catch (firebaseError) {
+            // FIX mat du lieu: truoc day loi Firebase -> setProjects([]) -> autosave xoa sach cache local.
+            // Nay roi xuong du lieu local trong may va tam dung dong bo cloud toi lan tai thanh cong.
             console.warn(firebaseError);
+            cloudLoadFailedRef.current = true;
             if (!cancelled) {
-              setProjects([]);
-              setCloudStatus('Không tải được Firebase. Hãy kiểm tra đăng nhập/quyền truy cập.');
-              return;
+              setCloudStatus('Không tải được Firebase — đang dùng dữ liệu local trong máy; đồng bộ cloud tạm dừng tới lần tải thành công.');
             }
           }
         }
@@ -228,16 +270,13 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (!isHydrated) return;
-    try {
-      localStorage.setItem('but-nghien-v19-store', JSON.stringify(projects));
-    } catch (error) {
-      console.warn('LocalStorage đầy hoặc không ghi được, IndexedDB vẫn là nguồn lưu chính:', error);
-    }
+    // Khong con mirror toan bo thu vien vao localStorage (cham quota + lo ban thao);
+    // IndexedDB la cache local duy nhat.
     replaceAllProjectsInDb(projects)
       .then(() => setStorageStatus(`IndexedDB đã lưu ${projects.length} tác phẩm`))
       .catch(error => {
         console.error(error);
-        setStorageStatus('Lưu IndexedDB lỗi, đã giữ bản localStorage');
+        setStorageStatus('Lưu IndexedDB lỗi');
       });
 
     if (!isFirebaseConfigured()) {
@@ -248,11 +287,27 @@ const App: React.FC = () => {
       setCloudStatus('Cần đăng nhập Firebase để lưu dữ liệu');
       return;
     }
+    if (cloudLoadFailedRef.current) {
+      setCloudStatus('Đang dùng dữ liệu local; đồng bộ Firebase tạm dừng vì lần tải gần nhất lỗi.');
+      return;
+    }
 
-    setCloudStatus(projects.length > 0 ? 'Đang lưu Firebase...' : 'Firebase sẵn sàng');
+    const dirtyProjects = projects.filter(project =>
+      !tombstonedProjectIdsRef.current.has(project.id)
+      && lastPushedRef.current.get(project.id) !== project.updatedAt
+    );
+    if (dirtyProjects.length === 0) {
+      setCloudStatus('Firebase đã đồng bộ');
+      return;
+    }
+
+    setCloudStatus('Đang lưu Firebase...');
     const timer = window.setTimeout(() => {
-      saveProjectsToFirebase(projects)
-        .then(() => setCloudStatus(`Firebase đã lưu ${projects.length} tác phẩm`))
+      saveProjectsToFirebase(dirtyProjects)
+        .then(() => {
+          dirtyProjects.forEach(project => lastPushedRef.current.set(project.id, project.updatedAt));
+          setCloudStatus(`Firebase đã lưu ${dirtyProjects.length} tác phẩm thay đổi`);
+        })
         .catch(error => {
           console.error(error);
           setCloudStatus('Lưu Firebase lỗi, dữ liệu vẫn còn trong máy');
@@ -658,11 +713,13 @@ const App: React.FC = () => {
   };
 
   const hasCompleteArcChapterPlan = (volume: Volume) => {
+    if (volume.degraded) return false;
     const range = getVolumeRange(volume);
     if (!range) return false;
-    const chapterIndexes = new Set((volume.chapters || []).map(chapter => chapter.index));
+    const chaptersByIndex = new Map((volume.chapters || []).map(chapter => [chapter.index, chapter]));
     for (let index = range.start; index <= range.end; index++) {
-      if (!chapterIndexes.has(index)) return false;
+      const chapter = chaptersByIndex.get(index);
+      if (!chapter?.objective || !(chapter.beats || []).length) return false;
     }
     return true;
   };
@@ -679,11 +736,10 @@ const App: React.FC = () => {
   const generatedChapterPlanCount = plannedChapters.length;
   const plannedChapterIndexes = new Set<number>();
   volumes.forEach(volume => {
-    const range = getVolumeRange(volume);
-    if (!range) return;
-    for (let index = Math.max(1, range.start); index <= Math.min(params.totalChapters, range.end); index++) {
-      plannedChapterIndexes.add(index);
-    }
+    // Do phu lo trinh bang ban do chuong THAT (co objective), khong con lap day theo khoang Arc.
+    (volume.chapters || []).forEach(chapter => {
+      if (chapter.objective) plannedChapterIndexes.add(chapter.index);
+    });
   });
   const writtenChapterIndexes = new Set(writtenChapters.map(chapter => chapter.index));
   const missingChapterIndexes = params.projectType === 'Trường Thiên'
@@ -757,7 +813,11 @@ const App: React.FC = () => {
   const selectedDirection = visibleDirectionChoices.find(choice => choice.id === selectedDirectionId) || visibleDirectionChoices[0];
   const isStoryProject = (value: unknown): value is StoryProject => {
     const project = value as Partial<StoryProject>;
-    return Boolean(project?.id && project?.params && Array.isArray(project?.volumes));
+    if (!project?.id || !project?.params || typeof project.params !== 'object' || !Array.isArray(project?.volumes)) return false;
+    return project.volumes.every(volume => Boolean(
+      volume && typeof volume === 'object'
+      && (volume.chapters === undefined || (Array.isArray(volume.chapters) && volume.chapters.every(chapter => Boolean(chapter && typeof chapter === 'object' && typeof chapter.index === 'number'))))
+    ));
   };
 
   const downloadTextFile = (filename: string, content: string, mime = 'text/plain;charset=utf-8') => {
@@ -1086,7 +1146,9 @@ const App: React.FC = () => {
     setGenerationStatus(`Đang lập bản đồ chương cho ${cleanArc.title}...`);
     const plannedArc = await generateChapterPlansForArc(params, worldBible, generalSummary, cleanArc, writtenChapters);
     const mergedArc = mergeArcPlans(cleanArc, plannedArc);
-    const updatedVolumes = volumes.map(volume => volume.index === arcIndex ? mergedArc : volume);
+    const latestVolumes = volumesRef.current.length ? volumesRef.current : volumes;
+    const updatedVolumes = latestVolumes.map(volume => volume.index === arcIndex ? mergedArc : volume);
+    volumesRef.current = updatedVolumes;
     setVolumes(updatedVolumes);
     setProjects(prevProjects => prevProjects.map(project => project.id === activeProjectId
       ? { ...project, volumes: updatedVolumes, updatedAt: Date.now() }
@@ -1095,7 +1157,9 @@ const App: React.FC = () => {
     return mergedArc;
   };
 
-  const persistChapterContent = async (finalContent: string, currentArc: Volume, volumesForSave: Volume[] = volumes) => {
+  const persistChapterContent = async (finalContent: string, currentArc: Volume, volumesForSave?: Volume[]) => {
+    const baseVolumes = volumesForSave || (volumesRef.current.length ? volumesRef.current : volumes);
+    const baseWritten = writtenChaptersRef.current.length ? writtenChaptersRef.current : writtenChapters;
     const chapterPlan = currentArc.chapters?.find(ch => ch.index === currentChapterIndex);
     const targetWords = chapterPlan?.targetWords || params.length;
     const finalWords = countDraftWords(finalContent);
@@ -1107,10 +1171,10 @@ const App: React.FC = () => {
     setGenerationStatus('Đang lưu chương và cập nhật Thiên Cơ Lục...');
     // Khi viet lai chuong da co: phai cap nhat canon tu bible TRUOC chuong do (snapshot cua chuong truoc),
     // neu khong du kien cua ban cu va ban moi se cung ton tai trong Thien Co Luc.
-    const previousSnapshot = [...writtenChapters]
+    const previousSnapshot = [...baseWritten]
       .filter(c => c.index < currentChapterIndex && c.bibleSnapshot)
       .sort((a, b) => b.index - a.index)[0]?.bibleSnapshot;
-    const isRewritePersist = writtenChapters.some(c => c.index === currentChapterIndex && c.content);
+    const isRewritePersist = baseWritten.some(c => c.index === currentChapterIndex && c.content);
     const baseBible = isRewritePersist && previousSnapshot ? previousSnapshot : worldBible;
     let updates: { chapterTitle?: string; chapterSummary?: string; updatedBible: string };
     let bibleUpdateError: string | null = null;
@@ -1137,14 +1201,15 @@ const App: React.FC = () => {
       content: actualText,
       summary: updates.chapterSummary || chapterPlan?.summary || '',
       bibleSnapshot: updates.updatedBible,
+      biblePending: bibleUpdateError ? true : undefined,
       targetWords: chapterPlan?.targetWords || params.length,
     };
 
-    const nextWrittenList = writtenChapters.some(c => c.index === newChapter.index)
-      ? sortChapters(writtenChapters.map(c => c.index === newChapter.index ? newChapter : c))
-      : sortChapters([...writtenChapters, newChapter]);
+    const nextWrittenList = baseWritten.some(c => c.index === newChapter.index)
+      ? sortChapters(baseWritten.map(c => c.index === newChapter.index ? newChapter : c))
+      : sortChapters([...baseWritten, newChapter]);
 
-    const updatedVolumes = volumesForSave.map(v => {
+    const updatedVolumes = baseVolumes.map(v => {
       if (v.index === currentArc.index) {
         const existingInVol = v.chapters || [];
         const isChapterInVol = existingInVol.some(c => c.index === newChapter.index);
@@ -1158,6 +1223,8 @@ const App: React.FC = () => {
       return v;
     });
 
+    writtenChaptersRef.current = nextWrittenList;
+    volumesRef.current = updatedVolumes;
     setWrittenChapters(nextWrittenList);
     setWorldBible(updates.updatedBible);
     setStory(actualText);
@@ -1173,7 +1240,7 @@ const App: React.FC = () => {
   };
 
   const handleWriteChapter = async () => {
-    if (isGenerating) return;
+    if (isGenerating || isGeneratingOutline) return;
     if (!activeProjectId) {
       alert('Hãy mở hoặc tạo một dự án trước khi viết chương.');
       return;
@@ -1465,7 +1532,7 @@ const App: React.FC = () => {
         }
         setGenerationStatus('Đang thẩm định logic truyện ngắn...');
         await validateShortStoryDraft(extracted.body, extracted.title, workingParams);
-        const newId = Date.now().toString();
+        const newId = crypto.randomUUID();
         const shortChapter: Chapter = { index: 1, title: extracted.title, content: extracted.body, summary: workingParams.seed || '', targetWords: workingParams.length };
         const shortVolume: Volume = { index: 1, title: 'Truyện ngắn', summary: 'Nội dung truyện ngắn hoàn chỉnh', chapterStart: 1, chapterEnd: 1, chapters: [shortChapter] };
         const newProj: StoryProject = { 
@@ -1507,7 +1574,7 @@ const App: React.FC = () => {
         setWorldBible(initialBible);
         setCurrentChapterIndex(1);
         setActiveArcIndex(1);
-        const newId = Date.now().toString();
+        const newId = crypto.randomUUID();
         const newProj: StoryProject = {
           id: newId,
           title: result.title || projectTitleFromSeed(workingParams.seed),
@@ -1560,7 +1627,7 @@ const App: React.FC = () => {
   };
 
   const handleChooseDirection = async (choice: StoryDirectionChoice) => {
-    if (isGeneratingOutline) return;
+    if (isGenerating || isGeneratingOutline) return;
     const baseParams = pendingDirectionParams || normalizeParams(params);
     const lockedParams = lockDirectionIntoParams(baseParams, choice);
     setSelectedDirectionId(choice.id);
@@ -1570,13 +1637,13 @@ const App: React.FC = () => {
   };
 
   const handleAddNextArc = async () => {
-    if (isGeneratingOutline) return;
+    if (isGenerating || isGeneratingOutline) return;
     if (getConfiguredGeminiKeyCount() === 0) return alert('Chưa có đủ Gemini key. Hãy cấu hình GEMINI_API_KEY_1 đến GEMINI_API_KEY_6 rồi redeploy hoặc khởi động lại server.');
     setIsGeneratingOutline(true);
     setGenerationStatus('Đang lập Arc mở rộng dựa trên Đại cục và Thiên Cơ Lục...');
     try {
       const nextVol = await generateNextArc(params, worldBible, volumes, writtenChapters, generalSummary);
-      const expandedTotalChapters = Math.max(params.totalChapters, nextVol.chapterEnd || params.totalChapters);
+      const expandedTotalChapters = Math.min(MAX_TOTAL_CHAPTERS, Math.max(params.totalChapters, nextVol.chapterEnd || params.totalChapters));
       const nextParams = expandedTotalChapters !== params.totalChapters
         ? { ...params, totalChapters: expandedTotalChapters }
         : params;
@@ -1611,7 +1678,7 @@ const App: React.FC = () => {
       setView('outline');
       return;
     }
-    if (isGeneratingOutline) return;
+    if (isGenerating || isGeneratingOutline) return;
     setIsGeneratingOutline(true);
     setActiveArcIndex(arcIndex);
     try {
@@ -1716,6 +1783,10 @@ const App: React.FC = () => {
       }));
       setWrittenChapters(nextWrittenList);
       setVolumes(updatedVolumes);
+      if (chapterIndex === currentChapterIndex) {
+        setStory('');
+        clearDraftPipeline();
+      }
       if (previousSnapshot) setWorldBible(previousSnapshot);
       setProjects(prevProjects => prevProjects.map(p => p.id === activeProjectId
         ? { ...p, volumes: updatedVolumes, ...(previousSnapshot ? { progressionSummary: previousSnapshot } : {}), lastChapterWritten: Math.max(0, ...nextWrittenList.map(chapter => chapter.index)), updatedAt: Date.now() }
@@ -1727,8 +1798,13 @@ const App: React.FC = () => {
   const handleDeleteProject = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (window.confirm("⚠️ Bạn có chắc chắn muốn xóa vĩnh viễn tác phẩm này khỏi Tàng Thư local và Firebase?")) {
-      deleteProjectFromDb(id).catch(error => console.error("Không xóa được trong IndexedDB:", error));
-      deleteProjectFromFirebase(id).catch(error => console.error("Không xóa được trong Firebase:", error));
+      tombstonedProjectIdsRef.current.add(id);
+      lastPushedRef.current.delete(id);
+      void Promise.allSettled([deleteProjectFromDb(id), deleteProjectFromFirebase(id)]).then(results => {
+        if (results.some(result => result.status === 'rejected')) {
+          setCloudStatus('Xóa tác phẩm chưa hoàn tất ở một nơi lưu — kiểm tra lại khi mở app lần sau.');
+        }
+      });
       const updatedProjects = projects.filter(p => p.id !== id);
       setProjects(updatedProjects);
       if (activeProjectId === id) {
@@ -2445,13 +2521,20 @@ const App: React.FC = () => {
                       setProjects(prev => {
                           const existing = prev.find(p => p.id === normalizedImport.id);
                           if (existing) {
+                              const fileIsOlder = (normalizedImport.updatedAt || 0) < (existing.updatedAt || 0);
+                              const overwrite = window.confirm(fileIsOlder
+                                ? 'File nhập CŨ HƠN bản đang có cùng mã dự án. Ghi đè bằng bản cũ hơn?'
+                                : 'Đã có tác phẩm cùng mã dự án. Ghi đè bằng file nhập?');
+                              if (!overwrite) {
+                                const copy = { ...normalizedImport, id: crypto.randomUUID(), title: `${normalizedImport.title} (bản nhập)` };
+                                setTimeout(() => setProjects(current => [copy, ...current]), 0);
+                                return prev;
+                              }
                               return prev.map(p => p.id === normalizedImport.id ? normalizedImport : p);
                           }
                           return [normalizedImport, ...prev];
                       });
-                      saveProjectToDb(normalizedImport).catch(error => console.error("Không lưu được file nhập vào IndexedDB:", error));
-                      saveProjectToFirebase(normalizedImport).catch(error => console.error("Không lưu được file nhập vào Firebase:", error));
-                      alert("Đã đồng bộ tác phẩm thành công!");
+                      alert("Đã nhập tác phẩm — hệ thống sẽ tự lưu và đồng bộ.");
                     } catch(e) { alert("File JSON không hợp lệ."); }
                   };
                   reader.readAsText(file);
