@@ -1,4 +1,5 @@
 import { StoryParams, Chapter, Volume, StoryLogicReport, StoryDirectionChoice } from "../types";
+import { countWords, clamp, cleanStoryText, isLikelyCutOffText, stripDirectionLabels } from "./textUtils";
 import { getFirebaseIdToken } from "./firebaseService";
 
 type AnyRecord = Record<string, any>;
@@ -53,7 +54,6 @@ Tư duy bắt buộc:
 - Khi Cụm 2 không có lỗi cần sửa, giữ nguyên bản gốc thay vì làm mới văn phong không cần thiết.
 Đầu ra tốt là bản cuối sạch lỗi chính, đủ nội dung, nhất quán và có thể lưu/viết tiếp.`;
 
-const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const DEFAULT_GEMINI_MODEL = "gemini-3-flash-preview";
 const normalizeGeminiModel = (model?: string) => {
@@ -461,7 +461,6 @@ const keyCursorByRole: Record<GeminiKeyRole, number> = {
 };
 const keyCooldownUntil = new Map<string, number>();
 
-const countWords = (text: unknown) => String(text || "").trim().split(/\s+/).filter(Boolean).length;
 
 const asText = (value: unknown, fallback = "") => {
   const text = typeof value === "string" ? value.trim() : "";
@@ -658,34 +657,6 @@ const withGeminiKeys = async <T,>(role: GeminiKeyRole, requester: (apiKey: strin
   throw new Error(`${credentialHint} Lỗi cuối: ${detail}`);
 };
 
-const cleanStoryText = (text: string): string => {
-  if (!text) return "";
-  return text
-    .replace(/```[a-z]*\n?/gi, "")
-    .replace(/```/g, "")
-    .replace(/^\s{0,3}#{1,6}\s*/gm, "")
-    .replace(/\*\*/g, "");
-};
-
-const terminalPunctuationPattern = /[.!?…。！？)"'”’\]]$/;
-const danglingEndingPattern = /(?:,\s*|;\s*|:\s*|-+\s*|—\s*|và|hoặc|nhưng|rằng|vì|nên|khi|nếu|để|của|với|trong|từ|bằng|như|là|mà)$/i;
-
-const isLikelyCutOffText = (text: string) => {
-  const normalized = cleanStoryText(text).trim();
-  if (!normalized) return true;
-  const tail = normalized.replace(/\s+/g, " ").slice(-220).trim();
-  if (!tail) return true;
-  if (terminalPunctuationPattern.test(tail)) return false;
-  if (danglingEndingPattern.test(tail)) return true;
-
-  const lastSentenceBreak = Math.max(
-    tail.lastIndexOf("."),
-    tail.lastIndexOf("!"),
-    tail.lastIndexOf("?"),
-    tail.lastIndexOf("…"),
-  );
-  return lastSentenceBreak < 0 || tail.slice(lastSentenceBreak + 1).trim().split(/\s+/).length > 10;
-};
 
 const chapterNeedsContinuation = (text: string, minWords: number) =>
   countWords(text) < minWords || isLikelyCutOffText(text);
@@ -818,24 +789,6 @@ const excerptForAudit = (text: string, limit = 11000) => {
     "[CUỐI VĂN BẢN]",
     cleaned.slice(-partSize),
   ].join("\n\n");
-};
-
-const protagonistHandleForDraft = (params: StoryParams, context = "") => {
-  const text = plainText(`${context} ${params.seed || ""} ${params.directionLock || ""}`);
-  const childOrUnnamed = /(so sinh|moi sinh|hai nhi|em be|dua be|dua tre|tre so sinh|bo roi|bo lai|nhan nuoi|nhat duoc|mo coi|khong ten|chua dat ten)/.test(text);
-  const amnesia = /(mat tri nho|quen ten|khong nho ten|mat ky uc|xoa ky uc)/.test(text);
-  if (childOrUnnamed) return { label: "đứa trẻ", pronoun: "nó" };
-  if (amnesia) {
-    if (params.character.gender === "Nữ") return { label: "người phụ nữ ấy", pronoun: "cô" };
-    if (params.character.gender === "Nam") return { label: "người đàn ông ấy", pronoun: "anh" };
-    return { label: "người ấy", pronoun: "người ấy" };
-  }
-  if (params.character.name?.trim()) {
-    if (params.character.gender === "Nữ") return { label: params.character.name.trim(), pronoun: "cô" };
-    if (params.character.gender === "Nam") return { label: params.character.name.trim(), pronoun: "cậu" };
-    return { label: params.character.name.trim(), pronoun: "người ấy" };
-  }
-  return { label: "nhân vật chính", pronoun: "người ấy" };
 };
 
 const stripJsonFence = (text: string) => text
@@ -1240,13 +1193,6 @@ const plainText = (value: unknown) => String(value || "")
   .replace(/[\u0300-\u036f]/g, "")
   .toLowerCase();
 
-const stripDirectionLabels = (value: unknown) => String(value || "")
-  .replace(/\r\n/g, "\n")
-  .replace(/^\s*(?:HƯỚNG TRUYỆN ĐÃ CHỌN|HUONG TRUYEN DA CHON)\s*[:：-]\s*/gim, "")
-  .replace(/^\s*(?:Tiền đề|Tien de|Động cơ truyện|Dong co truyen|Phù hợp khi|Phu hop khi|Logic cốt truyện|Logic cot truyen|Nhịp Arc|Nhip Arc|Dư âm\/cao trào|Du am\/cao trao|Điều cần tránh|Dieu can tranh|Bắt buộc khi lập lộ trình|Bat buoc khi lap lo trinh)\s*[:：-]\s*/gim, "")
-  .replace(/\s+/g, " ")
-  .trim();
-
 const labeledLineFromLock = (lock: string | undefined, label: string) => {
   const normalizedLabel = plainText(label);
   return String(lock || "")
@@ -1296,12 +1242,7 @@ const narrativeArcWeight = (index: number, count: number, params: StoryParams) =
   const directionText = directionTextFromParams(params);
   const seedComplexity = clamp(countWords(`${params.seed || ""} ${params.referenceStories || ""}`) / 180, 0, 1.4);
   const sliders: StoryParams["sliders"] = {
-    romance: 0,
-    violence: 0,
-    philosophy: 0,
-    psychology: 0,
-    action: 0,
-    strategy: 0,
+    ...{ romance: 0, violence: 0, philosophy: 0, psychology: 0, action: 0, strategy: 0 },
     ...(params.sliders || {}),
   };
 
@@ -1588,7 +1529,6 @@ const sharesStoryKeywords = (text: string, params: StoryParams, extra = "") => {
 
 const isOffProjectArcText = (value: string, params: StoryParams) => {
   const normalized = textFingerprint(value);
-  const storySignal = textFingerprint(storySignalFromParams(params));
   if (ARC_ADMIN_TEXT_PATTERN.test(normalized)) return true;
   const tokens = meaningfulTokens(value, 24);
   return tokens.length >= 5 && !sharesStoryKeywords(value, params);
@@ -1597,7 +1537,6 @@ const isOffProjectArcText = (value: string, params: StoryParams) => {
 const isOffProjectArcTitle = (title: string, params: StoryParams, arcContent = "") => {
   const normalizedTitle = textFingerprint(title);
   if (!normalizedTitle) return true;
-  const storySignal = textFingerprint(storySignalFromParams(params));
   if (ARC_ADMIN_TEXT_PATTERN.test(normalizedTitle)) return true;
   const titleTokens = meaningfulTokens(title, 8).map(token => plainText(token));
   if (titleTokens.length === 0) return true;
@@ -1798,12 +1737,7 @@ const sliderBrief = (params: StoryParams) => {
     strategy: "mưu lược",
   };
   const sliders: StoryParams["sliders"] = {
-    romance: 0,
-    violence: 0,
-    philosophy: 0,
-    psychology: 0,
-    action: 0,
-    strategy: 0,
+    ...{ romance: 0, violence: 0, philosophy: 0, psychology: 0, action: 0, strategy: 0 },
     ...(params.sliders || {}),
   };
 

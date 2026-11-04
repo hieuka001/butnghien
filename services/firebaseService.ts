@@ -347,9 +347,6 @@ const loadProjectPayload = async (projectDoc: FirestoreDocument): Promise<StoryP
   return payload ? JSON.parse(payload) as StoryProject : null;
 };
 
-export const loadProjectsFromFirebase = async (): Promise<StoryProject[]> =>
-  (await loadProjectsFromFirebaseDetailed()).projects;
-
 export const loadProjectsFromFirebaseDetailed = async (): Promise<{ projects: StoryProject[]; failed: number }> => {
   if (!isFirebaseConfigured()) return { projects: [], failed: 0 };
   const session = await getSession();

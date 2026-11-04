@@ -25,7 +25,6 @@ export const TONES: Tone[] = [
   'Kịch tính', 'Đen tối', 'Triết lý', 'Hài hước', 'Hiện thực gai góc'
 ];
 
-export const LENGTHS = [800, 1200, 2000, 3000, 5000, 10000, 20000, 50000];
 
 export const MODES: StoryMode[] = [
   'Truyện hoàn chỉnh', 'Mở để viết tiếp', 'Twist ending', 

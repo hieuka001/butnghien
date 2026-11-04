@@ -23,6 +23,7 @@ import {
   saveProjectToDb,
 } from './services/databaseService';
 import { readLocalTombstones, persistLocalTombstones, writeLocalTombstone, clearLocalTombstone, applyTombstones, TombstoneMap } from './services/tombstoneStore';
+import { countWords, clamp, isLikelyCutOffText, stripDirectionLabels } from './services/textUtils';
 import {
   deleteProjectFromFirebase,
   loadDeletedProjectIdsFromFirebase,
@@ -33,7 +34,6 @@ import {
   getStoredFirebaseUser,
   isFirebaseConfigured,
   loadProjectsFromFirebaseDetailed,
-  saveProjectToFirebase,
   saveProjectsToFirebase,
   signInToFirebase,
   signOutFromFirebase,
@@ -154,6 +154,7 @@ const App: React.FC = () => {
   const volumesRef = useRef<Volume[]>([]);
   const writtenChaptersRef = useRef<Chapter[]>([]);
   const tombstonesRef = useRef<TombstoneMap>(readLocalTombstones());
+  const lastSavedToDbRef = useRef<Map<string, number>>(new Map());
   const lastPushedRef = useRef<Map<string, number>>(new Map());
   const cloudLoadFailedRef = useRef(false);
   useEffect(() => { volumesRef.current = volumes; }, [volumes]);
@@ -238,6 +239,7 @@ const App: React.FC = () => {
             });
             setProjects(mergedProjects);
             await replaceAllProjectsInDb(mergedProjects);
+            mergedProjects.forEach(project => lastSavedToDbRef.current.set(project.id, project.updatedAt));
             setStorageStatus(`IndexedDB đã lưu cache ${mergedProjects.length} tác phẩm`);
             setCloudStatus(detailed.failed > 0
               ? `Firebase tải lỗi ${detailed.failed} tác phẩm — đã giữ bản local, không đồng bộ đè.`
@@ -261,6 +263,7 @@ const App: React.FC = () => {
         if (cancelled) return;
 
         if (dbProjects.length > 0) {
+          dbProjects.forEach(project => lastSavedToDbRef.current.set(project.id, project.updatedAt));
           setProjects(dbProjects);
           setStorageStatus(`IndexedDB đã tải ${dbProjects.length} tác phẩm`);
         } else {
@@ -269,6 +272,7 @@ const App: React.FC = () => {
           setProjects(legacyProjects);
           if (legacyProjects.length > 0) {
             await replaceAllProjectsInDb(legacyProjects);
+            legacyProjects.forEach(project => lastSavedToDbRef.current.set(project.id, project.updatedAt));
             setStorageStatus(`Đã chuyển ${legacyProjects.length} tác phẩm từ localStorage sang IndexedDB`);
           } else {
             setStorageStatus('IndexedDB sẵn sàng');
@@ -298,14 +302,25 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (!isHydrated) return;
-    // Khong con mirror toan bo thu vien vao localStorage (cham quota + lo ban thao);
-    // IndexedDB la cache local duy nhat.
-    replaceAllProjectsInDb(projects)
-      .then(() => setStorageStatus(`IndexedDB đã lưu ${projects.length} tác phẩm`))
-      .catch(error => {
-        console.error(error);
-        setStorageStatus('Lưu IndexedDB lỗi');
-      });
+    // IndexedDB ghi theo dirty (chi project doi updatedAt + xoa project da bien mat),
+    // khong con clear+put lai toan bo thu vien sau moi thay doi nhu truoc.
+    const dbDirtyProjects = projects.filter(project => lastSavedToDbRef.current.get(project.id) !== project.updatedAt);
+    const dbDeletedIds = [...lastSavedToDbRef.current.keys()].filter(id => !projects.some(project => project.id === id));
+    if (dbDirtyProjects.length > 0 || dbDeletedIds.length > 0) {
+      Promise.all([
+        ...dbDirtyProjects.map(project => saveProjectToDb(project)),
+        ...dbDeletedIds.map(id => deleteProjectFromDb(id)),
+      ])
+        .then(() => {
+          dbDirtyProjects.forEach(project => lastSavedToDbRef.current.set(project.id, project.updatedAt));
+          dbDeletedIds.forEach(id => lastSavedToDbRef.current.delete(id));
+          setStorageStatus(`IndexedDB đã lưu ${projects.length} tác phẩm`);
+        })
+        .catch(error => {
+          console.error(error);
+          setStorageStatus('Lưu IndexedDB lỗi');
+        });
+    }
 
     if (!isFirebaseConfigured()) {
       setCloudStatus('Firebase chưa cấu hình');
@@ -403,16 +418,15 @@ const App: React.FC = () => {
     }));
   };
 
-  const clampNumber = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
   const normalizeParams = (draft: StoryParams): StoryParams => {
-    const requestedTotalChapters = clampNumber(Math.round(Number(draft.totalChapters) || 1), MIN_TOTAL_CHAPTERS, MAX_TOTAL_CHAPTERS);
+    const requestedTotalChapters = clamp(Math.round(Number(draft.totalChapters) || 1), MIN_TOTAL_CHAPTERS, MAX_TOTAL_CHAPTERS);
     const effectiveProjectType = draft.projectType === 'Truyện Ngắn' && requestedTotalChapters > 1 ? 'Trường Thiên' : draft.projectType;
 
     return {
       ...draft,
       projectType: effectiveProjectType,
       totalChapters: effectiveProjectType === 'Truyện Ngắn' ? 1 : requestedTotalChapters,
-      length: clampNumber(Math.round(Number(draft.length) || 2000), MIN_CHAPTER_WORDS, MAX_CHAPTER_WORDS),
+      length: clamp(Math.round(Number(draft.length) || 2000), MIN_CHAPTER_WORDS, MAX_CHAPTER_WORDS),
       genres: draft.genres.length > 0 ? draft.genres : ['Kỳ ảo'],
       seed: draft.seed?.trim() || '',
       referenceStories: draft.referenceStories?.trim() || '',
@@ -555,23 +569,6 @@ const App: React.FC = () => {
     if (!titleMatch) return { title: fallback, body: content.trim() };
     const body = content.replace(titleMatch[0], '').trim();
     return { title: titleMatch[1].trim() || fallback, body };
-  };
-
-  const countDraftWords = (text: string) => text ? text.trim().split(/\s+/).filter(Boolean).length : 0;
-  const draftLooksCutOff = (text: string) => {
-    const tail = text.trim().replace(/\s+/g, ' ').slice(-220);
-    if (!tail) return true;
-    if (/[.!?…。！？)"'”’\]]$/.test(tail)) return false;
-    if (/(?:,\s*|;\s*|:\s*|-+\s*|—\s*|và|hoặc|nhưng|rằng|vì|nên|khi|nếu|để|của|với|trong|từ|bằng|như|là|mà)$/i.test(tail)) return true;
-    const lastBreak = Math.max(tail.lastIndexOf('.'), tail.lastIndexOf('!'), tail.lastIndexOf('?'), tail.lastIndexOf('…'));
-    return lastBreak < 0 || tail.slice(lastBreak + 1).trim().split(/\s+/).length > 10;
-  };
-
-  const chapterCandidateScore = (text: string, targetWords: number) => {
-    const words = countDraftWords(text);
-    const distancePenalty = Math.abs(words - targetWords) * 0.18;
-    const completenessBonus = draftLooksCutOff(text) ? -900 : 500;
-    return words + completenessBonus - distancePenalty;
   };
 
   const validateShortStoryDraft = async (body: string, title: string, workingParams: StoryParams) => {
@@ -812,7 +809,6 @@ const App: React.FC = () => {
   });
   const activeProject = projects.find(project => project.id === activeProjectId);
   const plannedChapters = sortChapters(volumes.flatMap(volume => volume.chapters || []));
-  const generatedChapterPlanCount = plannedChapters.length;
   const fallbackPlanCount = plannedChapters.filter(chapter => chapter.planFallback).length;
   const plannedChapterIndexes = new Set<number>();
   volumes.forEach(volume => {
@@ -835,16 +831,16 @@ const App: React.FC = () => {
   const visibleManuscriptChapters = foldedManuscriptQuery
     ? sortChapters(writtenChapters).filter(chapter => manuscriptMatchByIndex.has(chapter.index))
     : sortChapters(writtenChapters);
-  const manuscriptTotalWords = writtenChapters.reduce((sum, chapter) => sum + countDraftWords(chapter.content || ''), 0);
+  const manuscriptTotalWords = writtenChapters.reduce((sum, chapter) => sum + countWords(chapter.content || ''), 0);
   const weekCutoff = Date.now() - 7 * 24 * 3600 * 1000;
   const manuscriptWeekWords = writtenChapters
     .filter(chapter => (chapter.writtenAt || 0) >= weekCutoff)
-    .reduce((sum, chapter) => sum + countDraftWords(chapter.content || ''), 0);
+    .reduce((sum, chapter) => sum + countWords(chapter.content || ''), 0);
   const projectQuickStats = (project: StoryProject) => {
     const chapters = (project.volumes || []).flatMap(volume => volume.chapters || []).filter(chapter => chapter.content);
     return {
       chapterCount: chapters.length,
-      totalWords: chapters.reduce((sum, chapter) => sum + countDraftWords(chapter.content || ''), 0),
+      totalWords: chapters.reduce((sum, chapter) => sum + countWords(chapter.content || ''), 0),
     };
   };
   const missingChapterIndexes = params.projectType === 'Trường Thiên'
@@ -967,13 +963,6 @@ const App: React.FC = () => {
   const stripChapterTitlePrefix = (value: string) =>
     String(value || '').replace(/^\s*(?:c(?:hương)?\.?|chapter)\s*\d+\s*[:.：\-–—]?\s*/i, '').trim();
 
-  const stripDirectionLabels = (value: string) => String(value || '')
-    .replace(/\r\n/g, '\n')
-    .replace(/^\s*(?:HƯỚNG TRUYỆN ĐÃ CHỌN|HUONG TRUYEN DA CHON)\s*[:：-]\s*/gim, '')
-    .replace(/^\s*(?:Tiền đề|Tien de|Động cơ truyện|Dong co truyen|Phù hợp khi|Phu hop khi|Logic cốt truyện|Logic cot truyen|Nhịp Arc|Nhip Arc|Dư âm\/cao trào|Du am\/cao trao|Điều cần tránh|Dieu can tranh|Bắt buộc khi lập lộ trình|Bat buoc khi lap lo trinh)\s*[:：-]\s*/gim, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-
   const directionTitleFromLock = (lock: string) =>
     stripDirectionLabels(String(lock || '')
       .split(/\r?\n/)
@@ -1030,7 +1019,6 @@ const App: React.FC = () => {
   const isOffProjectArcText = (value: string) => {
     const normalized = planFingerprint(value);
     if (!normalized) return false;
-    const projectSignal = planFingerprint(currentStorySignal());
     if (ARC_ADMIN_TEXT_PATTERN.test(normalized)) return true;
     const tokens = meaningfulArcTokens(value, 24);
     return tokens.length >= 5 && !sharesCurrentStorySignal(value);
@@ -1039,7 +1027,6 @@ const App: React.FC = () => {
   const isOffProjectArcTitle = (title: string, arcText = '') => {
     const normalized = planFingerprint(title);
     if (!normalized) return true;
-    const projectSignal = planFingerprint(currentStorySignal());
     if (ARC_ADMIN_TEXT_PATTERN.test(normalized)) return true;
     const titleTokens = meaningfulArcTokens(title, 8);
     if (titleTokens.length === 0) return true;
@@ -1358,9 +1345,9 @@ const App: React.FC = () => {
     const baseWritten = writtenChaptersRef.current.length ? writtenChaptersRef.current : writtenChapters;
     const chapterPlan = currentArc.chapters?.find(ch => ch.index === currentChapterIndex);
     const targetWords = chapterPlan?.targetWords || params.length;
-    const finalWords = countDraftWords(finalContent);
+    const finalWords = countWords(finalContent);
     const hardMinimumWords = Math.max(650, Math.floor(targetWords * 0.95));
-    if (finalWords < hardMinimumWords || draftLooksCutOff(finalContent)) {
+    if (finalWords < hardMinimumWords || isLikelyCutOffText(finalContent)) {
       throw new Error(`Chương đang bị thiếu phần cuối hoặc chưa đủ chữ: hiện khoảng ${finalWords}/${targetWords} chữ. App chưa lưu bản này để tránh mất nội dung.`);
     }
     const repetitionIssues = detectDraftRepetition(finalContent);
@@ -1564,9 +1551,9 @@ const App: React.FC = () => {
         if (!fullText.trim()) throw new Error('Gemini chưa trả về nội dung truyện. Hãy thử lại với mục tiêu chữ thấp hơn hoặc bấm viết lại.');
 
         const extracted = extractGeneratedTitle(fullText, writtenChapters[0]?.title || 'Toàn văn');
-        const shortStoryWords = countDraftWords(extracted.body);
+        const shortStoryWords = countWords(extracted.body);
         const shortStoryMinimum = Math.max(700, Math.floor(params.length * 0.92));
-        if (shortStoryWords < shortStoryMinimum || draftLooksCutOff(extracted.body)) {
+        if (shortStoryWords < shortStoryMinimum || isLikelyCutOffText(extracted.body)) {
           throw new Error(`Bản truyện đang bị thiếu phần cuối hoặc chưa đủ chữ: hiện khoảng ${shortStoryWords}/${params.length} chữ. Hãy bấm viết lại để app nối tiếp bản đầy đủ hơn.`);
         }
         setGenerationStatus('Đang thẩm định logic truyện ngắn...');
@@ -1638,9 +1625,9 @@ const App: React.FC = () => {
       );
       if (!finalContent.trim()) throw new Error('Gemini chưa trả về nội dung chương. Hãy thử lại hoặc giảm mục tiêu số chữ.');
 
-      const draftWords = countDraftWords(finalContent);
+      const draftWords = countWords(finalContent);
       const draftMinimumWords = Math.max(650, Math.floor(targetWords * 0.95));
-      if (draftWords < draftMinimumWords || draftLooksCutOff(finalContent)) {
+      if (draftWords < draftMinimumWords || isLikelyCutOffText(finalContent)) {
         setStory('');
         throw new Error(`Bản nháp Cụm 1 đang thiếu phần cuối hoặc chưa đủ chữ: hiện khoảng ${draftWords}/${targetWords} chữ. App chưa gọi Cụm 2/3 và chưa lưu bản này.`);
       }
@@ -1782,8 +1769,8 @@ const App: React.FC = () => {
         setCloudStatus(`⚠ Cụm 3 chưa đạt chuẩn nên bản sửa đã bị loại (${rewriteDiscardedReason}). Chương được lưu là bản Cụm 1 đã giữ — bạn có thể thẩm định lại hoặc chạy Cụm 3 lần nữa.`);
       }
       const targetWords = currentArc.chapters?.find(ch => ch.index === currentChapterIndex)?.targetWords || params.length;
-      const rewrittenWords = countDraftWords(rewritten);
-      if (rewrittenWords < Math.max(650, Math.floor(targetWords * 0.95)) || draftLooksCutOff(rewritten)) {
+      const rewrittenWords = countWords(rewritten);
+      if (rewrittenWords < Math.max(650, Math.floor(targetWords * 0.95)) || isLikelyCutOffText(rewritten)) {
         setStory(originalDraft);
         throw new Error(`Bản sửa Cụm 3 vẫn thiếu phần cuối hoặc chưa đủ chữ: hiện khoảng ${rewrittenWords}/${targetWords} chữ. App chưa lưu bản này.`);
       }
@@ -1827,9 +1814,9 @@ const App: React.FC = () => {
         setStory('');
         const fullText = await generateShortStoryStream(workingParams, (chunk) => setStory(prev => prev + chunk));
         const extracted = extractGeneratedTitle(fullText, 'Toàn văn');
-        const shortStoryWords = countDraftWords(extracted.body);
+        const shortStoryWords = countWords(extracted.body);
         const shortStoryMinimum = Math.max(700, Math.floor(workingParams.length * 0.92));
-        if (shortStoryWords < shortStoryMinimum || draftLooksCutOff(extracted.body)) {
+        if (shortStoryWords < shortStoryMinimum || isLikelyCutOffText(extracted.body)) {
           throw new Error(`Bản truyện đang bị thiếu phần cuối hoặc chưa đủ chữ: hiện khoảng ${shortStoryWords}/${workingParams.length} chữ. Hãy bấm viết lại để app nối tiếp bản đầy đủ hơn.`);
         }
         setGenerationStatus('Đang thẩm định logic truyện ngắn...');
@@ -1838,7 +1825,7 @@ const App: React.FC = () => {
         const shortChapter: Chapter = { index: 1, title: extracted.title, content: extracted.body, summary: workingParams.seed || '', targetWords: workingParams.length };
         const shortVolume: Volume = { index: 1, title: 'Truyện ngắn', summary: 'Nội dung truyện ngắn hoàn chỉnh', chapterStart: 1, chapterEnd: 1, chapters: [shortChapter] };
         const newProj: StoryProject = { 
-          id: newId, title: extracted.title || projectTitleFromSeed(workingParams.seed), params: workingParams, 
+          id: newId, title: extracted.title || projectTitleFromSeed(workingParams.seed || ''), params: workingParams, 
           generalSummary: workingParams.seed || '', progressionSummary: "Truyện ngắn", 
           volumes: [shortVolume], createdAt: Date.now(), updatedAt: Date.now(), lastChapterWritten: 1 
         };
@@ -1867,7 +1854,7 @@ const App: React.FC = () => {
         if (coveredIndexes.size < workingParams.totalChapters) {
           throw new Error(`Lộ trình Arc chưa phủ đủ ${workingParams.totalChapters} chương. Hãy thử lại hoặc giảm số chương.`);
         }
-        const initialSummary = result.generalSummary || workingParams.seed;
+        const initialSummary = result.generalSummary || workingParams.seed || '';
         const initialBible = buildOpeningWorldBible(result.worldBuilding || '', initialSummary, workingParams, initialVolumes);
         setGenerationStatus('Bước 3/3: Đang mở bàn viết và lưu dự án...');
         setVolumes(initialVolumes);

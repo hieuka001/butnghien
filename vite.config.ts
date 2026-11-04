@@ -12,7 +12,7 @@ export default defineConfig(({ mode }) => {
     if (exposeClientGeminiKeys) {
       console.warn('[butnghien] CANH BAO: GEMINI_CLIENT_EXPOSE=true - key Gemini se bi nhung vao bundle JS cong khai.');
     }
-    const devDependencyAliases = mode === 'development'
+    const devDependencyAliases: Record<string, string> = mode === 'development'
       ? {
           react: path.resolve(rootDir, 'node_modules/react/cjs/react.development.js'),
           'react/jsx-runtime': path.resolve(rootDir, 'node_modules/react/cjs/react-jsx-runtime.development.js'),
@@ -41,10 +41,10 @@ export default defineConfig(({ mode }) => {
         'process.env.GEMINI_API_KEY_5': JSON.stringify(exposeClientGeminiKeys ? env.GEMINI_API_KEY_5 : ''),
         'process.env.GEMINI_API_KEY_6': JSON.stringify(exposeClientGeminiKeys ? env.GEMINI_API_KEY_6 : ''),
         'process.env.GEMINI_SERVER_PROXY': JSON.stringify(isVercel || env.GEMINI_SERVER_PROXY === 'true' ? 'true' : ''),
-        'process.env.GEMINI_MODEL': JSON.stringify(env.GEMINI_MODEL),
-        'process.env.GEMINI_PLAN_MODEL': JSON.stringify(env.GEMINI_PLAN_MODEL),
-        'process.env.GEMINI_WRITE_MODEL': JSON.stringify(env.GEMINI_WRITE_MODEL),
-        'process.env.GEMINI_MAX_OUTPUT_TOKENS': JSON.stringify(env.GEMINI_MAX_OUTPUT_TOKENS),
+        'process.env.GEMINI_MODEL': JSON.stringify(env.GEMINI_MODEL || ''),
+        'process.env.GEMINI_PLAN_MODEL': JSON.stringify(env.GEMINI_PLAN_MODEL || ''),
+        'process.env.GEMINI_WRITE_MODEL': JSON.stringify(env.GEMINI_WRITE_MODEL || ''),
+        'process.env.GEMINI_MAX_OUTPUT_TOKENS': JSON.stringify(env.GEMINI_MAX_OUTPUT_TOKENS || ''),
         'process.env.FIREBASE_API_KEY': JSON.stringify(env.FIREBASE_API_KEY || env.VITE_FIREBASE_API_KEY || ''),
         'process.env.FIREBASE_AUTH_DOMAIN': JSON.stringify(env.FIREBASE_AUTH_DOMAIN || env.VITE_FIREBASE_AUTH_DOMAIN || ''),
         'process.env.FIREBASE_PROJECT_ID': JSON.stringify(env.FIREBASE_PROJECT_ID || env.VITE_FIREBASE_PROJECT_ID || ''),
