@@ -59,17 +59,17 @@ const uniqueKeys = (keys: Array<string | undefined>) => keys
   .filter((key, index, all) => all.indexOf(key) === index);
 
 const roleKeyHelp: Record<GeminiKeyRole, string> = {
-  writer: "GEMINI_API_KEY_1 va GEMINI_API_KEY_2",
-  reviewer: "GEMINI_API_KEY_3 va GEMINI_API_KEY_4",
-  rewriter: "GEMINI_API_KEY_5 va GEMINI_API_KEY_6",
-  direction: "GEMINI_API_KEY_6",
+  writer: "cac bien GEMINI_API_KEY_1..6 trong Vercel (kho key dung chung)",
+  reviewer: "cac bien GEMINI_API_KEY_1..6 trong Vercel (kho key dung chung)",
+  rewriter: "cac bien GEMINI_API_KEY_1..6 trong Vercel (kho key dung chung)",
+  direction: "cac bien GEMINI_API_KEY_1..6 trong Vercel (kho key dung chung)",
 };
 
 const roleLabel: Record<GeminiKeyRole, string> = {
   writer: "Cum 1 viet/lap khung",
   reviewer: "Cum 2 tham dinh",
   rewriter: "Cum 3 sua ban thao",
-  direction: "Key 6 chon huong truyen",
+  direction: "Chon huong truyen",
 };
 
 const getGeminiKeys = () => {
@@ -80,29 +80,21 @@ const getGeminiKeys = () => {
     process.env.GEMINI_API_KEY_4,
     process.env.GEMINI_API_KEY_5,
     process.env.GEMINI_API_KEY_6,
+    process.env.GEMINI_API_KEY,
   ]);
 };
 
 const getGeminiKeysForRole = (role: GeminiKeyRole) => {
-  const preferredByRole: Record<GeminiKeyRole, Array<string | undefined>> = {
-    writer: [
-      process.env.GEMINI_API_KEY_1,
-      process.env.GEMINI_API_KEY_2,
-    ],
-    reviewer: [
-      process.env.GEMINI_API_KEY_3,
-      process.env.GEMINI_API_KEY_4,
-    ],
-    rewriter: [
-      process.env.GEMINI_API_KEY_5,
-      process.env.GEMINI_API_KEY_6,
-    ],
-    direction: [
-      process.env.GEMINI_API_KEY_6,
-    ],
-  };
-
-  return uniqueKeys(preferredByRole[role]);
+  // Kho key dung chung: moi cum nhan cac key xoay vong tu mot diem bat dau
+  // khac nhau trong kho, nen go bo/bot key chet khong lam hong cum nao va
+  // moi cum luon co key du phong tu chinh kho.
+  const pool = getGeminiKeys();
+  if (!pool.length) return pool;
+  const offsets: Record<GeminiKeyRole, number> = { writer: 0, reviewer: 1, rewriter: 2, direction: 0 };
+  const sizes: Record<GeminiKeyRole, number> = { writer: 2, reviewer: 2, rewriter: 2, direction: 1 };
+  const start = offsets[role] % pool.length;
+  const rotated = [...pool.slice(start), ...pool.slice(0, start)];
+  return rotated.slice(0, Math.min(sizes[role], pool.length));
 };
 
 const isRotatableStatus = (status: number) => [401, 402, 403, 408, 429, 500, 502, 503].includes(status);

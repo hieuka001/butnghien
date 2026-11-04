@@ -493,7 +493,7 @@ const roleLabel: Record<GeminiKeyRole, string> = {
   writer: "Cụm 1 viết/lập khung",
   reviewer: "Cụm 2 thẩm định",
   rewriter: "Cụm 3 sửa bản thảo",
-  direction: "Key 6 chọn hướng truyện",
+  direction: "Chọn hướng truyện",
 };
 
 const getGeminiKeys = () => {
@@ -504,29 +504,21 @@ const getGeminiKeys = () => {
     process.env.GEMINI_API_KEY_4,
     process.env.GEMINI_API_KEY_5,
     process.env.GEMINI_API_KEY_6,
+    process.env.GEMINI_API_KEY,
   ]);
 };
 
 const getGeminiKeysForRole = (role: GeminiKeyRole) => {
-  const preferredByRole: Record<GeminiKeyRole, Array<string | undefined>> = {
-    writer: [
-      process.env.GEMINI_API_KEY_1,
-      process.env.GEMINI_API_KEY_2,
-    ],
-    reviewer: [
-      process.env.GEMINI_API_KEY_3,
-      process.env.GEMINI_API_KEY_4,
-    ],
-    rewriter: [
-      process.env.GEMINI_API_KEY_5,
-      process.env.GEMINI_API_KEY_6,
-    ],
-    direction: [
-      process.env.GEMINI_API_KEY_6,
-    ],
-  };
-
-  return uniqueKeys(preferredByRole[role]);
+  // Kho key dung chung: moi cum nhan cac key xoay vong tu mot diem bat dau
+  // khac nhau trong kho, nen go bo/bot key chet khong lam hong cum nao va
+  // moi cum luon co key du phong tu chinh kho.
+  const pool = getGeminiKeys();
+  if (!pool.length) return pool;
+  const offsets: Record<GeminiKeyRole, number> = { writer: 0, reviewer: 1, rewriter: 2, direction: 0 };
+  const sizes: Record<GeminiKeyRole, number> = { writer: 2, reviewer: 2, rewriter: 2, direction: 1 };
+  const start = offsets[role] % pool.length;
+  const rotated = [...pool.slice(start), ...pool.slice(0, start)];
+  return rotated.slice(0, Math.min(sizes[role], pool.length));
 };
 
 export const getConfiguredGeminiKeyCount = () => getGeminiKeys().length || (USE_GEMINI_PROXY ? 1 : 0);
