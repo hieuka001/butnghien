@@ -23,7 +23,8 @@ import {
   saveProjectToDb,
 } from './services/databaseService';
 import { readLocalTombstones, persistLocalTombstones, writeLocalTombstone, clearLocalTombstone, applyTombstones, TombstoneMap } from './services/tombstoneStore';
-import { countWords, clamp, isLikelyCutOffText, stripDirectionLabels } from './services/textUtils';
+import { countWords, clamp, isLikelyCutOffText, stripDirectionLabels, splitSentencesForSpeech } from './services/textUtils';
+import { SpeechPlayer, SpeechPlayerState, SpeechEngineKind, TtsVoiceOption } from './services/ttsService';
 import {
   deleteProjectFromFirebase,
   loadDeletedProjectIdsFromFirebase,
@@ -127,6 +128,15 @@ const App: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [isRetryingBible, setIsRetryingBible] = useState<boolean>(false);
   const [manuscriptQuery, setManuscriptQuery] = useState('');
+  const [ttsSession, setTtsSession] = useState<{ chapterIndex: number; title: string; total: number } | null>(null);
+  const [ttsState, setTtsState] = useState<SpeechPlayerState>('idle');
+  const [ttsIndex, setTtsIndex] = useState(0);
+  const [ttsEngine, setTtsEngine] = useState<SpeechEngineKind>('browser');
+  const [ttsRate, setTtsRateState] = useState(1);
+  const [ttsVoiceId, setTtsVoiceId] = useState('');
+  const [ttsVoices, setTtsVoices] = useState<TtsVoiceOption[]>([]);
+  const [ttsSegmentText, setTtsSegmentText] = useState('');
+  const speechPlayerRef = useRef<SpeechPlayer | null>(null);
   const [expandedPreviousChapter, setExpandedPreviousChapter] = useState<number | null>(null);
   const [includeBibleInExport, setIncludeBibleInExport] = useState(false);
   const [syncNonce, setSyncNonce] = useState(0);
@@ -359,6 +369,57 @@ const App: React.FC = () => {
 
     return () => window.clearTimeout(timer);
   }, [projects, isHydrated, authUser?.uid, syncNonce]);
+
+  // Trinh phat nghe truyen: mot instance duy nhat, trang thai phan anh qua callback vao React state.
+  useEffect(() => {
+    const player = new SpeechPlayer({
+      onState: (state) => {
+        setTtsState(state);
+        if (speechPlayerRef.current) setTtsSegmentText(speechPlayerRef.current.currentSegmentText());
+      },
+      onIndex: () => {
+        if (speechPlayerRef.current) {
+          setTtsIndex(speechPlayerRef.current.currentIndex);
+          setTtsSegmentText(speechPlayerRef.current.currentSegmentText());
+        }
+      },
+      onEngine: (engine) => {
+        setTtsEngine(engine);
+        if (speechPlayerRef.current) setTtsVoices(speechPlayerRef.current.voices);
+      },
+    });
+    speechPlayerRef.current = player;
+    return () => { player.stop(); speechPlayerRef.current = null; };
+  }, []);
+
+  // Doi du an dang mo -> dung nghe va dong thanh phat (tranh nghe nham chuong cua du an khac).
+  useEffect(() => {
+    speechPlayerRef.current?.stop();
+    setTtsSession(null);
+  }, [activeProjectId]);
+
+  const handleListenChapter = async (chapter: Chapter) => {
+    const segments = splitSentencesForSpeech(chapter.content || '');
+    if (!segments.length) {
+      alert('Chương này chưa có nội dung để nghe.');
+      return;
+    }
+    const player = speechPlayerRef.current;
+    if (!player) return;
+    setTtsSession({ chapterIndex: chapter.index, title: chapter.title, total: segments.length });
+    setTtsState('loading');
+    await player.load(segments, { rate: ttsRate });
+    const voices = player.voices;
+    setTtsVoices(voices);
+    setTtsVoiceId(voices[0]?.id || '');
+    setTtsSegmentText(player.currentSegmentText());
+    await player.play();
+  };
+
+  const handleCloseTts = () => {
+    speechPlayerRef.current?.stop();
+    setTtsSession(null);
+  };
 
   // Co mang tro lai -> kich lai dong bo cloud ngay thay vi cho thay doi ke tiep.
   useEffect(() => {
@@ -2828,6 +2889,7 @@ const App: React.FC = () => {
                                   {chap.content ? (
                                     <>
                                       <button onClick={() => handleReadChapter(chap, vol.index)} className="flex-1 py-1.5 bg-amber-50 text-orange-600 rounded-lg text-[9px] font-black uppercase hover:bg-orange-600 hover:text-white transition-all">Đọc</button>
+                                      <button onClick={() => void handleListenChapter(chap)} className="flex-1 py-1.5 bg-teal-50 text-teal-700 rounded-lg text-[9px] font-black uppercase hover:bg-teal-600 hover:text-white transition-all">Nghe</button>
                                       <button onClick={() => handleRewriteChapter(chap, vol.index)} className="flex-1 py-1.5 bg-stone-100 text-stone-600 rounded-lg text-[9px] font-black uppercase hover:bg-stone-800 hover:text-white transition-all">Viết lại</button>
                                       <button onClick={(e) => handleDeleteChapter(chap.index, vol.index, e)} className="p-1.5 bg-red-50 text-red-400 rounded-lg hover:bg-red-600 hover:text-white transition-all">
                                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
@@ -3227,6 +3289,7 @@ const App: React.FC = () => {
                          </div>
                          <div className="flex flex-wrap items-center gap-2">
                            <button onClick={() => handleReadChapter(c, parentVol?.index || activeArcIndex)} className="px-6 py-3 bg-amber-50 text-orange-600 rounded-xl text-[10px] font-black uppercase hover:bg-stone-900 hover:text-white transition-all shadow-sm">Đọc</button>
+                           <button onClick={() => void handleListenChapter(c)} className="px-6 py-3 bg-teal-50 text-teal-700 rounded-xl text-[10px] font-black uppercase hover:bg-teal-600 hover:text-white transition-all shadow-sm">Nghe</button>
                            <button onClick={() => handleRewriteChapter(c, parentVol?.index || activeArcIndex)} className="px-6 py-3 bg-stone-50 text-stone-500 rounded-xl text-[10px] font-black uppercase hover:bg-stone-800 hover:text-white transition-all shadow-sm">Viết lại</button>
                            {c.previousContent && (
                              <button onClick={() => setExpandedPreviousChapter(expandedPreviousChapter === c.index ? null : c.index)} className="px-4 py-3 bg-violet-50 text-violet-600 rounded-xl text-[10px] font-black uppercase hover:bg-violet-600 hover:text-white transition-all shadow-sm">Bản trước</button>
@@ -3256,6 +3319,44 @@ const App: React.FC = () => {
         </div>
       </main>
       
+      {ttsSession && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-1.5rem)] max-w-3xl bg-[#052e26]/95 backdrop-blur-xl border border-amber-200/25 text-white rounded-3xl shadow-2xl shadow-teal-950/40 px-5 py-4 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-base">🔊</span>
+              <span className="font-black story-font text-sm truncate">Chương {ttsSession.chapterIndex}: {ttsSession.title}</span>
+              <span className={`shrink-0 px-2 py-0.5 rounded-full text-[8px] font-black uppercase ${ttsEngine === 'vieneu' ? 'bg-emerald-400/20 text-emerald-200' : 'bg-white/10 text-stone-300'}`}>
+                {ttsEngine === 'vieneu' ? 'Giọng VieNeu (máy này)' : 'Giọng trình duyệt'}
+              </span>
+            </div>
+            <button onClick={handleCloseTts} className="shrink-0 w-8 h-8 rounded-full bg-white/10 hover:bg-white/25 transition-all text-sm" title="Đóng trình nghe">✕</button>
+          </div>
+          <p className="text-xs leading-relaxed text-teal-50/85 line-clamp-2 min-h-8">{ttsState === 'loading' ? 'Đang tổng hợp giọng đọc…' : ttsSegmentText}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={() => void speechPlayerRef.current?.previous()} disabled={ttsIndex <= 0} className="px-3 py-2 bg-white/10 rounded-xl text-xs font-black hover:bg-white/25 transition-all disabled:opacity-35" title="Đoạn trước">⏮</button>
+            {ttsState === 'playing' ? (
+              <button onClick={() => speechPlayerRef.current?.pause()} className="px-5 py-2 bg-amber-300 text-stone-900 rounded-xl text-xs font-black uppercase hover:brightness-110 transition-all">Tạm dừng</button>
+            ) : (
+              <button onClick={() => void speechPlayerRef.current?.play()} className="px-5 py-2 bg-amber-300 text-stone-900 rounded-xl text-xs font-black uppercase hover:brightness-110 transition-all">{ttsState === 'loading' ? 'Đang tải…' : ttsState === 'ended' ? 'Nghe lại' : 'Nghe tiếp'}</button>
+            )}
+            <button onClick={() => void speechPlayerRef.current?.next()} disabled={ttsIndex >= ttsSession.total - 1} className="px-3 py-2 bg-white/10 rounded-xl text-xs font-black hover:bg-white/25 transition-all disabled:opacity-35" title="Đoạn sau">⏭</button>
+            <span className="text-[10px] font-black text-teal-50/70">Đoạn {Math.min(ttsIndex + 1, ttsSession.total)}/{ttsSession.total}</span>
+            <select value={ttsRate} onChange={(e) => { const rate = Number(e.target.value); setTtsRateState(rate); speechPlayerRef.current?.setRate(rate); }} className="ml-auto bg-white/10 rounded-xl px-2 py-2 text-[11px] font-black outline-none [&>option]:text-stone-900" title="Tốc độ đọc">
+              {[0.75, 1, 1.25, 1.5, 2].map(rate => <option key={rate} value={rate}>{rate}×</option>)}
+            </select>
+            {ttsVoices.length > 1 && (
+              <select value={ttsVoiceId} onChange={(e) => { setTtsVoiceId(e.target.value); speechPlayerRef.current?.setVoice(e.target.value); }} className="bg-white/10 rounded-xl px-2 py-2 text-[11px] font-black outline-none max-w-44 [&>option]:text-stone-900" title="Giọng đọc">
+                {ttsVoices.map(voice => <option key={voice.id} value={voice.id}>{voice.name}</option>)}
+              </select>
+            )}
+            {ttsState === 'error' && <span className="text-[10px] font-black text-red-300">Lỗi phát — thử đoạn kế tiếp hoặc đóng mở lại</span>}
+          </div>
+          {ttsEngine === 'browser' && (
+            <p className="text-[10px] text-teal-50/60">Đang dùng giọng của trình duyệt. Muốn giọng VieNeu tự nhiên hơn: chạy TTS Bridge trên máy này (mục Nghe truyện trong README của repo / file zip kèm theo) rồi mở lại chương.</p>
+          )}
+        </div>
+      )}
+
       {(isGenerating || isGeneratingOutline || isCheckingLogic) && (
         <div className="fixed bottom-10 right-10 bg-stone-900 text-white px-8 py-5 rounded-3xl shadow-2xl flex items-center gap-5 z-50 animate-in slide-in-from-right-5">
           <div className="w-3 h-3 bg-orange-500 rounded-full animate-ping"></div>

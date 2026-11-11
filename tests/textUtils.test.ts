@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { countWords, clamp, cleanStoryText, isLikelyCutOffText, stripDirectionLabels } from "../services/textUtils";
+import { countWords, clamp, cleanStoryText, isLikelyCutOffText, stripDirectionLabels, splitSentencesForSpeech } from "../services/textUtils";
 
 describe("countWords", () => {
   it("đếm từ tiếng Việt có dấu", () => {
@@ -49,12 +49,35 @@ describe("isLikelyCutOffText", () => {
   });
 });
 
-describe("stripDirectionLabels", () => {
-  it("gỡ nhãn quản trị đầu dòng, giữ nội dung", () => {
+describe("stripDirectionLabels", () => {  it("gỡ nhãn quản trị đầu dòng, giữ nội dung", () => {
     const input = "HƯỚNG TRUYỆN ĐÃ CHỌN: Kiếm Gãy Đoạn Hồn Cốc\nTiền đề: Một thanh kiếm gãy.";
     const output = stripDirectionLabels(input);
     expect(output).not.toContain("HƯỚNG TRUYỆN ĐÃ CHỌN");
     expect(output).toContain("Kiếm Gãy Đoạn Hồn Cốc");
     expect(output).toContain("Một thanh kiếm gãy.");
+  });
+});
+
+describe("splitSentencesForSpeech", () => {
+  it("cắt theo dấu kết câu, giữ hội thoại", () => {
+    const parts = splitSentencesForSpeech("Trời đổ mưa. Lâm Khiếu Phong rút kiếm! Anh ta hỏi: “Ngươi là ai?” Không ai trả lời.");
+    expect(parts.length).toBe(4);
+    expect(parts[0]).toBe("Trời đổ mưa.");
+    expect(parts[2]).toContain("Ngươi là ai?");
+  });
+  it("gộp mẩu quá ngắn vào đoạn trước", () => {
+    const parts = splitSentencesForSpeech("Anh ta quay người bước ra khỏi phế tích của môn phái. Đi thôi.");
+    expect(parts.length).toBe(1);
+    expect(parts[0]).toContain("Đi thôi.");
+  });
+  it("câu dài bị tách tại dấu phẩy, mỗi đoạn ≤ 300 ký tự", () => {
+    const longSentence = ("một đoạn văn rất dài, ".repeat(30)).trim() + ".";
+    const parts = splitSentencesForSpeech(longSentence);
+    expect(parts.length).toBeGreaterThan(1);
+    parts.forEach(part => expect(part.length).toBeLessThanOrEqual(300));
+  });
+  it("rỗng → mảng rỗng", () => {
+    expect(splitSentencesForSpeech("")).toEqual([]);
+    expect(splitSentencesForSpeech("   ")).toEqual([]);
   });
 });
