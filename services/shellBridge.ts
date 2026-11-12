@@ -79,6 +79,42 @@ export const saveFileViaShell = async (name: string, blob: Blob): Promise<boolea
 
 export interface ShellTtsVoice { id: string; name: string }
 
+/** Chẩn đoán cầu native TTS theo từng method, GIỮ NGUYÊN thông báo lỗi gốc —
+ * để phân biệt: vỏ cũ (method chưa có) / plugin không đăng ký / lỗi phía native. */
+export const diagnoseShellTts = async (): Promise<string[]> => {
+  const plugin = bridge();
+  if (!plugin) return ['Cầu native: không dựng được proxy plugin'];
+  const lines: string[] = [];
+  const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+  try {
+    const info = await plugin.getInfo();
+    lines.push(`getInfo: vỏ ${info?.version ?? '?'} · ttsNative: ${String(info?.ttsNative ?? '?')}`);
+  } catch (e) {
+    lines.push(`getInfo LỖI: ${errText(e)}`);
+  }
+  try {
+    if (!plugin.ttsVoices) lines.push('ttsVoices: proxy không có method');
+    else {
+      const res = await plugin.ttsVoices();
+      lines.push(`ttsVoices: OK — ${Array.isArray(res?.voices) ? res.voices.length : 0} giọng`);
+    }
+  } catch (e) {
+    lines.push(`ttsVoices LỖI: ${errText(e)}`);
+  }
+  try {
+    if (!plugin.ttsDiagnostics) lines.push('ttsDiagnostics: proxy không có method');
+    else {
+      const diag = await plugin.ttsDiagnostics();
+      lines.push(`ttsDiagnostics: OK · server: ${String(diag?.listener ?? '?')} · engine: ${String(diag?.engine ?? '?')}`);
+      if (diag?.engineError) lines.push(`Lỗi engine: ${String(diag.engineError)}`);
+      lines.push(`Native tự gọi /health: ${String(diag?.loopback ?? '?')}`);
+    }
+  } catch (e) {
+    lines.push(`ttsDiagnostics LỖI: ${errText(e)}`);
+  }
+  return lines;
+};
+
 /** Danh sách giọng VieNeu qua cầu native (vỏ 2.0.1+); null nếu vỏ cũ/không có. */
 export const getTtsVoicesViaShell = async (): Promise<ShellTtsVoice[] | null> => {
   const plugin = bridge();

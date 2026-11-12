@@ -7,7 +7,7 @@
 //     không chạy — vẫn nghe được ở mọi máy, chất lượng tùy giọng hệ thống.
 // Endpoint bridge đổi được qua localStorage 'butnghien-tts-endpoint' (vd nghe qua LAN/Tailscale).
 
-import { isInShell, getTtsVoicesViaShell, synthesizeViaShell, getTtsDiagnosticsViaShell } from "./shellBridge";
+import { isInShell, getTtsVoicesViaShell, synthesizeViaShell, getTtsDiagnosticsViaShell, diagnoseShellTts } from "./shellBridge";
 
 export interface TtsVoiceOption {
   id: string;
@@ -81,6 +81,7 @@ export const probeVieneuBridge = async (): Promise<TtsVoiceOption[] | null> => {
 // không chạy" với "WebView không fetch được 127.0.0.1".
 export const diagnoseTts = async (): Promise<string> => {
   const lines: string[] = [`Chạy trong app iOS: ${isInShell() ? "có" : "không"}`];
+  lines.push(...(await diagnoseShellTts()));
   const diag = await getTtsDiagnosticsViaShell();
   if (diag) {
     lines.push(`Vỏ ${String(diag.shellVersion ?? "?")} · Server nội bộ: ${String(diag.listener ?? "?")} · Engine: ${String(diag.engine ?? "?")}`);
@@ -89,7 +90,7 @@ export const diagnoseTts = async (): Promise<string> => {
     lines.push(`Tài sản model: ${diag.assetsFound ? (missing.length ? `thiếu ${missing.join(", ")}` : "đủ 12 file") : "KHÔNG thấy thư mục TTSAssets"}`);
     lines.push(`Native tự gọi /health: ${String(diag.loopback ?? "?")}`);
   } else {
-    lines.push("Vỏ chưa có method chẩn đoán (cần IPA 2.0.1 trở lên).");
+    lines.push("Không lấy được chẩn đoán từ vỏ (xem các dòng cầu native ở trên).");
   }
   try {
     const health = await fetchWithTimeout(`${getTtsEndpoint()}/health`, { method: "GET" }, 2500);
