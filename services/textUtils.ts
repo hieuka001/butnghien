@@ -49,7 +49,7 @@ export const stripDirectionLabels = (value: unknown): string => String(value || 
 // Chia văn bản chương thành các đoạn đọc cho TTS: cắt theo câu (. ! ? … và dấu ngắt
 // kiểu Việt), gộp các mẩu quá ngắn vào đoạn trước, tách câu quá dài tại dấu phẩy/chấm
 // phẩy sao cho mỗi đoạn ≤ maxChars (mặc định 300 — vừa giới hạn input của model TTS).
-export const splitSentencesForSpeech = (text: string, maxChars = 300): string[] => {
+export const splitSentencesForSpeech = (text: string, maxChars = 200): string[] => {
   const normalized = String(text || "").replace(/\s+/g, " ").trim();
   if (!normalized) return [];
   const rawParts = normalized.match(/[^.!?…]+[.!?…]+["”’)]*\s*|[^.!?…]+$/g) || [normalized];

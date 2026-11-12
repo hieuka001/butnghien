@@ -55,6 +55,22 @@ textarea:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
+/* Vùng an toàn iOS (tai thỏ / thanh Home) cho bố cục điện thoại. */
+@media (max-width: 1023px) {
+  .app-shell {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .control-panel {
+    padding-top: max(1rem, env(safe-area-inset-top));
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+  .login-scene {
+    padding-top: max(1.5rem, env(safe-area-inset-top));
+    padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+  }
+}
+
 .btn-danger {
   background: linear-gradient(135deg, #dc2626, #991b1b);
   color: white;

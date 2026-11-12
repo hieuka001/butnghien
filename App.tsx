@@ -2493,7 +2493,8 @@ const App: React.FC = () => {
   };
 
   const RailButton = ({ active, onClick, label, children }: { active?: boolean; onClick: () => void; label: string; children: React.ReactNode }) => (
-    <button onClick={onClick} className={`w-12 py-2 rounded-xl flex flex-col items-center justify-center gap-1 text-[8px] font-black uppercase transition-all ${active ? 'bg-white/10 text-amber-200 shadow-inner' : 'text-stone-300 hover:bg-white/5 hover:text-white'}`}>
+    <button onClick={onClick} className={`relative w-12 py-2 rounded-xl flex flex-col items-center justify-center gap-1 text-[8px] font-black uppercase transition-all ${active ? 'bg-white/10 text-amber-200 shadow-inner' : 'text-stone-300 hover:bg-white/5 hover:text-white'}`}>
+      {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 rounded-full bg-amber-300" />}
       {children}
       <span>{label}</span>
     </button>
@@ -2752,7 +2753,7 @@ const App: React.FC = () => {
           </nav>
         )}
 
-        <div className="workbench-grid flex-1 overflow-y-auto p-4 md:p-8 xl:p-10 custom-scrollbar">
+        <div className={`workbench-grid flex-1 overflow-y-auto p-4 md:p-8 xl:p-10 custom-scrollbar ${ttsSession && view !== 'player' ? 'pb-48 lg:pb-44' : ''}`}>
           {view === 'setup' && (
             <div className="max-w-6xl mx-auto py-6 md:py-8 space-y-5 animate-in fade-in">
               <section className="surface p-5 md:p-6">
@@ -3658,7 +3659,7 @@ const App: React.FC = () => {
       )}
 
       {ttsSession && view !== 'player' && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-1.5rem)] max-w-3xl bg-[#052e26]/95 backdrop-blur-xl border border-amber-200/25 text-white rounded-3xl shadow-2xl shadow-emerald-950/40 px-5 py-4 space-y-3">
+        <div className="fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-50 w-[calc(100%-1.5rem)] max-w-3xl bg-[#052e26]/95 backdrop-blur-xl border border-amber-200/25 text-white rounded-3xl shadow-2xl shadow-emerald-950/40 px-4 py-3 space-y-2">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 min-w-0">
               <span className="text-base">🔊</span>
@@ -3669,7 +3670,7 @@ const App: React.FC = () => {
             </div>
             <button onClick={handleCloseTts} className="shrink-0 w-8 h-8 rounded-full bg-white/10 hover:bg-white/25 transition-all text-sm" title="Đóng trình nghe">✕</button>
           </div>
-          <p className="text-xs leading-relaxed text-emerald-50/85 line-clamp-2 min-h-8">{ttsState === 'loading' ? 'Đang tổng hợp giọng đọc…' : ttsSegmentText}</p>
+          <p className="text-xs leading-relaxed text-emerald-50/85 line-clamp-2 min-h-5">{ttsState === 'loading' ? 'Đang tổng hợp giọng đọc…' : ttsSegmentText}</p>
           <div className="flex flex-wrap items-center gap-2">
             <button onClick={() => void speechPlayerRef.current?.previous()} disabled={ttsIndex <= 0} className="px-3 py-2 bg-white/10 rounded-xl text-xs font-black hover:bg-white/25 transition-all disabled:opacity-35" title="Đoạn trước">⏮</button>
             {ttsState === 'playing' ? (
@@ -3690,7 +3691,7 @@ const App: React.FC = () => {
             {ttsState === 'error' && <span className="text-[10px] font-black text-red-300">Lỗi phát — thử đoạn kế tiếp hoặc đóng mở lại</span>}
           </div>
           {ttsEngine === 'browser' && (
-            <p className="text-[10px] text-emerald-50/60">Đang dùng giọng của trình duyệt. Muốn giọng VieNeu tự nhiên hơn: chạy TTS Bridge trên máy này (mục Nghe truyện trong README của repo / file zip kèm theo) rồi mở lại chương.</p>
+            <button onClick={() => setView('player')} className="block w-full text-left text-[10px] font-bold text-amber-200/85 hover:text-amber-100 transition-all">Giọng trình duyệt nghe chưa hay — chạm để mở màn hình Nghe và dùng giọng VieNeu từ máy tính ›</button>
           )}
         </div>
       )}

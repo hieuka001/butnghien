@@ -79,6 +79,25 @@ export const getBrowserVietnameseVoices = (): SpeechSynthesisVoice[] => {
   return window.speechSynthesis.getVoices().filter(voice => /^vi([-_]|$)/i.test(voice.lang));
 };
 
+// Chọn giọng Việt TỐT NHẤT máy đang có: iOS/macOS thường có "Linh" (chuẩn) và bản
+// nâng cao; bản "compact" nghe rè như robot nên trừ điểm nặng. Không chọn tay thì
+// hệ thống hay rơi vào bản compact — đây là một nguồn "giọng lỗi, chưa hay".
+export const pickBestBrowserVoice = (): SpeechSynthesisVoice | null => {
+  const voices = getBrowserVietnameseVoices();
+  if (!voices.length) return null;
+  const score = (voice: SpeechSynthesisVoice): number => {
+    const name = voice.name.toLowerCase();
+    let points = 0;
+    if (name.includes("linh")) points += 4;
+    if (/enhanced|premium|natural|neural|siri/.test(name)) points += 3;
+    if (/compact|eloquence/.test(name)) points -= 4;
+    if (voice.default) points += 1;
+    if (!voice.localService) points += 1;
+    return points;
+  };
+  return [...voices].sort((x, y) => score(y) - score(x))[0];
+};
+
 export type SpeechEngineKind = "vieneu" | "browser";
 export type SpeechPlayerState = "idle" | "loading" | "playing" | "paused" | "ended" | "error";
 
@@ -106,6 +125,8 @@ export class SpeechPlayer {
   private callbacks: SpeechPlayerCallbacks;
   private mediaTitle = "";
   private wakeLock: any = null;
+  private watchdog: ReturnType<typeof setInterval> | null = null;
+  private utteranceStartedAt = 0;
   // App gan vao de nut next/prev o man hinh khoa (Media Session) nhay ca chuong khi het doan.
   onChapterSkip: ((direction: 1 | -1) => void) | null = null;
 
@@ -185,7 +206,32 @@ export class SpeechPlayer {
     this.syncMediaPlaybackState();
     if (state === "playing") void this.acquireWakeLock();
     if (state === "idle" || state === "ended" || state === "error") this.releaseWakeLock();
+    this.syncWatchdog();
     this.callbacks.onState(state);
+  }
+
+  // Watchdog cho engine trình duyệt: speechSynthesis trên iOS/Chrome có lỗi kinh
+  // điển là "câm giữa chừng" ở câu dài (không phát tiếp, cũng không bắn onend).
+  // Mỗi 4 giây: nếu hàng đợi vẫn còn tiếng thì resume() để đánh thức; nếu im lặng
+  // bất thường > 8 giây dù trạng thái đang playing thì tự nhảy đoạn kế tiếp.
+  private syncWatchdog() {
+    const shouldRun = this.state === "playing" && this.engine === "browser" && "speechSynthesis" in window;
+    if (shouldRun && !this.watchdog) {
+      this.watchdog = setInterval(() => {
+        if (this.state !== "playing" || this.engine !== "browser" || !("speechSynthesis" in window)) return;
+        const synth = window.speechSynthesis;
+        if (synth.speaking || synth.pending) {
+          synth.resume();
+          if (synth.speaking) this.utteranceStartedAt = Date.now();
+        } else if (this.utteranceStartedAt && Date.now() - this.utteranceStartedAt > 8000) {
+          this.utteranceStartedAt = 0;
+          void this.advance();
+        }
+      }, 4000);
+    } else if (!shouldRun && this.watchdog) {
+      clearInterval(this.watchdog);
+      this.watchdog = null;
+    }
   }
 
   private setIndex(index: number) {
@@ -293,10 +339,16 @@ export class SpeechPlayer {
       return;
     }
     const utterance = new SpeechSynthesisUtterance(this.segments[index]);
-    utterance.lang = "vi-VN";
-    if (this.browserVoice) utterance.voice = this.browserVoice;
+    if (!this.browserVoice) this.browserVoice = pickBestBrowserVoice();
+    if (this.browserVoice) {
+      utterance.voice = this.browserVoice;
+      utterance.lang = this.browserVoice.lang || "vi-VN";
+    } else {
+      utterance.lang = "vi-VN";
+    }
     utterance.rate = this.rate;
-    utterance.onend = () => { if (generation === this.generation) void this.advance(); };
+    this.utteranceStartedAt = Date.now();
+    utterance.onend = () => { this.utteranceStartedAt = 0; if (generation === this.generation) void this.advance(); };
     utterance.onerror = (event) => {
       if (generation !== this.generation) return;
       if (event.error !== "canceled" && event.error !== "interrupted") this.setState("error");
