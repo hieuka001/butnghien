@@ -13,7 +13,6 @@ import {
   validateChapterLogic,
   reviewStoryLogic,
   getConfiguredGeminiKeyCount,
-  getGeminiKeyStatusLabel,
   type ChapterValidationResult
 } from './services/geminiService';
 import {
@@ -146,6 +145,7 @@ const App: React.FC = () => {
   const [autoChapterLimit, setAutoChapterLimit] = useState(5);
   const [autoReadFrom, setAutoReadFrom] = useState(0);
   const [shellUpdate, setShellUpdate] = useState<{ latest: string; url: string } | null>(null);
+  const [panelOpen, setPanelOpen] = useState(false);
   const [ttsEndpoint, setTtsEndpoint] = useState(() => { try { return localStorage.getItem('butnghien-tts-endpoint') || 'http://127.0.0.1:3900'; } catch { return 'http://127.0.0.1:3900'; } });
   const autoStopRef = useRef(false);
   const autoRunningRef = useRef(false);
@@ -162,7 +162,6 @@ const App: React.FC = () => {
   const [generationStatus, setGenerationStatus] = useState<string>('');
   const [isGeneratingOutline, setIsGeneratingOutline] = useState<boolean>(false);
   const [isHydrated, setIsHydrated] = useState<boolean>(false);
-  const [storageStatus, setStorageStatus] = useState<string>('Đang mở database...');
   const [cloudStatus, setCloudStatus] = useState<string>(isFirebaseConfigured() ? 'Đang mở Firebase...' : 'Firebase chưa cấu hình');
   const [authUser, setAuthUser] = useState<FirebaseAuthUser | null>(() => getStoredFirebaseUser());
   const [loginEmail, setLoginEmail] = useState<string>('');
@@ -236,7 +235,6 @@ const App: React.FC = () => {
     const hydrate = async () => {
       if (isFirebaseConfigured() && !authUser) {
         setProjects([]);
-        setStorageStatus('Chưa mở dữ liệu');
         setCloudStatus('Cần đăng nhập Firebase');
         setIsHydrated(true);
         return;
@@ -269,7 +267,6 @@ const App: React.FC = () => {
             setProjects(mergedProjects);
             await replaceAllProjectsInDb(mergedProjects);
             mergedProjects.forEach(project => lastSavedToDbRef.current.set(project.id, project.updatedAt));
-            setStorageStatus(`IndexedDB đã lưu cache ${mergedProjects.length} tác phẩm`);
             setCloudStatus(detailed.failed > 0
               ? `Firebase tải lỗi ${detailed.failed} tác phẩm — đã giữ bản local, không đồng bộ đè.`
               : mergedProjects.length > 0
@@ -294,7 +291,6 @@ const App: React.FC = () => {
         if (dbProjects.length > 0) {
           dbProjects.forEach(project => lastSavedToDbRef.current.set(project.id, project.updatedAt));
           setProjects(dbProjects);
-          setStorageStatus(`IndexedDB đã tải ${dbProjects.length} tác phẩm`);
         } else {
           const saved = localStorage.getItem('but-nghien-v19-store');
           const legacyProjects = saved ? (JSON.parse(saved) as StoryProject[]).map(normalizeProjectRecord) : [];
@@ -302,9 +298,7 @@ const App: React.FC = () => {
           if (legacyProjects.length > 0) {
             await replaceAllProjectsInDb(legacyProjects);
             legacyProjects.forEach(project => lastSavedToDbRef.current.set(project.id, project.updatedAt));
-            setStorageStatus(`Đã chuyển ${legacyProjects.length} tác phẩm từ localStorage sang IndexedDB`);
           } else {
-            setStorageStatus('IndexedDB sẵn sàng');
           }
         }
       } catch (e) {
@@ -313,12 +307,9 @@ const App: React.FC = () => {
         if (saved) {
           try {
             setProjects((JSON.parse(saved) as StoryProject[]).map(normalizeProjectRecord));
-            setStorageStatus('Đang dùng localStorage dự phòng');
           } catch {
-            setStorageStatus('Không đọc được dữ liệu lưu trữ');
           }
         } else {
-          setStorageStatus('Không mở được database');
         }
       } finally {
         if (!cancelled) setIsHydrated(true);
@@ -343,11 +334,9 @@ const App: React.FC = () => {
         .then(() => {
           dbDirtyProjects.forEach(project => lastSavedToDbRef.current.set(project.id, project.updatedAt));
           dbDeletedIds.forEach(id => lastSavedToDbRef.current.delete(id));
-          setStorageStatus(`IndexedDB đã lưu ${projects.length} tác phẩm`);
         })
         .catch(error => {
           console.error(error);
-          setStorageStatus('Lưu IndexedDB lỗi');
         });
     }
 
@@ -825,7 +814,6 @@ const App: React.FC = () => {
     resetWorkspace();
     setAuthUser(null);
     setIsHydrated(false);
-    setStorageStatus('Đã khóa dữ liệu trên thiết bị này');
     setCloudStatus('Cần đăng nhập Firebase');
   };
 
@@ -2504,6 +2492,13 @@ const App: React.FC = () => {
     );
   };
 
+  const RailButton = ({ active, onClick, label, children }: { active?: boolean; onClick: () => void; label: string; children: React.ReactNode }) => (
+    <button onClick={onClick} className={`w-12 py-2 rounded-xl flex flex-col items-center justify-center gap-1 text-[8px] font-black uppercase transition-all ${active ? 'bg-white/10 text-amber-200 shadow-inner' : 'text-stone-300 hover:bg-white/5 hover:text-white'}`}>
+      {children}
+      <span>{label}</span>
+    </button>
+  );
+
   if (isFirebaseConfigured() && !authUser) {
     return (
       <div className="login-scene min-h-screen text-white flex items-center justify-center p-6">
@@ -2517,22 +2512,8 @@ const App: React.FC = () => {
                 Bút Nghiên <span className="text-amber-300 not-italic">Thiên Cơ</span>
               </h1>
               <p className="story-font text-lg text-emerald-50/85 leading-relaxed">
-                Đăng nhập để mở Tàng Thư, dữ liệu Firebase và bàn viết của bạn.
+                Đăng nhập để mở Tàng Thư và bàn viết của bạn.
               </p>
-              <div className="grid sm:grid-cols-3 gap-3 mt-8">
-                <div className="p-4 bg-white/10 border border-white/20 rounded-2xl backdrop-blur-md">
-                  <span className="block text-[8px] font-black uppercase text-amber-200/80">Firebase</span>
-                  <strong className="text-xs font-black text-white">{getFirebaseProjectId()}</strong>
-                </div>
-                <div className="p-4 bg-white/10 border border-white/20 rounded-2xl backdrop-blur-md">
-                  <span className="block text-[8px] font-black uppercase text-amber-200/80">Bảo mật</span>
-                  <strong className="text-xs font-black text-white">Email / mật khẩu</strong>
-                </div>
-                <div className="p-4 bg-white/10 border border-white/20 rounded-2xl backdrop-blur-md">
-                  <span className="block text-[8px] font-black uppercase text-amber-200/80">Dữ liệu</span>
-                  <strong className="text-xs font-black text-white">Theo tài khoản</strong>
-                </div>
-              </div>
             </div>
           </div>
 
@@ -2576,9 +2557,6 @@ const App: React.FC = () => {
             >
               {isSigningIn ? 'Đang kiểm tra...' : 'Mở Bút Nghiên'}
             </button>
-            <p className="text-[11px] text-stone-400 leading-relaxed">
-              Tài khoản được tạo trong Firebase Console. Không có tài khoản thì không thể vào app.
-            </p>
           </form>
         </section>
       </div>
@@ -2586,11 +2564,49 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="app-shell flex flex-col md:flex-row h-screen overflow-hidden text-stone-800 font-sans">
-      <aside className="control-panel w-full md:w-[360px] max-h-[48vh] md:max-h-none border-b md:border-b-0 p-4 md:p-5 flex flex-col gap-4 shrink-0 z-20 overflow-y-auto custom-scrollbar">
+    <div className="app-shell flex h-[100dvh] overflow-hidden text-stone-800 font-sans">
+      <nav className="lg:hidden w-16 shrink-0 z-30 flex flex-col items-center py-3 gap-1.5 bg-[#052e26]/92 backdrop-blur-xl border-r border-amber-200/15 overflow-y-auto no-scrollbar">
+        <button onClick={() => { setView('my-stories'); setPanelOpen(false); }} className="mb-2 shrink-0" aria-label="Tàng Thư">
+          <img src="/img/emblem-trim.webp" alt="Bút Nghiên" className="w-10 h-10 rounded-xl object-cover ring-1 ring-amber-300/60 shadow-lg" />
+        </button>
+        <RailButton active={view === 'setup'} onClick={() => { setView('setup'); setPanelOpen(true); }} label="Hồ sơ">
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6M7 3h7l5 5v13a1 1 0 01-1 1H7a1 1 0 01-1-1V4a1 1 0 011-1z" /></svg>
+        </RailButton>
+        <RailButton active={view === 'my-stories'} onClick={() => { setView('my-stories'); setPanelOpen(false); }} label="Tàng Thư">
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3-.512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6-2.292m0-14.25v14.25" /></svg>
+        </RailButton>
+        {generalSummary && (
+          <>
+            <RailButton active={view === 'outline'} onClick={() => { setView('outline'); setPanelOpen(false); }} label="Lộ trình">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path strokeLinecap="round" d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5" /></svg>
+            </RailButton>
+            <RailButton active={view === 'manuscript'} onClick={() => { setView('manuscript'); setPanelOpen(false); }} label="Bản thảo">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
+            </RailButton>
+            <RailButton active={view === 'bible'} onClick={() => { setView('bible'); setPanelOpen(false); }} label="Thiên Cơ">
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 3l2.4 6.6L21 12l-6.6 2.4L12 21l-2.4-6.6L3 12l6.6-2.4z" /></svg>
+            </RailButton>
+            <RailButton active={view === 'editor'} onClick={() => { openEditorWithGuard(); setPanelOpen(false); }} label="Chấp bút">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" /></svg>
+            </RailButton>
+          </>
+        )}
+        <RailButton active={view === 'player'} onClick={() => { setView('player'); setPanelOpen(false); }} label="Nghe">
+          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" /></svg>
+        </RailButton>
+        <div className="flex-1" />
+        {isFirebaseConfigured() && authUser && (
+          <RailButton onClick={() => void handleSignOut()} label="Thoát">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" /></svg>
+          </RailButton>
+        )}
+      </nav>
+      {panelOpen && <div onClick={() => setPanelOpen(false)} className="fixed inset-0 bg-black/55 z-[35] lg:hidden" />}
+      <aside className={`control-panel fixed lg:static top-0 bottom-0 lg:top-auto lg:bottom-auto left-16 lg:left-auto z-40 w-[320px] max-w-[calc(100vw-5rem)] lg:w-[360px] lg:max-w-none p-4 md:p-5 flex flex-col gap-4 shrink-0 overflow-y-auto custom-scrollbar transition-transform duration-300 ${panelOpen ? 'translate-x-0' : '-translate-x-[calc(100%+4rem)]'} lg:translate-x-0`}>
         <div className="flex items-center gap-3 pb-4 border-b">
           <img src="/img/emblem-trim.webp" alt="Bút Nghiên" className="w-10 h-10 rounded-xl object-cover ring-1 ring-amber-300/60 shadow-lg shadow-emerald-950/30" />
           <h1 onClick={() => setView('setup')} className="text-xl font-black text-stone-900 cursor-pointer italic hover:text-amber-700 transition-all">Bút Nghiên AI</h1>
+          <button onClick={() => setPanelOpen(false)} className="ml-auto lg:hidden w-9 h-9 rounded-full bg-stone-100 text-stone-500 flex items-center justify-center" aria-label="Đóng bảng hồ sơ">✕</button>
         </div>
         {isFirebaseConfigured() && authUser && (
           <div className="antique-frame p-3 rounded-xl flex items-center justify-between gap-3">
@@ -2603,23 +2619,10 @@ const App: React.FC = () => {
             </button>
           </div>
         )}
-        <div className="grid grid-cols-3 gap-2">
-          <div className="antique-frame p-3 rounded-xl">
-            <span className="block text-[8px] font-black uppercase text-[#96762a]">Gemini</span>
-            <span className="text-xs font-black text-orange-700">{getGeminiKeyStatusLabel()}</span>
-          </div>
-          <div className="antique-frame p-3 rounded-xl">
-            <span className="block text-[8px] font-black uppercase text-[#96762a]">Database</span>
-            <span className="text-[9px] font-bold text-stone-500 line-clamp-2">{storageStatus}</span>
-            {storageUsageText && <span className="block text-[9px] font-bold text-stone-400 mt-0.5 tnum">{storageUsageText}</span>}
-          </div>
-          <div className="antique-frame p-3 rounded-xl">
-            <span className="block text-[8px] font-black uppercase text-[#96762a]">Firebase</span>
-            <span className="flex items-start gap-1.5 text-[9px] font-bold text-stone-500 line-clamp-2">
-              <span className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${/lỗi|Không tải|chưa đồng bộ/i.test(cloudStatus) ? 'bg-red-500' : /Đang lưu|Đang tải/i.test(cloudStatus) ? 'bg-amber-500 animate-pulse' : /đã|Đã/i.test(cloudStatus) ? 'bg-emerald-500' : 'bg-stone-300'}`} />
-              <span className="line-clamp-2">{cloudStatus}</span>
-            </span>
-          </div>
+        <div className="flex items-center gap-2 px-1 -mt-1">
+          <span className={`w-2 h-2 rounded-full shrink-0 ${/lỗi|Không tải|chưa đồng bộ/i.test(cloudStatus) ? 'bg-red-500' : /Đang lưu|Đang tải/i.test(cloudStatus) ? 'bg-amber-500 animate-pulse' : /đã|Đã/i.test(cloudStatus) ? 'bg-emerald-500' : 'bg-stone-300'}`} />
+          <span className="text-[9px] font-bold text-stone-500 truncate">{cloudStatus}</span>
+          {storageUsageText && <span className="ml-auto text-[9px] font-bold text-stone-400 tnum shrink-0">{storageUsageText}</span>}
         </div>
         <div className="p-4 bg-[#052e26]/85 backdrop-blur-xl border border-amber-200/20 text-white rounded-lg shadow-lg shadow-emerald-950/30 space-y-3">
           <div className="flex items-center justify-between gap-3">
@@ -2733,11 +2736,12 @@ const App: React.FC = () => {
             </button>
           </div>
         )}
+        <button onClick={() => setPanelOpen(false)} className="btn-primary lg:hidden w-full py-3.5 text-[10px] font-black uppercase tracking-widest sticky bottom-0">Xong — đóng bảng hồ sơ</button>
       </aside>
 
-      <main className="flex-1 min-h-0 flex flex-col relative bg-transparent overflow-hidden">
+      <main className="flex-1 min-w-0 min-h-0 flex flex-col relative bg-transparent overflow-hidden">
         {generalSummary && (
-          <nav className="h-14 bg-white border-b flex items-center px-4 md:px-8 gap-5 md:gap-8 z-10 shadow-sm shrink-0 overflow-x-auto no-scrollbar">
+          <nav className="h-14 bg-white border-b hidden lg:flex items-center px-8 gap-8 z-10 shadow-sm shrink-0 overflow-x-auto no-scrollbar">
             <button onClick={() => setView('outline')} className={`text-[10px] font-black uppercase tracking-widest h-full border-b-2 transition-all shrink-0 ${view === 'outline' ? 'border-amber-600 text-amber-700' : 'border-transparent text-stone-300 hover:text-stone-500'}`}>Lộ trình Arc</button>
             <button onClick={() => setView('manuscript')} className={`text-[10px] font-black uppercase tracking-widest h-full border-b-2 transition-all shrink-0 ${view === 'manuscript' ? 'border-amber-600 text-amber-700' : 'border-transparent text-stone-300 hover:text-stone-500'}`}>Bản thảo ({writtenChapters.length})</button>
             <button onClick={() => setView('bible')} className={`text-[10px] font-black uppercase tracking-widest h-full border-b-2 transition-all shrink-0 ${view === 'bible' ? 'border-amber-600 text-amber-700' : 'border-transparent text-stone-300 hover:text-stone-500'}`}>Thiên Cơ Lục</button>
@@ -2762,7 +2766,7 @@ const App: React.FC = () => {
                       Xưởng dựng truyện Bút Nghiên AI
                     </h2>
                     <p className="mt-3 text-sm md:text-base text-stone-600 leading-7">
-                      Nhập hồ sơ ở bảng điều khiển bên trái. Hệ thống sẽ đề xuất nhiều chiến lược phát triển truyện, sau đó khóa Đại cục, Arc và Thiên Cơ Lục trước khi mở bước viết chương.
+                      Nhập hồ sơ qua nút Hồ sơ ở thanh công cụ. Hệ thống sẽ đề xuất nhiều chiến lược phát triển truyện, sau đó khóa Đại cục, Arc và Thiên Cơ Lục trước khi mở bước viết chương.
                     </p>
                   </div>
                   <div className="flex flex-col sm:flex-row gap-3 shrink-0">
