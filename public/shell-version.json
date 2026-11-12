@@ -1,5 +1,5 @@
 {
   "ipaUrl": "https://github.com/hieuka001/butnghien-ios/releases",
-  "latestShell": "2.0.3",
-  "note": "Bản vỏ iOS 2.0.3: nạp engine giọng VieNeu ngay khi mở app + nạp nhanh hơn + chẩn đoán chi tiết từng bước nạp. Chỉ khi số này tăng mới cần cài lại IPA; cập nhật nội dung/tính năng khác tự đến qua bản web."
+  "latestShell": "2.0.4",
+  "note": "Bản vỏ iOS 2.0.4: kho âm thanh tải về bền trong app (tải một lần, nghe lại phát ngay, trần 4GB). Chỉ khi số này tăng mới cần cài lại IPA; cập nhật nội dung/tính năng khác tự đến qua bản web."
 }
