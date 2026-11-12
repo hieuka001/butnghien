@@ -7,11 +7,19 @@
 //     không chạy — vẫn nghe được ở mọi máy, chất lượng tùy giọng hệ thống.
 // Endpoint bridge đổi được qua localStorage 'butnghien-tts-endpoint' (vd nghe qua LAN/Tailscale).
 
+import { isInShell, getTtsVoicesViaShell, synthesizeViaShell, getTtsDiagnosticsViaShell } from "./shellBridge";
+
 export interface TtsVoiceOption {
   id: string;
   name: string;
   source: "vieneu" | "browser";
 }
+
+// Đường truyền VieNeu đang dùng: 'native' = cầu Capacitor trong app iOS 2.0.1+
+// (không qua mạng), 'http' = fetch tới TTS Bridge / server nội bộ 127.0.0.1:3900.
+// Chốt ở lần dò đầu tiên thành công; tổng hợp đi đúng đường đã chốt.
+let vieneuTransport: "native" | "http" | null = null;
+export const getVieneuTransport = () => vieneuTransport;
 
 const ENDPOINT_STORAGE_KEY = "butnghien-tts-endpoint";
 export const DEFAULT_TTS_ENDPOINT = "http://127.0.0.1:3900";
@@ -42,8 +50,17 @@ const fetchWithTimeout = async (url: string, init: RequestInit, timeoutMs: numbe
   }
 };
 
-// Kiểm tra bridge VieNeu có đang chạy không; trả danh sách giọng nếu có.
+// Kiểm tra VieNeu có dùng được không; trả danh sách giọng nếu có.
+// Trong app iOS 2.0.1+ hỏi thẳng plugin native trước (đường fetch http://127.0.0.1
+// từ trang https trong WKWebView có thể bị WebKit chặn); ngoài app thì fetch như cũ.
 export const probeVieneuBridge = async (): Promise<TtsVoiceOption[] | null> => {
+  if (isInShell()) {
+    const nativeVoices = await getTtsVoicesViaShell();
+    if (nativeVoices?.length) {
+      vieneuTransport = "native";
+      return nativeVoices.map(voice => ({ id: voice.id, name: voice.name, source: "vieneu" as const }));
+    }
+  }
   try {
     const response = await fetchWithTimeout(`${getTtsEndpoint()}/v1/audio/voices`, { method: "GET" }, 1800);
     if (!response.ok) return null;
@@ -52,14 +69,45 @@ export const probeVieneuBridge = async (): Promise<TtsVoiceOption[] | null> => {
     const mapped: TtsVoiceOption[] = voices
       .filter((voice: any) => voice && typeof voice.id === "string")
       .map((voice: any) => ({ id: voice.id, name: String(voice.name || voice.id), source: "vieneu" as const }));
+    vieneuTransport = "http";
     return mapped.length ? mapped : [{ id: "default", name: "VieNeu (mặc định)", source: "vieneu" }];
   } catch {
     return null;
   }
 };
 
-// Tổng hợp một đoạn văn thành audio blob qua bridge.
+// Chẩn đoán khi dò VieNeu thất bại: gom trạng thái phía vỏ (nếu có method) +
+// kết quả fetch /health từ chính WebView — đủ để phân biệt "server trong app
+// không chạy" với "WebView không fetch được 127.0.0.1".
+export const diagnoseTts = async (): Promise<string> => {
+  const lines: string[] = [`Chạy trong app iOS: ${isInShell() ? "có" : "không"}`];
+  const diag = await getTtsDiagnosticsViaShell();
+  if (diag) {
+    lines.push(`Vỏ ${String(diag.shellVersion ?? "?")} · Server nội bộ: ${String(diag.listener ?? "?")} · Engine: ${String(diag.engine ?? "?")}`);
+    if (diag.engineError) lines.push(`Lỗi engine: ${String(diag.engineError)}`);
+    const missing = Array.isArray(diag.assetsMissing) ? (diag.assetsMissing as string[]) : [];
+    lines.push(`Tài sản model: ${diag.assetsFound ? (missing.length ? `thiếu ${missing.join(", ")}` : "đủ 12 file") : "KHÔNG thấy thư mục TTSAssets"}`);
+    lines.push(`Native tự gọi /health: ${String(diag.loopback ?? "?")}`);
+  } else {
+    lines.push("Vỏ chưa có method chẩn đoán (cần IPA 2.0.1 trở lên).");
+  }
+  try {
+    const health = await fetchWithTimeout(`${getTtsEndpoint()}/health`, { method: "GET" }, 2500);
+    const text = await health.text().catch(() => "");
+    lines.push(`Web fetch /health: HTTP ${health.status} — ${text.slice(0, 160)}`);
+  } catch (error) {
+    lines.push(`Web fetch /health: LỖI ${error instanceof Error ? `${error.name}: ${error.message}` : "không rõ"}`);
+  }
+  return lines.join("\n");
+};
+
+// Tổng hợp một đoạn văn thành audio blob qua VieNeu (cầu native hoặc bridge HTTP).
 export const synthesizeWithVieneu = async (text: string, voiceId: string): Promise<Blob> => {
+  if (vieneuTransport === "native") {
+    const blob = await synthesizeViaShell(text, voiceId || "default");
+    if (blob) return blob;
+    throw new Error("Cầu TTS native không trả audio");
+  }
   const response = await fetchWithTimeout(
     `${getTtsEndpoint()}/v1/audio/speech`,
     {

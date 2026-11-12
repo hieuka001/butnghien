@@ -23,7 +23,7 @@ import {
 } from './services/databaseService';
 import { readLocalTombstones, persistLocalTombstones, writeLocalTombstone, clearLocalTombstone, applyTombstones, TombstoneMap } from './services/tombstoneStore';
 import { countWords, clamp, isLikelyCutOffText, stripDirectionLabels, splitSentencesForSpeech } from './services/textUtils';
-import { SpeechPlayer, SpeechPlayerState, SpeechEngineKind, TtsVoiceOption } from './services/ttsService';
+import { SpeechPlayer, SpeechPlayerState, SpeechEngineKind, TtsVoiceOption, diagnoseTts } from './services/ttsService';
 import { planAutoWriteChapters, nextInReadQueue } from './services/autoSession';
 import { isInShell, getShellInfo, saveFileViaShell, compareVersions } from './services/shellBridge';
 import {
@@ -135,6 +135,7 @@ const App: React.FC = () => {
   const [ttsEngine, setTtsEngine] = useState<SpeechEngineKind>('browser');
   const [ttsRate, setTtsRateState] = useState(1);
   const [ttsVoiceId, setTtsVoiceId] = useState('');
+  const [ttsDiag, setTtsDiag] = useState('');
   const [ttsVoices, setTtsVoices] = useState<TtsVoiceOption[]>([]);
   const [ttsSegmentText, setTtsSegmentText] = useState('');
   const speechPlayerRef = useRef<SpeechPlayer | null>(null);
@@ -418,6 +419,7 @@ const App: React.FC = () => {
       },
       onEngine: (engine) => {
         setTtsEngine(engine);
+        if (engine === 'vieneu') setTtsDiag('');
         if (speechPlayerRef.current) setTtsVoices(speechPlayerRef.current.voices);
       },
     });
@@ -449,6 +451,11 @@ const App: React.FC = () => {
       const current = player.currentVoiceId;
       if (current && voices.some(v => v.id === current)) setTtsVoiceId(current);
       else if (voices.length) { setTtsVoiceId(voices[0].id); player.setVoice(voices[0].id); }
+      // Trong app mà vẫn không thấy VieNeu: gom chẩn đoán để xem tận gốc lỗi
+      // (server nội bộ / engine / tài sản / đường fetch) thay vì im lặng.
+      if (player.currentEngine !== 'vieneu' && isInShell()) {
+        void diagnoseTts().then(text => { if (!cancelled) setTtsDiag(text); });
+      }
     });
     return () => { cancelled = true; };
   }, [view]);
@@ -476,6 +483,17 @@ const App: React.FC = () => {
     setTtsVoiceId(player.currentVoiceId || voices[0]?.id || '');
     setTtsSegmentText(player.currentSegmentText());
     await player.play();
+  };
+
+  const handleRetryTtsProbe = async () => {
+    const player = speechPlayerRef.current;
+    if (!player) return;
+    const voices = await player.refreshVoices();
+    setTtsVoices(voices);
+    const current = player.currentVoiceId;
+    if (current && voices.some(v => v.id === current)) setTtsVoiceId(current);
+    else if (voices.length) { setTtsVoiceId(voices[0].id); player.setVoice(voices[0].id); }
+    if (player.currentEngine !== 'vieneu' && isInShell()) setTtsDiag(await diagnoseTts());
   };
 
   const handleCloseTts = () => {
@@ -3538,6 +3556,13 @@ const App: React.FC = () => {
                     <span className="ml-auto text-[11px] font-bold text-stone-400">{ttsEngine === 'vieneu' ? 'VieNeu mặc định' : 'Giọng hệ thống'}</span>
                   )}
                 </label>
+                {ttsDiag && (
+                  <div className="bg-red-50 border border-red-100 rounded-xl px-3 py-2.5 space-y-1.5">
+                    <p className="text-[10px] font-black uppercase text-red-500">Chưa thấy giọng VieNeu trong máy — chẩn đoán:</p>
+                    <p className="text-[10px] leading-relaxed text-red-600 whitespace-pre-line">{ttsDiag}</p>
+                    <button onClick={() => void handleRetryTtsProbe()} className="text-[10px] font-black uppercase text-red-500 underline">Dò lại</button>
+                  </div>
+                )}
                 <label className="flex items-center gap-2 bg-stone-50 rounded-xl px-3 py-2.5">
                   <span className="text-[11px] font-black uppercase text-stone-600 whitespace-nowrap">Địa chỉ TTS Bridge</span>
                   <input value={ttsEndpoint} onChange={(e) => setTtsEndpoint(e.target.value)} onBlur={() => { try { localStorage.setItem('butnghien-tts-endpoint', ttsEndpoint.trim() || 'http://127.0.0.1:3900'); } catch { /* ignore */ } }} placeholder="http://127.0.0.1:3900" className="flex-1 min-w-0 bg-white rounded-lg px-2 py-1 text-[11px] font-bold outline-none border" inputMode="url" />

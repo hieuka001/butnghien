@@ -9,8 +9,12 @@
 //     khi cần cài IPA mới (chỉ khi phần native thay đổi).
 
 interface ShellBridgePlugin {
-  getInfo: () => Promise<{ version: string; build?: string; platform?: string }>;
+  getInfo: () => Promise<{ version: string; build?: string; platform?: string; ttsNative?: boolean }>;
   saveFile: (options: { name: string; base64: string }) => Promise<unknown>;
+  // Vỏ 2.0.1+: cầu TTS native. Vỏ cũ không có — gọi sẽ bị reject, nơi gọi tự bắt.
+  ttsVoices?: () => Promise<{ voices: Array<{ id: string; name: string }> }>;
+  ttsSynthesize?: (options: { text: string; voice: string }) => Promise<{ base64: string }>;
+  ttsDiagnostics?: () => Promise<Record<string, unknown>>;
 }
 
 interface CapacitorGlobal {
@@ -70,6 +74,51 @@ export const saveFileViaShell = async (name: string, blob: Blob): Promise<boolea
     return true;
   } catch {
     return false;
+  }
+};
+
+export interface ShellTtsVoice { id: string; name: string }
+
+/** Danh sách giọng VieNeu qua cầu native (vỏ 2.0.1+); null nếu vỏ cũ/không có. */
+export const getTtsVoicesViaShell = async (): Promise<ShellTtsVoice[] | null> => {
+  const plugin = bridge();
+  if (!plugin?.ttsVoices) return null;
+  try {
+    const res = await plugin.ttsVoices();
+    const voices = Array.isArray(res?.voices) ? res.voices : [];
+    const mapped = voices
+      .filter(v => v && typeof v.id === 'string')
+      .map(v => ({ id: v.id, name: String(v.name || v.id) }));
+    return mapped.length ? mapped : null;
+  } catch {
+    return null;
+  }
+};
+
+/** Tổng hợp một đoạn qua engine native trong app; null nếu vỏ cũ/không trả audio. */
+export const synthesizeViaShell = async (text: string, voice: string): Promise<Blob | null> => {
+  const plugin = bridge();
+  if (!plugin?.ttsSynthesize) return null;
+  try {
+    const res = await plugin.ttsSynthesize({ text, voice });
+    if (!res?.base64) return null;
+    const binary = atob(res.base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return new Blob([bytes], { type: 'audio/wav' });
+  } catch {
+    return null;
+  }
+};
+
+/** Chẩn đoán TTS phía vỏ (trạng thái server/engine/assets/loopback) — vỏ 2.0.1+. */
+export const getTtsDiagnosticsViaShell = async (): Promise<Record<string, unknown> | null> => {
+  const plugin = bridge();
+  if (!plugin?.ttsDiagnostics) return null;
+  try {
+    return await plugin.ttsDiagnostics();
+  } catch {
+    return null;
   }
 };
 
