@@ -1,5 +1,5 @@
 {
   "ipaUrl": "https://github.com/hieuka001/butnghien-ios/releases",
-  "latestShell": "2.0.2",
-  "note": "Bản vỏ iOS 2.0.2: logo app full-bleed cho fit + vá đường giọng VieNeu (cầu native, chẩn đoán). Chỉ khi số này tăng mới cần cài lại IPA; cập nhật nội dung/tính năng khác tự đến qua bản web."
+  "latestShell": "2.0.3",
+  "note": "Bản vỏ iOS 2.0.3: nạp engine giọng VieNeu ngay khi mở app + nạp nhanh hơn + chẩn đoán chi tiết từng bước nạp. Chỉ khi số này tăng mới cần cài lại IPA; cập nhật nội dung/tính năng khác tự đến qua bản web."
 }
