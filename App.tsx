@@ -3198,7 +3198,7 @@ const App: React.FC = () => {
                   <div key={p.id} className="surface cv-auto p-8 hover:shadow-2xl transition-all group flex flex-col h-80">
                     <div className="flex-1">
                       <div className="flex justify-between items-start mb-4">
-                        <span className="px-3 py-1 bg-amber-50 text-amber-700 rounded-full text-[9px] font-black uppercase">{p.params.projectType}</span>
+                        <span className="px-3 py-1 bg-amber-50 text-amber-700 rounded-full text-[9px] font-black uppercase whitespace-nowrap shrink-0">{p.params.projectType}</span>
                         <div className="flex gap-2">
                            <button onClick={(e) => handleExportManuscript(p, e)} className="w-9 h-9 flex items-center justify-center bg-stone-100 text-stone-500 rounded-lg hover:bg-stone-800 hover:text-white transition-all shadow-sm" title="Xuất bản thảo TXT">
                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6M7 3h7l5 5v13a1 1 0 01-1 1H7a1 1 0 01-1-1V4a1 1 0 011-1z" /></svg>
@@ -3447,8 +3447,8 @@ const App: React.FC = () => {
               <div className="flex items-center gap-3">
                 <button onClick={() => setView('manuscript')} className="w-10 h-10 rounded-full bg-white shadow flex items-center justify-center text-stone-600 hover:bg-stone-900 hover:text-white transition-all" title="Về bản thảo">←</button>
                 <div className="min-w-0">
-                  <h2 className="story-font text-xl font-black text-stone-900 leading-tight">Nghe & Viết tự động</h2>
-                  <p className="text-[11px] text-stone-400 truncate">{activeProject?.title || 'Chưa mở tác phẩm'}</p>
+                  <h2 className="story-font text-xl font-black text-amber-50 leading-tight drop-shadow-[0_2px_10px_rgba(0,0,0,0.55)]">Nghe & Viết tự động</h2>
+                  <p className="text-[11px] text-amber-100/70 truncate">{activeProject?.title || 'Chưa mở tác phẩm'}</p>
                 </div>
               </div>
 
@@ -3474,7 +3474,7 @@ const App: React.FC = () => {
                     <span className="text-[11px] font-black uppercase text-stone-600">Cụm 2 + 3</span>
                   </label>
                   <label className="flex items-center gap-2 bg-stone-50 rounded-xl px-3 py-2.5">
-                    <span className="text-[11px] font-black uppercase text-stone-600">Số chương</span>
+                    <span className="text-[11px] font-black uppercase text-stone-600 whitespace-nowrap">Số chương</span>
                     <select value={autoChapterLimit} onChange={(e) => setAutoChapterLimit(Number(e.target.value))} disabled={autoSession?.running || !autoWriteEnabled} className="ml-auto bg-white rounded-lg px-2 py-1 text-[11px] font-black outline-none border">
                       {[1, 3, 5, 10, 0].map(n => <option key={n} value={n}>{n === 0 ? 'Hết lộ trình' : `${n} chương`}</option>)}
                     </select>
@@ -3549,7 +3549,7 @@ const App: React.FC = () => {
           {view === 'manuscript' && (
              <div className="max-w-4xl mx-auto space-y-4 pb-20">
                <div className="flex flex-wrap justify-between items-center gap-3 mb-2">
-                 <h2 className="text-3xl font-black italic story-font text-stone-900">Bản thảo lưu trữ</h2>
+                 <h2 className="text-3xl font-black italic story-font text-amber-50 drop-shadow-[0_2px_10px_rgba(0,0,0,0.55)]">Bản thảo lưu trữ</h2>
                  <div className="flex flex-wrap gap-2">
                    <span className="px-4 py-1 bg-stone-100 text-stone-500 rounded-full text-[10px] font-black">{writtenChapters.length} Chương</span>
                    <span className="px-4 py-1 bg-stone-100 text-stone-500 rounded-full text-[10px] font-black tnum">{manuscriptTotalWords.toLocaleString('vi-VN')} chữ</span>
