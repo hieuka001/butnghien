@@ -104,9 +104,75 @@ export class SpeechPlayer {
   private blobCache = new Map<number, Promise<Blob>>();
   private generation = 0;
   private callbacks: SpeechPlayerCallbacks;
+  private mediaTitle = "";
+  private wakeLock: any = null;
+  // App gan vao de nut next/prev o man hinh khoa (Media Session) nhay ca chuong khi het doan.
+  onChapterSkip: ((direction: 1 | -1) => void) | null = null;
 
   constructor(callbacks: SpeechPlayerCallbacks) {
     this.callbacks = callbacks;
+    this.installMediaSessionHandlers();
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible" && this.state === "playing") void this.acquireWakeLock();
+      });
+    }
+  }
+
+  // Media Session: hien tieu de chuong + nut dieu khien o man hinh khoa/thong bao cua dien
+  // thoai, dong thoi giup audio (engine VieNeu) tiep tuc chay khi tat man hinh/ngu nen.
+  private installMediaSessionHandlers() {
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    try {
+      navigator.mediaSession.setActionHandler("play", () => { void this.play(); });
+      navigator.mediaSession.setActionHandler("pause", () => { this.pause(); });
+      navigator.mediaSession.setActionHandler("stop", () => { this.stop(); });
+      navigator.mediaSession.setActionHandler("previoustrack", () => {
+        if (this.index > 0) void this.previous();
+        else this.onChapterSkip?.(-1);
+      });
+      navigator.mediaSession.setActionHandler("nexttrack", () => {
+        if (this.index < this.segments.length - 1) void this.next();
+        else this.onChapterSkip?.(1);
+      });
+    } catch { /* trinh duyet khong ho tro day du — bo qua */ }
+  }
+
+  private updateMediaMetadata() {
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator) || typeof MediaMetadata === "undefined") return;
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: this.mediaTitle || "Bút Nghiên — Nghe truyện",
+        artist: "Bút Nghiên AI",
+        album: "Nghe truyện",
+      });
+    } catch { /* bo qua */ }
+  }
+
+  private syncMediaPlaybackState() {
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    try {
+      navigator.mediaSession.playbackState = this.state === "playing" ? "playing" : this.state === "paused" ? "paused" : "none";
+    } catch { /* bo qua */ }
+  }
+
+  // Wake Lock: giu man hinh sang trong luc nghe o cac trinh duyet ho tro (Android/desktop);
+  // tren iOS, co che chay nen chinh la Media Session + the <audio> cua engine VieNeu.
+  private async acquireWakeLock() {
+    try {
+      const nav = navigator as any;
+      if (nav.wakeLock && !this.wakeLock) {
+        this.wakeLock = await nav.wakeLock.request("screen");
+        this.wakeLock?.addEventListener?.("release", () => { this.wakeLock = null; });
+      }
+    } catch { /* nguoi dung/trinh duyet tu choi — bo qua */ }
+  }
+
+  private releaseWakeLock() {
+    try {
+      void this.wakeLock?.release?.();
+    } catch { /* bo qua */ }
+    this.wakeLock = null;
   }
 
   get currentIndex() { return this.index; }
@@ -116,6 +182,9 @@ export class SpeechPlayer {
 
   private setState(state: SpeechPlayerState) {
     this.state = state;
+    this.syncMediaPlaybackState();
+    if (state === "playing") void this.acquireWakeLock();
+    if (state === "idle" || state === "ended" || state === "error") this.releaseWakeLock();
     this.callbacks.onState(state);
   }
 
@@ -124,9 +193,13 @@ export class SpeechPlayer {
     this.callbacks.onIndex(index);
   }
 
-  async load(segments: string[], options?: { vieneuVoiceId?: string; browserVoice?: SpeechSynthesisVoice | null; rate?: number }) {
+  async load(segments: string[], options?: { vieneuVoiceId?: string; browserVoice?: SpeechSynthesisVoice | null; rate?: number; mediaTitle?: string }) {
     this.stopInternal();
     this.segments = segments;
+    if (options?.mediaTitle !== undefined) {
+      this.mediaTitle = options.mediaTitle;
+      this.updateMediaMetadata();
+    }
     this.blobCache.clear();
     if (options?.vieneuVoiceId) this.vieneuVoiceId = options.vieneuVoiceId;
     if (options?.browserVoice !== undefined) this.browserVoice = options.browserVoice;

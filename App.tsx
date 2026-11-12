@@ -25,6 +25,7 @@ import {
 import { readLocalTombstones, persistLocalTombstones, writeLocalTombstone, clearLocalTombstone, applyTombstones, TombstoneMap } from './services/tombstoneStore';
 import { countWords, clamp, isLikelyCutOffText, stripDirectionLabels, splitSentencesForSpeech } from './services/textUtils';
 import { SpeechPlayer, SpeechPlayerState, SpeechEngineKind, TtsVoiceOption } from './services/ttsService';
+import { planAutoWriteChapters, nextInReadQueue } from './services/autoSession';
 import {
   deleteProjectFromFirebase,
   loadDeletedProjectIdsFromFirebase,
@@ -137,6 +138,20 @@ const App: React.FC = () => {
   const [ttsVoices, setTtsVoices] = useState<TtsVoiceOption[]>([]);
   const [ttsSegmentText, setTtsSegmentText] = useState('');
   const speechPlayerRef = useRef<SpeechPlayer | null>(null);
+  const [autoSession, setAutoSession] = useState<{ running: boolean; phase: string; message: string; writingIndex: number | null; readingIndex: number | null; writtenThisSession: number[]; targetCount: number } | null>(null);
+  const [autoWriteEnabled, setAutoWriteEnabled] = useState(true);
+  const [autoReadEnabled, setAutoReadEnabled] = useState(true);
+  const [autoReviewEnabled, setAutoReviewEnabled] = useState(true);
+  const [autoChapterLimit, setAutoChapterLimit] = useState(5);
+  const [autoReadFrom, setAutoReadFrom] = useState(0);
+  const autoStopRef = useRef(false);
+  const autoRunningRef = useRef(false);
+  const autoWriterDoneRef = useRef(true);
+  const autoReadQueueRef = useRef<number[]>([]);
+  const autoReadDoneRef = useRef<Set<number>>(new Set());
+  const autoReaderActiveRef = useRef(false);
+  const autoReadingIndexRef = useRef<number | null>(null);
+  const playerWaitersRef = useRef<Array<() => void>>([]);
   const [expandedPreviousChapter, setExpandedPreviousChapter] = useState<number | null>(null);
   const [includeBibleInExport, setIncludeBibleInExport] = useState(false);
   const [syncNonce, setSyncNonce] = useState(0);
@@ -160,9 +175,10 @@ const App: React.FC = () => {
   const [draftAutosavedMeta, setDraftAutosavedMeta] = useState<{ chapterIndex: number; arcIndex: number } | null>(null);
   const [draftReview, setDraftReview] = useState<ChapterValidationResult | null>(null);
   const [revisionRequest, setRevisionRequest] = useState<string>('');
-  const [view, setView] = useState<'editor' | 'outline' | 'manuscript' | 'setup' | 'directions' | 'my-stories' | 'bible'>('setup');
+  const [view, setView] = useState<'editor' | 'outline' | 'manuscript' | 'setup' | 'directions' | 'my-stories' | 'bible' | 'player'>('setup');
   const volumesRef = useRef<Volume[]>([]);
   const writtenChaptersRef = useRef<Chapter[]>([]);
+  const worldBibleRef = useRef<string>('');
   const tombstonesRef = useRef<TombstoneMap>(readLocalTombstones());
   const lastSavedToDbRef = useRef<Map<string, number>>(new Map());
   const lastPushedRef = useRef<Map<string, number>>(new Map());
@@ -376,6 +392,11 @@ const App: React.FC = () => {
       onState: (state) => {
         setTtsState(state);
         if (speechPlayerRef.current) setTtsSegmentText(speechPlayerRef.current.currentSegmentText());
+        if (state === 'ended' || state === 'error' || state === 'idle') {
+          const waiters = playerWaitersRef.current;
+          playerWaitersRef.current = [];
+          waiters.forEach(resolve => resolve());
+        }
       },
       onIndex: () => {
         if (speechPlayerRef.current) {
@@ -388,9 +409,19 @@ const App: React.FC = () => {
         if (speechPlayerRef.current) setTtsVoices(speechPlayerRef.current.voices);
       },
     });
+    player.onChapterSkip = (direction) => {
+      // Nut next/prev tren man hinh khoa: next = bo qua chuong dang doc; prev = doc lai chuong nay.
+      if (direction < 0 && autoReadingIndexRef.current != null) {
+        autoReadDoneRef.current.delete(autoReadingIndexRef.current);
+        autoReadQueueRef.current.unshift(autoReadingIndexRef.current);
+      }
+      speechPlayerRef.current?.stop();
+    };
     speechPlayerRef.current = player;
     return () => { player.stop(); speechPlayerRef.current = null; };
   }, []);
+
+  useEffect(() => { worldBibleRef.current = worldBible; }, [worldBible]);
 
   // Doi du an dang mo -> dung nghe va dong thanh phat (tranh nghe nham chuong cua du an khac).
   useEffect(() => {
@@ -408,7 +439,8 @@ const App: React.FC = () => {
     if (!player) return;
     setTtsSession({ chapterIndex: chapter.index, title: chapter.title, total: segments.length });
     setTtsState('loading');
-    await player.load(segments, { rate: ttsRate });
+    const ownerProject = projects.find(p => p.id === activeProjectId);
+    await player.load(segments, { rate: ttsRate, mediaTitle: `${ownerProject?.title || 'Bút Nghiên'} — Chương ${chapter.index}: ${chapter.title}` });
     const voices = player.voices;
     setTtsVoices(voices);
     setTtsVoiceId(voices[0]?.id || '');
@@ -419,6 +451,161 @@ const App: React.FC = () => {
   const handleCloseTts = () => {
     speechPlayerRef.current?.stop();
     setTtsSession(null);
+  };
+
+  const waitForPlayerFinish = () => new Promise<void>((resolve) => {
+    const player = speechPlayerRef.current;
+    if (!player || player.currentState === 'ended' || player.currentState === 'idle' || player.currentState === 'error') {
+      resolve();
+      return;
+    }
+    playerWaitersRef.current.push(resolve);
+  });
+
+  const playChapterForSession = async (chapter: Chapter) => {
+    const player = speechPlayerRef.current;
+    if (!player) return;
+    const segments = splitSentencesForSpeech(chapter.content || '');
+    if (!segments.length) return;
+    const ownerProject = projects.find(p => p.id === activeProjectId);
+    await player.load(segments, { rate: ttsRate, mediaTitle: `${ownerProject?.title || 'Bút Nghiên'} — Chương ${chapter.index}: ${chapter.title}` });
+    setTtsVoices(player.voices);
+    setTtsVoiceId(player.voices[0]?.id || '');
+    setTtsSession({ chapterIndex: chapter.index, title: chapter.title, total: segments.length });
+    setTtsSegmentText(player.currentSegmentText());
+    await player.play();
+  };
+
+  const runAutoReader = async () => {
+    if (autoReaderActiveRef.current) return;
+    autoReaderActiveRef.current = true;
+    try {
+      while (!autoStopRef.current) {
+        const next = nextInReadQueue(autoReadQueueRef.current, autoReadDoneRef.current);
+        if (next == null) {
+          if (autoWriterDoneRef.current) break;
+          await new Promise(resolve => setTimeout(resolve, 700));
+          continue;
+        }
+        autoReadDoneRef.current.add(next);
+        autoReadingIndexRef.current = next;
+        const chapter = writtenChaptersRef.current.find(c => c.index === next);
+        if (chapter?.content) {
+          setAutoSession(prev => prev ? { ...prev, readingIndex: next } : prev);
+          await playChapterForSession(chapter);
+          await waitForPlayerFinish();
+        }
+        autoReadingIndexRef.current = null;
+        setAutoSession(prev => prev && prev.readingIndex === next ? { ...prev, readingIndex: null } : prev);
+      }
+    } finally {
+      autoReaderActiveRef.current = false;
+    }
+  };
+
+  const stopAutoSession = () => {
+    autoStopRef.current = true;
+    autoWriterDoneRef.current = true;
+    speechPlayerRef.current?.stop();
+    setAutoSession(prev => prev ? { ...prev, running: false, phase: 'Đã dừng theo yêu cầu.', writingIndex: null } : prev);
+  };
+
+  const runAutoSession = async () => {
+    if (autoRunningRef.current) return;
+    if (!activeProjectId) { alert('Hãy mở một dự án trước.'); return; }
+    if (params.projectType !== 'Trường Thiên') { alert('Chế độ tự động dành cho truyện Trường Thiên (nhiều chương). Truyện ngắn hãy dùng nút Khai bút trong trình soạn.'); return; }
+    if (!autoWriteEnabled && !autoReadEnabled) { alert('Hãy bật ít nhất một trong hai: Tự viết tiếp hoặc Tự đọc.'); return; }
+    if (autoWriteEnabled && !hasRoadmapReady) { alert('Chưa có lộ trình Arc + Thiên Cơ Lục. Hãy lập lộ trình trước khi chạy tự viết.'); return; }
+
+    autoStopRef.current = false;
+    autoRunningRef.current = true;
+    autoWriterDoneRef.current = false;
+    autoReadQueueRef.current = [];
+    autoReadDoneRef.current = new Set();
+    const baseVolumes = volumesRef.current.length ? volumesRef.current : volumes;
+    const baseWritten = writtenChaptersRef.current.length ? writtenChaptersRef.current : writtenChapters;
+    const writtenSet = new Set<number>(baseWritten.filter(c => c.content).map(c => c.index));
+    const plan = autoWriteEnabled ? planAutoWriteChapters(baseVolumes, writtenSet, params.totalChapters, autoChapterLimit) : [];
+    const readFrom = autoReadFrom > 0 ? autoReadFrom : (plan.length ? plan[0] : Math.min(...[...writtenSet], 1));
+    if (autoReadEnabled) {
+      sortChapters(baseWritten.filter(c => c.content && c.index >= readFrom)).forEach(c => autoReadQueueRef.current.push(c.index));
+    }
+    setAutoSession({ running: true, phase: 'Đang khởi động phiên tự động…', message: '', writingIndex: null, readingIndex: null, writtenThisSession: [], targetCount: plan.length });
+    if (!plan.length && !autoReadQueueRef.current.length) {
+      setAutoSession({ running: false, phase: 'Không còn chương nào để viết hoặc đọc theo lựa chọn hiện tại.', message: '', writingIndex: null, readingIndex: null, writtenThisSession: [], targetCount: 0 });
+      autoRunningRef.current = false;
+      autoWriterDoneRef.current = true;
+      return;
+    }
+    setIsGenerating(true);
+    let bibleCursor = worldBibleRef.current || worldBible;
+    const writtenThisSession: number[] = [];
+    try {
+      const readerPromise = autoReadEnabled ? runAutoReader() : Promise.resolve();
+      for (const chapterIndex of plan) {
+        if (autoStopRef.current) break;
+        const liveVolumes = volumesRef.current.length ? volumesRef.current : volumes;
+        let currentArc = liveVolumes.find(v => chapterIndex >= (v.chapterStart || 0) && chapterIndex <= (v.chapterEnd || Number.MAX_SAFE_INTEGER))
+          || getArcByChapterIndex(chapterIndex) || getActiveArc();
+        if (!currentArc) throw new Error(`Không tìm thấy Arc chứa chương ${chapterIndex}.`);
+        if (!hasCompleteArcChapterPlan(currentArc as Volume)) {
+          setAutoSession(prev => prev ? { ...prev, phase: `Đang lập bản đồ chương cho ${currentArc.title}…` } : prev);
+          currentArc = await ensureArcChapterPlans(currentArc.index);
+        }
+        const bibleBefore = bibleCursor;
+        const beforeWritten = writtenChaptersRef.current.length ? writtenChaptersRef.current : writtenChapters;
+        const planChapter = currentArc.chapters?.find(c => c.index === chapterIndex);
+        const targetWords = planChapter?.targetWords || params.length;
+        setAutoSession(prev => prev ? { ...prev, phase: `Đang viết chương ${chapterIndex}…`, writingIndex: chapterIndex } : prev);
+        setGenerationStatus(`[Tự động] Đang chấp bút Chương ${chapterIndex}...`);
+        setStory('');
+        const content = await generateChapterStream(params, beforeWritten, chapterIndex, bibleBefore, '', generalSummary, currentArc, (chunk) => setStory(prev => prev + chunk), false);
+        if (!content.trim()) throw new Error(`Chương ${chapterIndex}: Gemini chưa trả nội dung.`);
+        const words = countWords(content);
+        if (words < Math.max(650, Math.floor(targetWords * 0.95)) || isLikelyCutOffText(content)) {
+          throw new Error(`Chương ${chapterIndex} chưa đạt chuẩn (${words}/${targetWords} chữ hoặc cụt cuối) — phiên tự động dừng để tránh lưu bản lỗi.`);
+        }
+        setStory(content);
+        const saved = await persistChapterContent(content, currentArc, undefined, { chapterIndex, bible: bibleBefore });
+        bibleCursor = saved.updatedBible;
+        worldBibleRef.current = bibleCursor;
+        if (autoReviewEnabled && !autoStopRef.current) {
+          setAutoSession(prev => prev ? { ...prev, phase: `Đang thẩm định chương ${chapterIndex} (Cụm 2)…` } : prev);
+          try {
+            const validation = await validateChapterLogic(content, beforeWritten, bibleBefore, currentArc, generalSummary, params, chapterIndex);
+            if (chapterReviewNeedsRewrite(validation, '')) {
+              setAutoSession(prev => prev ? { ...prev, phase: `Cụm 3 đang viết lại chương ${chapterIndex}…` } : prev);
+              let discardedReason = '';
+              const rewritten = await rewriteChapterWithReviewStream(params, beforeWritten, chapterIndex, bibleBefore, '', generalSummary, currentArc, content, validation, (chunk) => setStory(prev => prev + chunk), (reason) => { discardedReason = reason; });
+              const rewrittenWords = countWords(rewritten);
+              if (!discardedReason && rewrittenWords >= Math.max(650, Math.floor(targetWords * 0.95)) && !isLikelyCutOffText(rewritten)) {
+                const savedRewrite = await persistChapterContent(rewritten, currentArc, undefined, { chapterIndex });
+                bibleCursor = savedRewrite.updatedBible;
+                worldBibleRef.current = bibleCursor;
+              }
+            }
+          } catch (reviewError) {
+            console.warn('Cụm 2/3 tự động bỏ qua cho chương', chapterIndex, reviewError);
+          }
+        }
+        writtenThisSession.push(chapterIndex);
+        setAutoSession(prev => prev ? { ...prev, writtenThisSession: [...writtenThisSession] } : prev);
+        if (autoReadEnabled && chapterIndex >= readFrom) autoReadQueueRef.current.push(chapterIndex);
+      }
+      autoWriterDoneRef.current = true;
+      await readerPromise;
+      if (!autoStopRef.current) {
+        setAutoSession(prev => prev ? { ...prev, running: false, phase: 'Hoàn thành phiên tự động.', writingIndex: null, readingIndex: null } : prev);
+      }
+    } catch (error) {
+      console.error(error);
+      autoWriterDoneRef.current = true;
+      setAutoSession(prev => prev ? { ...prev, running: false, phase: 'Phiên tự động dừng vì lỗi', message: friendlyError(error), writingIndex: null } : prev);
+    } finally {
+      autoRunningRef.current = false;
+      setIsGenerating(false);
+      setGenerationStatus('');
+    }
   };
 
   // Co mang tro lai -> kich lai dong bo cloud ngay thay vi cho thay doi ke tiep.
@@ -1388,7 +1575,7 @@ const App: React.FC = () => {
 
     const cleanArc = getCleanArcForPrompt(currentArc);
     setGenerationStatus(`Đang lập bản đồ chương cho ${cleanArc.title}...`);
-    const plannedArc = await generateChapterPlansForArc(params, worldBible, generalSummary, cleanArc, writtenChapters);
+    const plannedArc = await generateChapterPlansForArc(params, worldBible, generalSummary, cleanArc, writtenChaptersRef.current.length ? writtenChaptersRef.current : writtenChapters);
     const mergedArc = mergeArcPlans(cleanArc, plannedArc);
     const latestVolumes = volumesRef.current.length ? volumesRef.current : volumes;
     const updatedVolumes = latestVolumes.map(volume => volume.index === arcIndex ? mergedArc : volume);
@@ -1401,10 +1588,11 @@ const App: React.FC = () => {
     return mergedArc;
   };
 
-  const persistChapterContent = async (finalContent: string, currentArc: Volume, volumesForSave?: Volume[]) => {
+  const persistChapterContent = async (finalContent: string, currentArc: Volume, volumesForSave?: Volume[], options?: { chapterIndex?: number; bible?: string }) => {
+    const chapterIndexForSave = options?.chapterIndex ?? currentChapterIndex;
     const baseVolumes = volumesForSave || (volumesRef.current.length ? volumesRef.current : volumes);
     const baseWritten = writtenChaptersRef.current.length ? writtenChaptersRef.current : writtenChapters;
-    const chapterPlan = currentArc.chapters?.find(ch => ch.index === currentChapterIndex);
+    const chapterPlan = currentArc.chapters?.find(ch => ch.index === chapterIndexForSave);
     const targetWords = chapterPlan?.targetWords || params.length;
     const finalWords = countWords(finalContent);
     const hardMinimumWords = Math.max(650, Math.floor(targetWords * 0.95));
@@ -1420,33 +1608,33 @@ const App: React.FC = () => {
     // Khi viet lai chuong da co: phai cap nhat canon tu bible TRUOC chuong do (snapshot cua chuong truoc),
     // neu khong du kien cua ban cu va ban moi se cung ton tai trong Thien Co Luc.
     const previousSnapshot = [...baseWritten]
-      .filter(c => c.index < currentChapterIndex && c.bibleSnapshot)
+      .filter(c => c.index < chapterIndexForSave && c.bibleSnapshot)
       .sort((a, b) => b.index - a.index)[0]?.bibleSnapshot;
-    const isRewritePersist = baseWritten.some(c => c.index === currentChapterIndex && c.content);
-    const baseBible = isRewritePersist && previousSnapshot ? previousSnapshot : worldBible;
+    const isRewritePersist = baseWritten.some(c => c.index === chapterIndexForSave && c.content);
+    const baseBible = isRewritePersist && previousSnapshot ? previousSnapshot : (options?.bible ?? worldBible);
     let updates: { chapterTitle?: string; chapterSummary?: string; updatedBible: string };
     let bibleUpdateError: string | null = null;
     try {
-      updates = await updateWorldBibleAndSummary(baseBible, finalContent, currentChapterIndex, generalSummary, params, currentArc);
+      updates = await updateWorldBibleAndSummary(baseBible, finalContent, chapterIndexForSave, generalSummary, params, currentArc);
     } catch (updateError) {
       console.warn('Không cập nhật được Thiên Cơ Lục, vẫn lưu chương đã viết:', updateError);
       bibleUpdateError = updateError instanceof Error ? updateError.message : 'lỗi không rõ';
       updates = {
-        chapterTitle: chapterPlan?.title || `Chương ${currentChapterIndex}`,
+        chapterTitle: chapterPlan?.title || `Chương ${chapterIndexForSave}`,
         chapterSummary: chapterPlan?.summary || finalContent.slice(0, 240),
         updatedBible: baseBible,
       };
     }
 
-    const extracted = extractGeneratedTitle(finalContent, updates.chapterTitle || chapterPlan?.title || `Chương ${currentChapterIndex}`);
+    const extracted = extractGeneratedTitle(finalContent, updates.chapterTitle || chapterPlan?.title || `Chương ${chapterIndexForSave}`);
     const finalTitle = updates.chapterTitle || extracted.title;
     const actualText = extracted.body;
 
-    const existingChapter = baseWritten.find(chapter => chapter.index === currentChapterIndex);
+    const existingChapter = baseWritten.find(chapter => chapter.index === chapterIndexForSave);
     const contentChanged = Boolean(existingChapter?.content && existingChapter.content !== actualText);
     const newChapter: Chapter = {
       ...chapterPlan,
-      index: currentChapterIndex,
+      index: chapterIndexForSave,
       title: finalTitle,
       content: actualText,
       summary: updates.chapterSummary || chapterPlan?.summary || '',
@@ -1511,10 +1699,10 @@ const App: React.FC = () => {
       : p
     ));
     if (bibleUpdateError) {
-      setCloudStatus(`⚠ Chương ${currentChapterIndex} đã lưu nhưng Thiên Cơ Lục chưa cập nhật được (${bibleUpdateError}). Chương sau có thể lệch canon — hãy thẩm định lại trước khi viết tiếp.`);
+      setCloudStatus(`⚠ Chương ${chapterIndexForSave} đã lưu nhưng Thiên Cơ Lục chưa cập nhật được (${bibleUpdateError}). Chương sau có thể lệch canon — hãy thẩm định lại trước khi viết tiếp.`);
     }
+    return { updatedBible: updates.updatedBible, chapter: newChapter };
   };
-
   const handleRetryBibleUpdate = async () => {
     if (isRetryingBible || isGenerating) return;
     const allWritten = writtenChaptersRef.current.length ? writtenChaptersRef.current : writtenChapters;
@@ -3018,6 +3206,9 @@ const App: React.FC = () => {
                            <button onClick={(e) => { e.stopPropagation(); const latestProj = projects.find(proj => proj.id === p.id) || p; downloadTextFile(`ButNghien_${latestProj.title.replace(/\s+/g, '_')}.json`, JSON.stringify(latestProj, null, 2), 'application/json;charset=utf-8'); }} className="p-2 bg-amber-50 text-orange-400 rounded-lg hover:bg-orange-600 hover:text-white transition-all shadow-sm" title="Xuất JSON">
                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                            </button>
+                           <button onClick={(e) => { e.stopPropagation(); loadProject(p); setView('player'); }} className="p-2 bg-teal-50 text-teal-500 rounded-lg hover:bg-teal-600 hover:text-white transition-all shadow-sm" title="Nghe & viết tự động">
+                             <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" /></svg>
+                           </button>
                            <button onClick={(e) => handleDuplicateProject(p, e)} className="p-2 bg-sky-50 text-sky-400 rounded-lg hover:bg-sky-600 hover:text-white transition-all shadow-sm" title="Nhân bản dự án">
                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H10a2 2 0 01-2-2V7z" /></svg>
                            </button>
@@ -3251,6 +3442,110 @@ const App: React.FC = () => {
              </div>
           )}
           
+          {view === 'player' && (
+            <div className="max-w-md mx-auto w-full space-y-4 pb-24">
+              <div className="flex items-center gap-3">
+                <button onClick={() => setView('manuscript')} className="w-10 h-10 rounded-full bg-white shadow flex items-center justify-center text-stone-600 hover:bg-stone-900 hover:text-white transition-all" title="Về bản thảo">←</button>
+                <div className="min-w-0">
+                  <h2 className="story-font text-xl font-black text-stone-900 leading-tight">Nghe & Viết tự động</h2>
+                  <p className="text-[11px] text-stone-400 truncate">{activeProject?.title || 'Chưa mở tác phẩm'}</p>
+                </div>
+              </div>
+
+              <div className="surface p-5 space-y-3">
+                <p className="story-font text-base font-black text-stone-800">{autoSession?.phase || 'Sẵn sàng. Chọn chế độ rồi bấm Bắt đầu.'}</p>
+                {autoSession?.message && <p className="text-xs text-red-500 leading-relaxed">{autoSession.message}</p>}
+                {generationStatus && autoSession?.running && <p className="text-[11px] text-stone-400">{generationStatus}</p>}
+                <div className="flex gap-2 text-[10px] font-black uppercase">
+                  <span className="px-2 py-1 bg-teal-50 text-teal-700 rounded-lg">Đã viết phiên này: {autoSession?.writtenThisSession.length || 0}{autoSession?.targetCount ? `/${autoSession.targetCount}` : ''}</span>
+                  <span className={`px-2 py-1 rounded-lg ${ttsEngine === 'vieneu' ? 'bg-emerald-50 text-emerald-600' : 'bg-stone-100 text-stone-500'}`}>{ttsEngine === 'vieneu' ? 'Giọng VieNeu' : 'Giọng trình duyệt'}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <label className="flex items-center gap-2 bg-stone-50 rounded-xl px-3 py-2.5 cursor-pointer">
+                    <input type="checkbox" checked={autoWriteEnabled} onChange={(e) => setAutoWriteEnabled(e.target.checked)} disabled={autoSession?.running} className="accent-teal-600 w-4 h-4" />
+                    <span className="text-[11px] font-black uppercase text-stone-600">Tự viết tiếp</span>
+                  </label>
+                  <label className="flex items-center gap-2 bg-stone-50 rounded-xl px-3 py-2.5 cursor-pointer">
+                    <input type="checkbox" checked={autoReadEnabled} onChange={(e) => setAutoReadEnabled(e.target.checked)} disabled={autoSession?.running} className="accent-teal-600 w-4 h-4" />
+                    <span className="text-[11px] font-black uppercase text-stone-600">Tự đọc</span>
+                  </label>
+                  <label className="flex items-center gap-2 bg-stone-50 rounded-xl px-3 py-2.5 cursor-pointer">
+                    <input type="checkbox" checked={autoReviewEnabled} onChange={(e) => setAutoReviewEnabled(e.target.checked)} disabled={autoSession?.running || !autoWriteEnabled} className="accent-teal-600 w-4 h-4" />
+                    <span className="text-[11px] font-black uppercase text-stone-600">Cụm 2 + 3</span>
+                  </label>
+                  <label className="flex items-center gap-2 bg-stone-50 rounded-xl px-3 py-2.5">
+                    <span className="text-[11px] font-black uppercase text-stone-600">Số chương</span>
+                    <select value={autoChapterLimit} onChange={(e) => setAutoChapterLimit(Number(e.target.value))} disabled={autoSession?.running || !autoWriteEnabled} className="ml-auto bg-white rounded-lg px-2 py-1 text-[11px] font-black outline-none border">
+                      {[1, 3, 5, 10, 0].map(n => <option key={n} value={n}>{n === 0 ? 'Hết lộ trình' : `${n} chương`}</option>)}
+                    </select>
+                  </label>
+                </div>
+                <label className="flex items-center gap-2 bg-stone-50 rounded-xl px-3 py-2.5">
+                  <span className="text-[11px] font-black uppercase text-stone-600">Đọc từ chương</span>
+                  <input type="number" min={0} value={autoReadFrom} onChange={(e) => setAutoReadFrom(Math.max(0, Number(e.target.value) || 0))} disabled={autoSession?.running || !autoReadEnabled} className="ml-auto w-20 bg-white rounded-lg px-2 py-1 text-[11px] font-black outline-none border text-center" />
+                  <span className="text-[10px] text-stone-400">0 = tự động</span>
+                </label>
+                {autoSession?.running ? (
+                  <button onClick={stopAutoSession} className="w-full py-4 bg-red-500 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-red-600 transition-all shadow-lg shadow-red-200">Dừng phiên</button>
+                ) : (
+                  <button onClick={() => void runAutoSession()} className="btn-primary w-full py-4 text-xs font-black uppercase tracking-widest">Bắt đầu</button>
+                )}
+              </div>
+
+              {ttsSession && (
+                <div className="bg-[#052e26] text-white rounded-3xl p-5 space-y-3 shadow-xl shadow-teal-950/25">
+                  <div className="flex items-center gap-2">
+                    <span>🔊</span>
+                    <span className="font-black story-font text-sm truncate">Chương {ttsSession.chapterIndex}: {ttsSession.title}</span>
+                  </div>
+                  <p className="text-xs leading-relaxed text-teal-50/85 line-clamp-3 min-h-10">{ttsState === 'loading' ? 'Đang tổng hợp giọng đọc…' : ttsSegmentText}</p>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => void speechPlayerRef.current?.previous()} disabled={ttsIndex <= 0} className="px-3 py-2.5 bg-white/10 rounded-xl text-xs font-black hover:bg-white/25 transition-all disabled:opacity-35">⏮</button>
+                    {ttsState === 'playing' ? (
+                      <button onClick={() => speechPlayerRef.current?.pause()} className="flex-1 py-2.5 bg-amber-300 text-stone-900 rounded-xl text-xs font-black uppercase hover:brightness-110 transition-all">Tạm dừng</button>
+                    ) : (
+                      <button onClick={() => void speechPlayerRef.current?.play()} className="flex-1 py-2.5 bg-amber-300 text-stone-900 rounded-xl text-xs font-black uppercase hover:brightness-110 transition-all">{ttsState === 'loading' ? 'Đang tải…' : ttsState === 'ended' ? 'Nghe lại' : 'Nghe tiếp'}</button>
+                    )}
+                    <button onClick={() => void speechPlayerRef.current?.next()} disabled={ttsIndex >= ttsSession.total - 1} className="px-3 py-2.5 bg-white/10 rounded-xl text-xs font-black hover:bg-white/25 transition-all disabled:opacity-35">⏭</button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-black text-teal-50/70">Đoạn {Math.min(ttsIndex + 1, ttsSession.total)}/{ttsSession.total}</span>
+                    <select value={ttsRate} onChange={(e) => { const rate = Number(e.target.value); setTtsRateState(rate); speechPlayerRef.current?.setRate(rate); }} className="ml-auto bg-white/10 rounded-xl px-2 py-2 text-[11px] font-black outline-none [&>option]:text-stone-900">
+                      {[0.75, 1, 1.25, 1.5, 2].map(rate => <option key={rate} value={rate}>{rate}×</option>)}
+                    </select>
+                    {ttsVoices.length > 1 && (
+                      <select value={ttsVoiceId} onChange={(e) => { setTtsVoiceId(e.target.value); speechPlayerRef.current?.setVoice(e.target.value); }} className="bg-white/10 rounded-xl px-2 py-2 text-[11px] font-black outline-none max-w-40 [&>option]:text-stone-900">
+                        {ttsVoices.map(voice => <option key={voice.id} value={voice.id}>{voice.name}</option>)}
+                      </select>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div className="surface p-3 space-y-1">
+                {sortChapters(Object.values(Object.fromEntries([...volumes.flatMap(v => v.chapters || []), ...writtenChapters].map(c => [c.index, c] as const)))).map(c => {
+                  const isReading = autoSession?.readingIndex === c.index || ttsSession?.chapterIndex === c.index;
+                  const isWriting = autoSession?.writingIndex === c.index;
+                  return (
+                    <button key={c.index} onClick={() => { if (c.content) void handleListenChapter(c); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all ${isReading ? 'bg-teal-50' : 'hover:bg-stone-50'}`}>
+                      <span className={`w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-[10px] font-black ${c.content ? 'bg-teal-600 text-white' : 'bg-stone-100 text-stone-400'}`}>{c.index}</span>
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-xs font-bold text-stone-700 truncate">{c.title || `Chương ${c.index}`}</span>
+                        <span className="block text-[10px] text-stone-400">{c.content ? `${countWords(c.content)} chữ` : 'Chưa viết'}</span>
+                      </span>
+                      {isWriting && <span className="text-[9px] font-black uppercase text-orange-500">✍ Đang viết</span>}
+                      {isReading && <span className="text-[9px] font-black uppercase text-teal-600">🔊 Đang đọc</span>}
+                      {c.biblePending && <span className="text-[9px] font-black uppercase text-amber-600">⚠ Canon</span>}
+                    </button>
+                  );
+                })}
+                {!volumes.length && <p className="text-xs text-stone-400 px-3 py-4">Chưa có lộ trình. Hãy lập lộ trình Arc trước.</p>}
+              </div>
+
+              <p className="text-[11px] leading-relaxed text-stone-400 px-1">Nghe trong nền: với giọng VieNeu (chạy TTS Bridge trên máy tính, điện thoại kết nối cùng mạng/Tailscale), nhạc vẫn phát khi khóa màn hình và điều khiển được ngay từ màn hình khóa. Giọng của trình duyệt có thể bị hệ thống tạm dừng khi tắt màn hình — đó là giới hạn của trình duyệt, không phải của app.</p>
+            </div>
+          )}
+
           {view === 'manuscript' && (
              <div className="max-w-4xl mx-auto space-y-4 pb-20">
                <div className="flex flex-wrap justify-between items-center gap-3 mb-2">
@@ -3266,6 +3561,7 @@ const App: React.FC = () => {
                  {manuscriptQuery && <button onClick={() => setManuscriptQuery('')} className="px-4 py-3 bg-stone-100 text-stone-500 rounded-xl text-[10px] font-black uppercase">Xóa tìm</button>}
                  <div className="flex flex-wrap gap-2">
                    <button onClick={() => { if (activeProject) handleExportManuscript(activeProject); }} className="px-4 py-3 bg-emerald-50 text-emerald-600 rounded-xl text-[10px] font-black uppercase hover:bg-emerald-600 hover:text-white transition-all">Xuất .txt</button>
+                   <button onClick={() => setView('player')} className="px-4 py-3 bg-teal-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-teal-700 transition-all">▶ Nghe tự động</button>
                    <button onClick={() => { if (activeProject) handleExportMarkdown(activeProject, includeBibleInExport); }} className="px-4 py-3 bg-amber-50 text-orange-600 rounded-xl text-[10px] font-black uppercase hover:bg-orange-600 hover:text-white transition-all">Xuất .md</button>
                    <button onClick={() => { if (activeProject) void handleExportDocx(activeProject, includeBibleInExport); }} className="px-4 py-3 bg-sky-50 text-sky-600 rounded-xl text-[10px] font-black uppercase hover:bg-sky-600 hover:text-white transition-all">Xuất .docx</button>
                    <label className="flex items-center gap-2 px-3 py-3 bg-white border border-stone-200 rounded-xl text-[10px] font-black uppercase text-stone-500 cursor-pointer">
@@ -3319,7 +3615,7 @@ const App: React.FC = () => {
         </div>
       </main>
       
-      {ttsSession && (
+      {ttsSession && view !== 'player' && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-1.5rem)] max-w-3xl bg-[#052e26]/95 backdrop-blur-xl border border-amber-200/25 text-white rounded-3xl shadow-2xl shadow-teal-950/40 px-5 py-4 space-y-3">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 min-w-0">
