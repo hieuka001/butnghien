@@ -257,8 +257,30 @@ export class SpeechPlayer {
   }
 
   get voices(): TtsVoiceOption[] {
-    if (this.engine === "vieneu" && this.vieneuVoices) return this.vieneuVoices;
+    if (this.engine === "vieneu" && this.vieneuVoices) {
+      const rest = this.vieneuVoices.filter(voice => voice.id !== "default");
+      return [{ id: "default", name: "Giọng mặc định", source: "vieneu" as const }, ...rest];
+    }
     return getBrowserVietnameseVoices().map(voice => ({ id: voice.voiceURI, name: `${voice.name} (${voice.lang})`, source: "browser" as const }));
+  }
+
+  // Giong player SE dung neu phat ngay bay gio (de UI hien dung, khong hien mot giong
+  // ma nghe lai ra giong khac).
+  get currentVoiceId(): string {
+    if (this.engine === "vieneu") return this.vieneuVoiceId;
+    return this.browserVoice?.voiceURI || "";
+  }
+
+  // Tham do engine ngay khi can (vd vua vao man Nghe) thay vi cho den luc phat:
+  // co danh sach giong VieNeu thi chuyen engine + bao qua callback onEngine.
+  async refreshVoices(): Promise<TtsVoiceOption[]> {
+    const probed = await probeVieneuBridge();
+    if (probed) {
+      this.vieneuVoices = probed;
+      this.engine = "vieneu";
+      this.callbacks.onEngine(this.engine);
+    }
+    return this.voices;
   }
 
   setVoice(id: string) {

@@ -435,6 +435,24 @@ const App: React.FC = () => {
 
   useEffect(() => { worldBibleRef.current = worldBible; }, [worldBible]);
 
+  // Vao man Nghe: tham do engine TTS ngay (VieNeu trong app iOS 2.0 / TTS Bridge)
+  // de hien danh sach giong cho chon TRUOC khi bam Bat dau — truoc day chi do khi
+  // da phat nen the cai dat khong co muc chon giong, nhan con bao "Giong trinh duyet".
+  useEffect(() => {
+    if (view !== 'player') return;
+    const player = speechPlayerRef.current;
+    if (!player) return;
+    let cancelled = false;
+    void player.refreshVoices().then((voices) => {
+      if (cancelled) return;
+      setTtsVoices(voices);
+      const current = player.currentVoiceId;
+      if (current && voices.some(v => v.id === current)) setTtsVoiceId(current);
+      else if (voices.length) { setTtsVoiceId(voices[0].id); player.setVoice(voices[0].id); }
+    });
+    return () => { cancelled = true; };
+  }, [view]);
+
   // Doi du an dang mo -> dung nghe va dong thanh phat (tranh nghe nham chuong cua du an khac).
   useEffect(() => {
     speechPlayerRef.current?.stop();
@@ -455,7 +473,7 @@ const App: React.FC = () => {
     await player.load(segments, { rate: ttsRate, mediaTitle: `${ownerProject?.title || 'Bút Nghiên'} — Chương ${chapter.index}: ${chapter.title}` });
     const voices = player.voices;
     setTtsVoices(voices);
-    setTtsVoiceId(voices[0]?.id || '');
+    setTtsVoiceId(player.currentVoiceId || voices[0]?.id || '');
     setTtsSegmentText(player.currentSegmentText());
     await player.play();
   };
@@ -482,7 +500,7 @@ const App: React.FC = () => {
     const ownerProject = projects.find(p => p.id === activeProjectId);
     await player.load(segments, { rate: ttsRate, mediaTitle: `${ownerProject?.title || 'Bút Nghiên'} — Chương ${chapter.index}: ${chapter.title}` });
     setTtsVoices(player.voices);
-    setTtsVoiceId(player.voices[0]?.id || '');
+    setTtsVoiceId(player.currentVoiceId || player.voices[0]?.id || '');
     setTtsSession({ chapterIndex: chapter.index, title: chapter.title, total: segments.length });
     setTtsSegmentText(player.currentSegmentText());
     await player.play();
@@ -3511,6 +3529,16 @@ const App: React.FC = () => {
                   </label>
                 </div>
                 <label className="flex items-center gap-2 bg-stone-50 rounded-xl px-3 py-2.5">
+                  <span className="text-[11px] font-black uppercase text-stone-600 whitespace-nowrap">Giọng đọc</span>
+                  {ttsVoices.length > 1 ? (
+                    <select value={ttsVoiceId} onChange={(e) => { setTtsVoiceId(e.target.value); speechPlayerRef.current?.setVoice(e.target.value); }} className="ml-auto min-w-0 max-w-[62%] bg-white rounded-lg px-2 py-1 text-[11px] font-black outline-none border">
+                      {ttsVoices.map(voice => <option key={voice.id} value={voice.id}>{voice.name}</option>)}
+                    </select>
+                  ) : (
+                    <span className="ml-auto text-[11px] font-bold text-stone-400">{ttsEngine === 'vieneu' ? 'VieNeu mặc định' : 'Giọng hệ thống'}</span>
+                  )}
+                </label>
+                <label className="flex items-center gap-2 bg-stone-50 rounded-xl px-3 py-2.5">
                   <span className="text-[11px] font-black uppercase text-stone-600 whitespace-nowrap">Địa chỉ TTS Bridge</span>
                   <input value={ttsEndpoint} onChange={(e) => setTtsEndpoint(e.target.value)} onBlur={() => { try { localStorage.setItem('butnghien-tts-endpoint', ttsEndpoint.trim() || 'http://127.0.0.1:3900'); } catch { /* ignore */ } }} placeholder="http://127.0.0.1:3900" className="flex-1 min-w-0 bg-white rounded-lg px-2 py-1 text-[11px] font-bold outline-none border" inputMode="url" />
                 </label>
@@ -3577,7 +3605,7 @@ const App: React.FC = () => {
                 {!volumes.length && <p className="text-xs text-stone-400 px-3 py-4">Chưa có lộ trình. Hãy lập lộ trình Arc trước.</p>}
               </div>
 
-              <p className="text-[11px] leading-relaxed text-stone-400 px-1">Nghe trong nền: với giọng VieNeu (chạy TTS Bridge trên máy tính, điện thoại kết nối cùng mạng/Tailscale), nhạc vẫn phát khi khóa màn hình và điều khiển được ngay từ màn hình khóa. Giọng của trình duyệt có thể bị hệ thống tạm dừng khi tắt màn hình — đó là giới hạn của trình duyệt, không phải của app.</p>
+              <p className="text-[11px] leading-relaxed text-stone-400 px-1">Nghe trong nền: với giọng VieNeu (bản app iOS 2.0 đã tích hợp sẵn ngay trong máy; bản web thì qua TTS Bridge trên máy tính), nhạc vẫn phát khi khóa màn hình và điều khiển được ngay từ màn hình khóa. Giọng của trình duyệt có thể bị hệ thống tạm dừng khi tắt màn hình — đó là giới hạn của trình duyệt, không phải của app.</p>
             </div>
           )}
 
