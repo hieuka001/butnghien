@@ -109,6 +109,7 @@ export const diagnoseTts = async (): Promise<string> => {
     if (diag.engineError) lines.push(`Lỗi engine: ${String(diag.engineError)}`);
     const missing = Array.isArray(diag.assetsMissing) ? (diag.assetsMissing as string[]) : [];
     lines.push(`Tài sản model: ${diag.assetsFound ? (missing.length ? `thiếu ${missing.join(", ")}` : "đủ 12 file") : "KHÔNG thấy thư mục TTSAssets"}`);
+    if (diag.initSteps) lines.push(`Bước nạp engine: ${String(diag.initSteps)}`);
     lines.push(`Native tự gọi /health: ${String(diag.loopback ?? "?")}`);
   } else {
     lines.push("Không lấy được chẩn đoán từ vỏ (xem các dòng cầu native ở trên).");
