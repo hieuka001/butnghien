@@ -26,6 +26,7 @@ import { readLocalTombstones, persistLocalTombstones, writeLocalTombstone, clear
 import { countWords, clamp, isLikelyCutOffText, stripDirectionLabels, splitSentencesForSpeech } from './services/textUtils';
 import { SpeechPlayer, SpeechPlayerState, SpeechEngineKind, TtsVoiceOption } from './services/ttsService';
 import { planAutoWriteChapters, nextInReadQueue } from './services/autoSession';
+import { isInShell, getShellInfo, saveFileViaShell, compareVersions } from './services/shellBridge';
 import {
   deleteProjectFromFirebase,
   loadDeletedProjectIdsFromFirebase,
@@ -144,6 +145,8 @@ const App: React.FC = () => {
   const [autoReviewEnabled, setAutoReviewEnabled] = useState(true);
   const [autoChapterLimit, setAutoChapterLimit] = useState(5);
   const [autoReadFrom, setAutoReadFrom] = useState(0);
+  const [shellUpdate, setShellUpdate] = useState<{ latest: string; url: string } | null>(null);
+  const [ttsEndpoint, setTtsEndpoint] = useState(() => { try { return localStorage.getItem('butnghien-tts-endpoint') || 'http://127.0.0.1:3900'; } catch { return 'http://127.0.0.1:3900'; } });
   const autoStopRef = useRef(false);
   const autoRunningRef = useRef(false);
   const autoWriterDoneRef = useRef(true);
@@ -385,6 +388,26 @@ const App: React.FC = () => {
 
     return () => window.clearTimeout(timer);
   }, [projects, isHydrated, authUser?.uid, syncNonce]);
+
+  // Trong vỏ iOS: hỏi phiên bản vỏ, so với shell-version.json trên site — cũ hơn
+  // thì hiện băng-rôn mời tải IPA mới (chỉ khi phần native thay đổi mới cần).
+  useEffect(() => {
+    if (!isInShell()) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [info, response] = await Promise.all([
+          getShellInfo(),
+          fetch('/shell-version.json', { cache: 'no-store' }).then(r => (r.ok ? r.json() : null)).catch(() => null),
+        ]);
+        if (cancelled || !info || !response?.latestShell) return;
+        if (compareVersions(info.version, String(response.latestShell)) < 0) {
+          setShellUpdate({ latest: String(response.latestShell), url: String(response.ipaUrl || 'https://github.com/hieuka001/butnghien-ios/releases') });
+        }
+      } catch { /* không trong vỏ / không mạng: bỏ qua */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // Trinh phat nghe truyen: mot instance duy nhat, trang thai phan anh qua callback vao React state.
   useEffect(() => {
@@ -1177,6 +1200,7 @@ const App: React.FC = () => {
 
   const downloadTextFile = (filename: string, content: string, mime = 'text/plain;charset=utf-8') => {
     const blob = new Blob([content], { type: mime });
+    if (isInShell()) { void saveFileViaShell(filename, blob); return; }
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -1466,6 +1490,7 @@ const App: React.FC = () => {
   };
 
   const downloadBlobFile = (filename: string, blob: Blob) => {
+    if (isInShell()) { void saveFileViaShell(filename, blob); return; }
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -3481,6 +3506,11 @@ const App: React.FC = () => {
                   </label>
                 </div>
                 <label className="flex items-center gap-2 bg-stone-50 rounded-xl px-3 py-2.5">
+                  <span className="text-[11px] font-black uppercase text-stone-600 whitespace-nowrap">Địa chỉ TTS Bridge</span>
+                  <input value={ttsEndpoint} onChange={(e) => setTtsEndpoint(e.target.value)} onBlur={() => { try { localStorage.setItem('butnghien-tts-endpoint', ttsEndpoint.trim() || 'http://127.0.0.1:3900'); } catch { /* ignore */ } }} placeholder="http://127.0.0.1:3900" className="flex-1 min-w-0 bg-white rounded-lg px-2 py-1 text-[11px] font-bold outline-none border" inputMode="url" />
+                </label>
+                <p className="-mt-1 px-1 text-[10px] leading-relaxed text-stone-400">Nghe giọng VieNeu từ máy tính khi dùng điện thoại/app: nhập địa chỉ máy tính chạy TTS Bridge, ví dụ http://192.168.1.20:3900 (cùng Wi-Fi) hoặc địa chỉ Tailscale của máy.</p>
+                <label className="flex items-center gap-2 bg-stone-50 rounded-xl px-3 py-2.5">
                   <span className="text-[11px] font-black uppercase text-stone-600">Đọc từ chương</span>
                   <input type="number" min={0} value={autoReadFrom} onChange={(e) => setAutoReadFrom(Math.max(0, Number(e.target.value) || 0))} disabled={autoSession?.running || !autoReadEnabled} className="ml-auto w-20 bg-white rounded-lg px-2 py-1 text-[11px] font-black outline-none border text-center" />
                   <span className="text-[10px] text-stone-400">0 = tự động</span>
@@ -3615,6 +3645,14 @@ const App: React.FC = () => {
         </div>
       </main>
       
+      {shellUpdate && (
+        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[80] w-[calc(100%-1.5rem)] max-w-xl bg-[#052e26] text-white rounded-2xl shadow-2xl px-4 py-3 flex items-center gap-3">
+          <p className="flex-1 text-xs leading-relaxed">Có bản app iOS mới (v{shellUpdate.latest}). Nội dung truyện vẫn tự cập nhật như thường — bản này chỉ đổi phần vỏ app.</p>
+          <a href={shellUpdate.url} target="_blank" rel="noreferrer" className="shrink-0 px-3 py-2 bg-amber-300 text-stone-900 rounded-xl text-[11px] font-black uppercase">Tải IPA</a>
+          <button onClick={() => setShellUpdate(null)} className="shrink-0 w-8 h-8 rounded-full bg-white/10 text-sm" aria-label="Đóng">✕</button>
+        </div>
+      )}
+
       {ttsSession && view !== 'player' && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-1.5rem)] max-w-3xl bg-[#052e26]/95 backdrop-blur-xl border border-amber-200/25 text-white rounded-3xl shadow-2xl shadow-emerald-950/40 px-5 py-4 space-y-3">
           <div className="flex items-center justify-between gap-3">
