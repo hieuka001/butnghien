@@ -52,17 +52,33 @@ const fetchWithTimeout = async (url: string, init: RequestInit, timeoutMs: numbe
 // Kiểm tra VieNeu có dùng được không; trả danh sách giọng nếu có.
 // Trong app iOS 2.0.1+ hỏi thẳng plugin native trước (đường fetch http://127.0.0.1
 // từ trang https trong WKWebView có thể bị WebKit chặn); ngoài app thì fetch như cũ.
+// 5 giọng VieNeu GẮN SẴN (đợt 26): danh sách tĩnh ngay trong bản web — mở màn
+// Nghe là chọn được ngay, không phụ thuộc lần dò cầu native thành hay bại.
+// Dữ liệu giọng (speaker embedding + codes) và model vốn đã nằm trong IPA từ
+// bản 2.0.0; đây là phần trình bày được chọn lọc còn 5 giọng hợp nghe truyện
+// nhất (kể chuyện/đọc truyện, đủ nam/nữ, Bắc/Nam). Id phải khớp TUYỆT ĐỐI với
+// preset trong voices_v3_turbo.json phía native.
+export const BUILTIN_VIENEU_VOICES: TtsVoiceOption[] = [
+  { id: "Thiện Minh", name: "Thiện Minh — Nam · Bắc · kể chuyện", source: "vieneu" },
+  { id: "Ngọc Huyền", name: "Ngọc Huyền — Nữ · Bắc · đọc tự nhiên", source: "vieneu" },
+  { id: "Ngọc Linh", name: "Ngọc Linh — Nữ · Bắc · kể chuyện", source: "vieneu" },
+  { id: "Mỹ Duyên", name: "Mỹ Duyên — Nữ · Nam · đọc truyện", source: "vieneu" },
+  { id: "Đức Trí", name: "Đức Trí — Nam · Nam · đọc truyện", source: "vieneu" },
+];
+
+// Kiểm tra VieNeu có dùng được không; trả danh sách giọng nếu có.
+// Trong app iOS: trả NGAY danh sách gắn sẵn ở trên (giọng + model đã có sẵn
+// trong máy), đồng thời xác thực cầu native ở nền để chẩn đoán khi cần —
+// UI không còn phải chờ/không còn trắng mục chọn giọng vì một lần dò lỗi.
+// Ngoài app (bản web + TTS Bridge trên máy tính): hỏi bridge như cũ, rồi cũng
+// lọc còn 5 giọng gắn sẵn cho thống nhất (bridge thiếu thì giữ nguyên gốc).
 export const probeVieneuBridge = async (): Promise<TtsVoiceOption[] | null> => {
   if (isInShell()) {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const nativeVoices = await getTtsVoicesViaShell();
-      if (nativeVoices?.length) {
-        vieneuTransport = "native";
-        return nativeVoices.map(voice => ({ id: voice.id, name: voice.name, source: "vieneu" as const }));
-      }
-      if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 500));
-    }
-    return null;
+    vieneuTransport = "native";
+    void getTtsVoicesViaShell().then(nativeVoices => {
+      if (!nativeVoices?.length) vieneuTransport = "native"; // van giu native: loi se lo o lan tong hop dau, player tu fallback + chan doan
+    });
+    return BUILTIN_VIENEU_VOICES;
   }
   try {
     const response = await fetchWithTimeout(`${getTtsEndpoint()}/v1/audio/voices`, { method: "GET" }, 1800);
@@ -73,7 +89,9 @@ export const probeVieneuBridge = async (): Promise<TtsVoiceOption[] | null> => {
       .filter((voice: any) => voice && typeof voice.id === "string")
       .map((voice: any) => ({ id: voice.id, name: String(voice.name || voice.id), source: "vieneu" as const }));
     vieneuTransport = "http";
-    return mapped.length ? mapped : [{ id: "default", name: "VieNeu (mặc định)", source: "vieneu" }];
+    if (!mapped.length) return [{ id: "default", name: "VieNeu (mặc định)", source: "vieneu" }];
+    const present = BUILTIN_VIENEU_VOICES.filter(builtin => mapped.some(voice => voice.id === builtin.id));
+    return present.length >= 3 ? present : mapped;
   } catch {
     return null;
   }

@@ -420,6 +420,10 @@ const App: React.FC = () => {
       onEngine: (engine) => {
         setTtsEngine(engine);
         if (engine === 'vieneu') setTtsDiag('');
+        // Engine rơi từ VieNeu xuống trình duyệt GIỮA LÚC NGHE trong app = tổng
+        // hợp native lỗi thật — gom chẩn đoán ngay (hộp đỏ lúc này là có ích,
+        // không còn là nhiễu dò lúc mở màn như trước).
+        else if (isInShell()) { void diagnoseTts().then(setTtsDiag); }
       },
       onVoices: ({ engine, voices, currentVoiceId }) => {
         setTtsEngine(engine);
