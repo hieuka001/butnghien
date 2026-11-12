@@ -582,7 +582,9 @@ const App: React.FC = () => {
       autoWriterDoneRef.current = true;
       return;
     }
-    setIsGenerating(true);
+    // Chỉ bật cờ "đang viết" khi phiên thật sự có viết — phiên chỉ-đọc mà bật
+    // là hiện pill "Chấp bút..." và khoá nút soạn thảo oan (phản hồi đợt 27).
+    setIsGenerating(autoWriteEnabled);
     let bibleCursor = worldBibleRef.current || worldBible;
     const writtenThisSession: number[] = [];
     try {
@@ -3592,7 +3594,7 @@ const App: React.FC = () => {
                     <span>🔊</span>
                     <span className="font-black story-font text-sm truncate">Chương {ttsSession.chapterIndex}: {ttsSession.title}</span>
                   </div>
-                  <p className="text-xs leading-relaxed text-emerald-50/85 line-clamp-3 min-h-10">{ttsState === 'loading' ? 'Đang tổng hợp giọng đọc…' : ttsSegmentText}</p>
+                  <p className="text-xs leading-relaxed text-emerald-50/85 line-clamp-3 min-h-10">{ttsState === 'loading' ? (ttsEngine === 'vieneu' ? 'Đang tổng hợp giọng VieNeu — lần đầu nạp engine có thể mất tới ~1 phút, các đoạn sau nhanh hơn…' : 'Đang tổng hợp giọng đọc…') : ttsSegmentText}</p>
                   <div className="flex items-center gap-2">
                     <button onClick={() => void speechPlayerRef.current?.previous()} disabled={ttsIndex <= 0} className="px-3 py-2.5 bg-white/10 rounded-xl text-xs font-black hover:bg-white/25 transition-all disabled:opacity-35">⏮</button>
                     {ttsState === 'playing' ? (
@@ -3729,7 +3731,7 @@ const App: React.FC = () => {
             </div>
             <button onClick={handleCloseTts} className="shrink-0 w-8 h-8 rounded-full bg-white/10 hover:bg-white/25 transition-all text-sm" title="Đóng trình nghe">✕</button>
           </div>
-          <p className="text-xs leading-relaxed text-emerald-50/85 line-clamp-2 min-h-5">{ttsState === 'loading' ? 'Đang tổng hợp giọng đọc…' : ttsSegmentText}</p>
+          <p className="text-xs leading-relaxed text-emerald-50/85 line-clamp-2 min-h-5">{ttsState === 'loading' ? (ttsEngine === 'vieneu' ? 'Đang tổng hợp giọng VieNeu — lần đầu nạp engine có thể mất tới ~1 phút, các đoạn sau nhanh hơn…' : 'Đang tổng hợp giọng đọc…') : ttsSegmentText}</p>
           <div className="flex flex-wrap items-center gap-2">
             <button onClick={() => void speechPlayerRef.current?.previous()} disabled={ttsIndex <= 0} className="px-3 py-2 bg-white/10 rounded-xl text-xs font-black hover:bg-white/25 transition-all disabled:opacity-35" title="Đoạn trước">⏮</button>
             {ttsState === 'playing' ? (

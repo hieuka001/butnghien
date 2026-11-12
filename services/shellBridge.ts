@@ -124,11 +124,17 @@ export const getTtsVoicesViaShell = async (): Promise<ShellTtsVoice[] | null> =>
   }
 };
 
-/** Tổng hợp một đoạn qua engine native trong app; null nếu vỏ cũ/không trả audio. */
+/** Tổng hợp một đoạn qua engine native trong app; null nếu vỏ cũ/không trả audio.
+ * Timeout 60s (đợt 27): engine nạp lần đầu gồm 4 phiên ONNX + 260MB tài sản —
+ * có thể chậm, nhưng nếu TREO hẳn thì không được để buổi nghe chết theo trong
+ * im lặng: quá hạn coi như lỗi, player tự rơi về giọng trình duyệt + chẩn đoán. */
 export const synthesizeViaShell = async (text: string, voice: string): Promise<Blob | null> => {
   if (!hasNativeBridge()) return null;
   try {
-    const res = await callNative<{ base64: string }>('ttsSynthesize', { text, voice });
+    const res = await Promise.race([
+      callNative<{ base64: string }>('ttsSynthesize', { text, voice }),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Tổng hợp VieNeu quá 60 giây')), 60000)),
+    ]);
     if (!res?.base64) return null;
     const binary = atob(res.base64);
     const bytes = new Uint8Array(binary.length);
