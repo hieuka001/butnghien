@@ -19,7 +19,6 @@ export interface TtsVoiceOption {
 // (không qua mạng), 'http' = fetch tới TTS Bridge / server nội bộ 127.0.0.1:3900.
 // Chốt ở lần dò đầu tiên thành công; tổng hợp đi đúng đường đã chốt.
 let vieneuTransport: "native" | "http" | null = null;
-export const getVieneuTransport = () => vieneuTransport;
 
 const ENDPOINT_STORAGE_KEY = "butnghien-tts-endpoint";
 export const DEFAULT_TTS_ENDPOINT = "http://127.0.0.1:3900";
@@ -55,11 +54,15 @@ const fetchWithTimeout = async (url: string, init: RequestInit, timeoutMs: numbe
 // từ trang https trong WKWebView có thể bị WebKit chặn); ngoài app thì fetch như cũ.
 export const probeVieneuBridge = async (): Promise<TtsVoiceOption[] | null> => {
   if (isInShell()) {
-    const nativeVoices = await getTtsVoicesViaShell();
-    if (nativeVoices?.length) {
-      vieneuTransport = "native";
-      return nativeVoices.map(voice => ({ id: voice.id, name: voice.name, source: "vieneu" as const }));
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const nativeVoices = await getTtsVoicesViaShell();
+      if (nativeVoices?.length) {
+        vieneuTransport = "native";
+        return nativeVoices.map(voice => ({ id: voice.id, name: voice.name, source: "vieneu" as const }));
+      }
+      if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 500));
     }
+    return null;
   }
   try {
     const response = await fetchWithTimeout(`${getTtsEndpoint()}/v1/audio/voices`, { method: "GET" }, 1800);
@@ -150,10 +153,19 @@ export const pickBestBrowserVoice = (): SpeechSynthesisVoice | null => {
 export type SpeechEngineKind = "vieneu" | "browser";
 export type SpeechPlayerState = "idle" | "loading" | "playing" | "paused" | "ended" | "error";
 
+export interface SpeechVoiceSnapshot {
+  engine: SpeechEngineKind;
+  voices: TtsVoiceOption[];
+  currentVoiceId: string;
+}
+
 interface SpeechPlayerCallbacks {
   onState: (state: SpeechPlayerState) => void;
   onIndex: (index: number) => void;
   onEngine: (engine: SpeechEngineKind) => void;
+  // Nguon dong bo DUY NHAT cho UI: moi thay doi engine/danh sach giong/giong
+  // dang chon deu day qua day — UI khong tu doc trang thai player rai rac nua.
+  onVoices?: (snapshot: SpeechVoiceSnapshot) => void;
 }
 
 // Trình phát theo hàng đợi đoạn văn: engine bridge tải audio từng đoạn (tải trước 1 đoạn),
@@ -182,6 +194,11 @@ export class SpeechPlayer {
   constructor(callbacks: SpeechPlayerCallbacks) {
     this.callbacks = callbacks;
     this.installMediaSessionHandlers();
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      // iOS nap danh sach giong bat dong bo — khong nghe su kien nay thi danh
+      // sach giong trinh duyet co the rong o lan vao man Nghe dau tien.
+      try { window.speechSynthesis.addEventListener?.("voiceschanged", () => this.emitVoices()); } catch { /* bo qua */ }
+    }
     if (typeof document !== "undefined") {
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible" && this.state === "playing") void this.acquireWakeLock();
@@ -245,6 +262,18 @@ export class SpeechPlayer {
     this.wakeLock = null;
   }
 
+  private emitVoices() {
+    this.callbacks.onVoices?.({ engine: this.engine, voices: this.voices, currentVoiceId: this.currentVoiceId });
+  }
+
+  // Giong VieNeu da chon duoc nho qua cac lan mo app (truoc day reset moi phien).
+  private applyStoredVoice() {
+    try {
+      const saved = localStorage.getItem("butnghien-tts-voice");
+      if (saved && this.vieneuVoices?.some(voice => voice.id === saved)) this.vieneuVoiceId = saved;
+    } catch { /* bo qua */ }
+  }
+
   get currentIndex() { return this.index; }
   get totalSegments() { return this.segments.length; }
   get currentState() { return this.state; }
@@ -302,7 +331,9 @@ export class SpeechPlayer {
     this.setIndex(0);
     this.vieneuVoices = await probeVieneuBridge();
     this.engine = this.vieneuVoices ? "vieneu" : "browser";
+    if (this.engine === "vieneu") this.applyStoredVoice();
     this.callbacks.onEngine(this.engine);
+    this.emitVoices();
   }
 
   get voices(): TtsVoiceOption[] {
@@ -327,8 +358,10 @@ export class SpeechPlayer {
     if (probed) {
       this.vieneuVoices = probed;
       this.engine = "vieneu";
+      this.applyStoredVoice();
       this.callbacks.onEngine(this.engine);
     }
+    this.emitVoices();
     return this.voices;
   }
 
@@ -336,9 +369,11 @@ export class SpeechPlayer {
     if (this.engine === "vieneu") {
       this.vieneuVoiceId = id;
       this.blobCache.clear();
+      try { localStorage.setItem("butnghien-tts-voice", id); } catch { /* bo qua */ }
     } else {
       this.browserVoice = getBrowserVietnameseVoices().find(voice => voice.voiceURI === id) || null;
     }
+    this.emitVoices();
     if (this.state === "playing" || this.state === "paused") void this.playFrom(this.index);
   }
 
@@ -397,6 +432,7 @@ export class SpeechPlayer {
         // Bridge chết giữa chừng → rơi xuống giọng trình duyệt để buổi nghe không đứt.
         this.engine = "browser";
         this.callbacks.onEngine("browser");
+        this.emitVoices();
         this.speakWithBrowser(target, generation);
       }
     } else {

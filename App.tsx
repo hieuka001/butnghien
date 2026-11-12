@@ -420,7 +420,12 @@ const App: React.FC = () => {
       onEngine: (engine) => {
         setTtsEngine(engine);
         if (engine === 'vieneu') setTtsDiag('');
-        if (speechPlayerRef.current) setTtsVoices(speechPlayerRef.current.voices);
+      },
+      onVoices: ({ engine, voices, currentVoiceId }) => {
+        setTtsEngine(engine);
+        setTtsVoices(voices);
+        if (currentVoiceId && voices.some(v => v.id === currentVoiceId)) setTtsVoiceId(currentVoiceId);
+        else if (voices.length) setTtsVoiceId(voices[0].id);
       },
     });
     player.onChapterSkip = (direction) => {
@@ -445,14 +450,10 @@ const App: React.FC = () => {
     const player = speechPlayerRef.current;
     if (!player) return;
     let cancelled = false;
-    void player.refreshVoices().then((voices) => {
+    void player.refreshVoices().then(() => {
       if (cancelled) return;
-      setTtsVoices(voices);
-      const current = player.currentVoiceId;
-      if (current && voices.some(v => v.id === current)) setTtsVoiceId(current);
-      else if (voices.length) { setTtsVoiceId(voices[0].id); player.setVoice(voices[0].id); }
       // Trong app mà vẫn không thấy VieNeu: gom chẩn đoán để xem tận gốc lỗi
-      // (server nội bộ / engine / tài sản / đường fetch) thay vì im lặng.
+      // (cầu native / engine / tài sản) thay vì im lặng.
       if (player.currentEngine !== 'vieneu' && isInShell()) {
         void diagnoseTts().then(text => { if (!cancelled) setTtsDiag(text); });
       }
@@ -478,9 +479,6 @@ const App: React.FC = () => {
     setTtsState('loading');
     const ownerProject = projects.find(p => p.id === activeProjectId);
     await player.load(segments, { rate: ttsRate, mediaTitle: `${ownerProject?.title || 'Bút Nghiên'} — Chương ${chapter.index}: ${chapter.title}` });
-    const voices = player.voices;
-    setTtsVoices(voices);
-    setTtsVoiceId(player.currentVoiceId || voices[0]?.id || '');
     setTtsSegmentText(player.currentSegmentText());
     await player.play();
   };
@@ -488,12 +486,9 @@ const App: React.FC = () => {
   const handleRetryTtsProbe = async () => {
     const player = speechPlayerRef.current;
     if (!player) return;
-    const voices = await player.refreshVoices();
-    setTtsVoices(voices);
-    const current = player.currentVoiceId;
-    if (current && voices.some(v => v.id === current)) setTtsVoiceId(current);
-    else if (voices.length) { setTtsVoiceId(voices[0].id); player.setVoice(voices[0].id); }
+    await player.refreshVoices();
     if (player.currentEngine !== 'vieneu' && isInShell()) setTtsDiag(await diagnoseTts());
+    else setTtsDiag('');
   };
 
   const handleCloseTts = () => {
@@ -517,8 +512,6 @@ const App: React.FC = () => {
     if (!segments.length) return;
     const ownerProject = projects.find(p => p.id === activeProjectId);
     await player.load(segments, { rate: ttsRate, mediaTitle: `${ownerProject?.title || 'Bút Nghiên'} — Chương ${chapter.index}: ${chapter.title}` });
-    setTtsVoices(player.voices);
-    setTtsVoiceId(player.currentVoiceId || player.voices[0]?.id || '');
     setTtsSession({ chapterIndex: chapter.index, title: chapter.title, total: segments.length });
     setTtsSegmentText(player.currentSegmentText());
     await player.play();
@@ -3555,12 +3548,12 @@ const App: React.FC = () => {
                 </div>
                 <label className="flex items-center gap-2 bg-stone-50 rounded-xl px-3 py-2.5">
                   <span className="text-[11px] font-black uppercase text-stone-600 whitespace-nowrap">Giọng đọc</span>
-                  {ttsVoices.length > 1 ? (
-                    <select value={ttsVoiceId} onChange={(e) => { setTtsVoiceId(e.target.value); speechPlayerRef.current?.setVoice(e.target.value); }} className="ml-auto min-w-0 max-w-[62%] bg-white rounded-lg px-2 py-1 text-[11px] font-black outline-none border">
+                  {ttsVoices.length >= 1 ? (
+                    <select value={ttsVoiceId} disabled={ttsVoices.length <= 1} onChange={(e) => { setTtsVoiceId(e.target.value); speechPlayerRef.current?.setVoice(e.target.value); }} className="ml-auto min-w-0 max-w-[62%] bg-white rounded-lg px-2 py-1 text-[11px] font-black outline-none border disabled:opacity-70">
                       {ttsVoices.map(voice => <option key={voice.id} value={voice.id}>{voice.name}</option>)}
                     </select>
                   ) : (
-                    <span className="ml-auto text-[11px] font-bold text-stone-400">{ttsEngine === 'vieneu' ? 'VieNeu mặc định' : 'Giọng hệ thống'}</span>
+                    <span className="ml-auto text-[11px] font-bold text-stone-400">Đang dò giọng…</span>
                   )}
                 </label>
                 {ttsDiag && (
@@ -3570,11 +3563,13 @@ const App: React.FC = () => {
                     <button onClick={() => void handleRetryTtsProbe()} className="text-[10px] font-black uppercase text-red-500 underline">Dò lại</button>
                   </div>
                 )}
+                {!isInShell() && (<>
                 <label className="flex items-center gap-2 bg-stone-50 rounded-xl px-3 py-2.5">
                   <span className="text-[11px] font-black uppercase text-stone-600 whitespace-nowrap">Địa chỉ TTS Bridge</span>
                   <input value={ttsEndpoint} onChange={(e) => setTtsEndpoint(e.target.value)} onBlur={() => { try { localStorage.setItem('butnghien-tts-endpoint', ttsEndpoint.trim() || 'http://127.0.0.1:3900'); } catch { /* ignore */ } }} placeholder="http://127.0.0.1:3900" className="flex-1 min-w-0 bg-white rounded-lg px-2 py-1 text-[11px] font-bold outline-none border" inputMode="url" />
                 </label>
-                <p className="-mt-1 px-1 text-[10px] leading-relaxed text-stone-400">Bản app iOS 2.0 đã có sẵn giọng VieNeu ngay trong máy — không cần chỉnh mục này. Chỉ khi dùng bản web mới cần nhập địa chỉ máy tính chạy TTS Bridge, ví dụ http://192.168.1.20:3900.</p>
+                <p className="-mt-1 px-1 text-[10px] leading-relaxed text-stone-400">Chỉ khi dùng bản web mới cần nhập địa chỉ máy tính chạy TTS Bridge, ví dụ http://192.168.1.20:3900. Trong app iOS, giọng VieNeu chạy ngay trong máy qua cầu native.</p>
+                </>)}
                 <label className="flex items-center gap-2 bg-stone-50 rounded-xl px-3 py-2.5">
                   <span className="text-[11px] font-black uppercase text-stone-600">Đọc từ chương</span>
                   <input type="number" min={0} value={autoReadFrom} onChange={(e) => setAutoReadFrom(Math.max(0, Number(e.target.value) || 0))} disabled={autoSession?.running || !autoReadEnabled} className="ml-auto w-20 bg-white rounded-lg px-2 py-1 text-[11px] font-black outline-none border text-center" />
@@ -3608,8 +3603,8 @@ const App: React.FC = () => {
                     <select value={ttsRate} onChange={(e) => { const rate = Number(e.target.value); setTtsRateState(rate); speechPlayerRef.current?.setRate(rate); }} className="ml-auto bg-white/10 rounded-xl px-2 py-2 text-[11px] font-black outline-none [&>option]:text-stone-900">
                       {[0.75, 1, 1.25, 1.5, 2].map(rate => <option key={rate} value={rate}>{rate}×</option>)}
                     </select>
-                    {ttsVoices.length > 1 && (
-                      <select value={ttsVoiceId} onChange={(e) => { setTtsVoiceId(e.target.value); speechPlayerRef.current?.setVoice(e.target.value); }} className="bg-white/10 rounded-xl px-2 py-2 text-[11px] font-black outline-none max-w-40 [&>option]:text-stone-900">
+                    {ttsVoices.length >= 1 && (
+                      <select value={ttsVoiceId} disabled={ttsVoices.length <= 1} onChange={(e) => { setTtsVoiceId(e.target.value); speechPlayerRef.current?.setVoice(e.target.value); }} className="bg-white/10 rounded-xl px-2 py-2 text-[11px] font-black outline-none max-w-40 [&>option]:text-stone-900 disabled:opacity-70">
                         {ttsVoices.map(voice => <option key={voice.id} value={voice.id}>{voice.name}</option>)}
                       </select>
                     )}
@@ -3743,8 +3738,8 @@ const App: React.FC = () => {
             <select value={ttsRate} onChange={(e) => { const rate = Number(e.target.value); setTtsRateState(rate); speechPlayerRef.current?.setRate(rate); }} className="ml-auto bg-white/10 rounded-xl px-2 py-2 text-[11px] font-black outline-none [&>option]:text-stone-900" title="Tốc độ đọc">
               {[0.75, 1, 1.25, 1.5, 2].map(rate => <option key={rate} value={rate}>{rate}×</option>)}
             </select>
-            {ttsVoices.length > 1 && (
-              <select value={ttsVoiceId} onChange={(e) => { setTtsVoiceId(e.target.value); speechPlayerRef.current?.setVoice(e.target.value); }} className="bg-white/10 rounded-xl px-2 py-2 text-[11px] font-black outline-none max-w-44 [&>option]:text-stone-900" title="Giọng đọc">
+            {ttsVoices.length >= 1 && (
+              <select value={ttsVoiceId} disabled={ttsVoices.length <= 1} onChange={(e) => { setTtsVoiceId(e.target.value); speechPlayerRef.current?.setVoice(e.target.value); }} className="bg-white/10 rounded-xl px-2 py-2 text-[11px] font-black outline-none max-w-44 [&>option]:text-stone-900 disabled:opacity-70" title="Giọng đọc">
                 {ttsVoices.map(voice => <option key={voice.id} value={voice.id}>{voice.name}</option>)}
               </select>
             )}

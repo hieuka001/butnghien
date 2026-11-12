@@ -66,21 +66,6 @@ export const saveProjectToDb = async (project: StoryProject): Promise<void> => {
   }
 };
 
-export const saveProjectsToDb = async (projects: StoryProject[]): Promise<void> => {
-  const db = await openDatabase();
-
-  try {
-    const transaction = db.transaction(PROJECT_STORE, "readwrite");
-    const store = transaction.objectStore(PROJECT_STORE);
-    for (const project of projects) {
-      store.put(project);
-    }
-    await transactionDone(transaction);
-  } finally {
-    db.close();
-  }
-};
-
 export const deleteProjectFromDb = async (projectId: string): Promise<void> => {
   const db = await openDatabase();
 
