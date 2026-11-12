@@ -3514,7 +3514,7 @@ const App: React.FC = () => {
                   <span className="text-[11px] font-black uppercase text-stone-600 whitespace-nowrap">Địa chỉ TTS Bridge</span>
                   <input value={ttsEndpoint} onChange={(e) => setTtsEndpoint(e.target.value)} onBlur={() => { try { localStorage.setItem('butnghien-tts-endpoint', ttsEndpoint.trim() || 'http://127.0.0.1:3900'); } catch { /* ignore */ } }} placeholder="http://127.0.0.1:3900" className="flex-1 min-w-0 bg-white rounded-lg px-2 py-1 text-[11px] font-bold outline-none border" inputMode="url" />
                 </label>
-                <p className="-mt-1 px-1 text-[10px] leading-relaxed text-stone-400">Nghe giọng VieNeu từ máy tính khi dùng điện thoại/app: nhập địa chỉ máy tính chạy TTS Bridge, ví dụ http://192.168.1.20:3900 (cùng Wi-Fi) hoặc địa chỉ Tailscale của máy.</p>
+                <p className="-mt-1 px-1 text-[10px] leading-relaxed text-stone-400">Bản app iOS 2.0 đã có sẵn giọng VieNeu ngay trong máy — không cần chỉnh mục này. Chỉ khi dùng bản web mới cần nhập địa chỉ máy tính chạy TTS Bridge, ví dụ http://192.168.1.20:3900.</p>
                 <label className="flex items-center gap-2 bg-stone-50 rounded-xl px-3 py-2.5">
                   <span className="text-[11px] font-black uppercase text-stone-600">Đọc từ chương</span>
                   <input type="number" min={0} value={autoReadFrom} onChange={(e) => setAutoReadFrom(Math.max(0, Number(e.target.value) || 0))} disabled={autoSession?.running || !autoReadEnabled} className="ml-auto w-20 bg-white rounded-lg px-2 py-1 text-[11px] font-black outline-none border text-center" />
