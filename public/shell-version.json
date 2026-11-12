@@ -1,1 +1,5 @@
-{"ipaUrl": "https://github.com/hieuka001/butnghien-ios/releases", "latestShell": "2.0.0", "note": "Bản vỏ iOS 2.0.0: giọng VieNeu chạy ngay trong app, giao diện khóa không zoom/không overscroll. Chỉ khi số này tăng mới cần cài lại IPA; mọi cập nhật nội dung/tính năng khác tự đến qua bản web."}
+{
+  "ipaUrl": "https://github.com/hieuka001/butnghien-ios/releases",
+  "latestShell": "2.0.1",
+  "note": "Bản vỏ iOS 2.0.1: vá đường giọng VieNeu trong app (cầu native + chẩn đoán). Chỉ khi số này tăng mới cần cài lại IPA; mọi cập nhật nội dung/tính năng khác tự đến qua bản web."
+}
