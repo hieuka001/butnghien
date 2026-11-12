@@ -23,9 +23,9 @@ import {
 } from './services/databaseService';
 import { readLocalTombstones, persistLocalTombstones, writeLocalTombstone, clearLocalTombstone, applyTombstones, TombstoneMap } from './services/tombstoneStore';
 import { countWords, clamp, isLikelyCutOffText, stripDirectionLabels, splitSentencesForSpeech } from './services/textUtils';
-import { SpeechPlayer, SpeechPlayerState, SpeechEngineKind, TtsVoiceOption, diagnoseTts, warmupVieneuVoice } from './services/ttsService';
+import { SpeechPlayer, SpeechPlayerState, SpeechEngineKind, TtsVoiceOption, diagnoseTts, warmupVieneuVoice, BUILTIN_VIENEU_VOICES } from './services/ttsService';
 import { planAutoWriteChapters, nextInReadQueue } from './services/autoSession';
-import { isInShell, getShellInfo, saveFileViaShell, compareVersions, synthesizeViaShell, getAudioStatsViaShell, getCacheStatusViaShell, clearAudioViaShell } from './services/shellBridge';
+import { isInShell, getShellInfo, saveFileViaShell, compareVersions } from './services/shellBridge';
 import {
   deleteProjectFromFirebase,
   loadDeletedProjectIdsFromFirebase,
@@ -457,8 +457,6 @@ const App: React.FC = () => {
     void player.refreshVoices().then(() => {
       if (cancelled) return;
       warmVoiceInApp(player.currentVoiceId || 'default');
-      void refreshAudioStats();
-      void refreshChapterAudio(player.currentVoiceId || 'default');
       // Trong app mà vẫn không thấy VieNeu: gom chẩn đoán để xem tận gốc lỗi
       // (cầu native / engine / tài sản) thay vì im lặng.
       if (player.currentEngine !== 'vieneu' && isInShell()) {
@@ -502,6 +500,7 @@ const App: React.FC = () => {
     void warmupVieneuVoice(voiceId).then(ok => {
       if (warmTokenRef.current !== token) return;
       setTtsWarm({ voiceId, status: ok ? 'ready' : 'error' });
+      if (ok) markVoiceInstalled(voiceId);
       if (!ok) void diagnoseTts().then(setTtsDiag);
     });
   };
@@ -509,82 +508,35 @@ const App: React.FC = () => {
     setTtsVoiceId(id);
     speechPlayerRef.current?.setVoice(id);
     warmVoiceInApp(id);
-    void refreshChapterAudio(id);
   };
 
-  // ── Âm thanh tải về app (đợt 30): tổng hợp TRƯỚC toàn bộ đoạn của các
-  // chương đã viết theo giọng đang chọn, lưu bền trong máy — nghe lại phát
-  // ngay từ đĩa, không tổng hợp lại, không cần mạng.
-  const [audioStats, setAudioStats] = useState<{ files: number; bytes: number } | null>(null);
-  const [chapterAudio, setChapterAudio] = useState<Record<number, { present: number; total: number }>>({});
-  const [audioDl, setAudioDl] = useState<{ running: boolean; chapterPos: number; chaptersTotal: number; segDone: number; segTotal: number; failed: number; done: boolean; message: string }>({ running: false, chapterPos: 0, chaptersTotal: 0, segDone: 0, segTotal: 0, failed: 0, done: false, message: '' });
-  const audioDlStopRef = useRef(false);
-
-  const refreshAudioStats = async () => {
-    const stats = await getAudioStatsViaShell();
-    if (stats) setAudioStats(stats);
+  // ── Cài giọng vào app (đợt 31 — thay hẳn cơ chế lưu đoạn âm thanh của đợt
+  // 30 theo yêu cầu): "tải giọng" = kích hoạt giọng đó trên LÕI VieNeu đã tích
+  // hợp sẵn trong app + kiểm chứng bằng một câu mẫu. Giọng đã cài thì ấn nghe
+  // là lõi đọc trực tiếp ngay; app KHÔNG lưu lại âm thanh đã đọc.
+  const [installedVoices, setInstalledVoices] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('butnghien-voices-installed') || '[]'); } catch { return []; }
+  });
+  const markVoiceInstalled = (voiceId: string) => {
+    setInstalledVoices(prev => {
+      if (prev.includes(voiceId)) return prev;
+      const next = [...prev, voiceId];
+      try { localStorage.setItem('butnghien-voices-installed', JSON.stringify(next)); } catch { /* bo qua */ }
+      return next;
+    });
   };
-
-  const refreshChapterAudio = async (voiceId: string) => {
-    if (!isInShell() || !voiceId) return;
-    const source = writtenChaptersRef.current.length ? writtenChaptersRef.current : writtenChapters;
-    const chapters = sortChapters(source.filter(c => c.content));
-    const next: Record<number, { present: number; total: number }> = {};
-    for (const chapter of chapters) {
-      const segments = splitSentencesForSpeech(chapter.content || '');
-      if (!segments.length) continue;
-      const status = await getCacheStatusViaShell(voiceId, segments);
-      if (status) next[chapter.index] = status;
-    }
-    setChapterAudio(next);
-  };
-
-  const handleDownloadAllAudio = async () => {
-    const player = speechPlayerRef.current;
-    if (!player || !isInShell()) return;
-    if (player.currentEngine !== 'vieneu') { alert('Giọng VieNeu chưa sẵn sàng — chờ nạp giọng xong rồi tải.'); return; }
-    const voice = player.currentVoiceId || ttsVoiceId || 'default';
-    const source = writtenChaptersRef.current.length ? writtenChaptersRef.current : writtenChapters;
-    const chapters = sortChapters(source.filter(c => c.content));
-    if (!chapters.length) { alert('Chưa có chương nào đã viết để tải âm thanh.'); return; }
-    const segLists = chapters.map(c => splitSentencesForSpeech(c.content || ''));
-    const segTotal = segLists.reduce((sum, list) => sum + list.length, 0);
-    audioDlStopRef.current = false;
-    setAudioDl({ running: true, chapterPos: 0, chaptersTotal: chapters.length, segDone: 0, segTotal, failed: 0, done: false, message: '' });
-    let segDone = 0;
-    let failed = 0;
-    let consecutiveFails = 0;
-    outer: for (let ci = 0; ci < chapters.length; ci++) {
-      setAudioDl(prev => ({ ...prev, chapterPos: ci + 1 }));
-      for (const segment of segLists[ci]) {
-        if (audioDlStopRef.current) break outer;
-        const blob = await synthesizeViaShell(segment, voice);
-        if (blob) consecutiveFails = 0;
-        else { failed += 1; consecutiveFails += 1; }
-        segDone += 1;
-        setAudioDl(prev => ({ ...prev, segDone, failed }));
-        if (consecutiveFails >= 3) break outer;
+  const installVoice = (voiceId: string) => {
+    if (!isInShell()) return;
+    setTtsWarm({ voiceId, status: 'warming' });
+    void warmupVieneuVoice(voiceId).then(ok => {
+      if (ok) {
+        markVoiceInstalled(voiceId);
+        setTtsWarm({ voiceId, status: 'ready' });
+      } else {
+        setTtsWarm({ voiceId, status: 'error' });
+        void diagnoseTts().then(setTtsDiag);
       }
-    }
-    const stopped = audioDlStopRef.current;
-    setAudioDl(prev => ({
-      ...prev, running: false, done: true,
-      message: stopped ? 'Đã dừng tải — phần đã tải vẫn dùng được.'
-        : consecutiveFails >= 3 ? 'Tải gián đoạn giữa chừng — engine chưa sẵn sàng, xem chẩn đoán phía trên.'
-        : `Đã tải xong ${segDone - failed}/${segTotal} đoạn. Từ giờ nghe là phát ngay.`,
-    }));
-    if (consecutiveFails >= 3) void diagnoseTts().then(setTtsDiag);
-    void refreshAudioStats();
-    void refreshChapterAudio(voice);
-  };
-
-  const handleClearAudio = async () => {
-    if (!window.confirm('Xoá toàn bộ âm thanh đã tải trong app? Nghe lại sẽ phải tổng hợp lại từ đầu.')) return;
-    if (await clearAudioViaShell()) {
-      setChapterAudio({});
-      setAudioDl(prev => ({ ...prev, done: false, message: '' }));
-      void refreshAudioStats();
-    }
+    });
   };
 
   const handleRetryTtsProbe = async () => {
@@ -3669,30 +3621,29 @@ const App: React.FC = () => {
                     {ttsWarm.status === 'error' && 'Nạp giọng chưa xong — xem chẩn đoán bên dưới.'}
                   </p>
                 )}
-                {isInShell() && (
-                  <div className="bg-stone-50 rounded-xl px-3 py-2.5 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] font-black uppercase text-stone-600">Âm thanh trong app</span>
-                      <span className="ml-auto text-[10px] font-bold text-stone-400 tnum">{audioStats ? `${audioStats.files} đoạn · ${(audioStats.bytes / 1048576).toFixed(0)} MB` : '…'}</span>
-                    </div>
-                    <p className="text-[10px] leading-relaxed text-stone-400">Tải trước toàn bộ âm thanh theo giọng đang chọn về máy. Đã tải là nghe phát ngay — không tổng hợp lại, không cần mạng.</p>
-                    {audioDl.running ? (
-                      <div className="space-y-1.5">
-                        <div className="h-2 bg-stone-200 rounded-full overflow-hidden">
-                          <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${audioDl.segTotal ? Math.round((audioDl.segDone / audioDl.segTotal) * 100) : 0}%` }} />
+                {ttsEngine === 'vieneu' && (
+                  <div className="space-y-1.5">
+                    {[{ id: 'default', name: 'Giọng mặc định — Hải Đăng · Nam · Bắc' }, ...BUILTIN_VIENEU_VOICES].map(voice => {
+                      const installed = installedVoices.includes(voice.id);
+                      const isCurrent = ttsVoiceId === voice.id;
+                      const isWarming = ttsWarm.voiceId === voice.id && ttsWarm.status === 'warming';
+                      return (
+                        <div key={voice.id} className={`flex items-center gap-2 rounded-xl px-3 py-2 ${isCurrent ? 'bg-emerald-50 border border-emerald-200' : 'bg-stone-50'}`}>
+                          <button onClick={() => handleVoiceChange(voice.id)} className="flex-1 min-w-0 text-left">
+                            <span className="block text-[11px] font-bold text-stone-700 truncate">{voice.name}</span>
+                            <span className="block text-[9px] font-black uppercase text-stone-400">{isCurrent ? 'Đang chọn để đọc' : 'Chạm để chọn'}</span>
+                          </button>
+                          {installed ? (
+                            <span className="shrink-0 text-[9px] font-black uppercase text-emerald-600">✓ Đã cài</span>
+                          ) : (
+                            <button onClick={() => installVoice(voice.id)} disabled={isWarming} className="shrink-0 px-2.5 py-1.5 bg-stone-900 text-white rounded-lg text-[9px] font-black uppercase disabled:opacity-50">
+                              {isWarming ? 'Đang tải…' : 'Tải giọng'}
+                            </button>
+                          )}
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-bold text-stone-500 tnum">Chương {audioDl.chapterPos}/{audioDl.chaptersTotal} · đoạn {audioDl.segDone}/{audioDl.segTotal}{audioDl.failed ? ` · lỗi ${audioDl.failed}` : ''}</span>
-                          <button onClick={() => { audioDlStopRef.current = true; }} className="ml-auto text-[10px] font-black uppercase text-red-500 underline">Dừng tải</button>
-                        </div>
-                      </div>
-                    ) : (
-                      <button onClick={() => void handleDownloadAllAudio()} className="btn-primary w-full py-2.5 text-[10px] font-black uppercase tracking-widest">Tải toàn bộ âm thanh về app</button>
-                    )}
-                    {audioDl.done && audioDl.message && <p className="text-[10px] font-bold text-emerald-600 leading-relaxed">{audioDl.message}</p>}
-                    {audioStats && audioStats.files > 0 && !audioDl.running && (
-                      <button onClick={() => void handleClearAudio()} className="text-[10px] font-black uppercase text-stone-400 underline">Xoá âm thanh đã tải</button>
-                    )}
+                      );
+                    })}
+                    <p className="px-1 text-[10px] leading-relaxed text-stone-400">Lõi VieNeu đã tích hợp sẵn trong app. Tải giọng nào thì giọng đó được kích hoạt — ấn nghe là lõi đọc trực tiếp ngay, app không lưu lại âm thanh đã đọc.</p>
                   </div>
                 )}
                 {ttsDiag && (
@@ -3764,8 +3715,6 @@ const App: React.FC = () => {
                       </span>
                       {isWriting && <span className="text-[9px] font-black uppercase text-orange-500">✍ Đang viết</span>}
                       {isReading && <span className="text-[9px] font-black uppercase text-emerald-600">🔊 Đang đọc</span>}
-                      {chapterAudio[c.index] && chapterAudio[c.index].total > 0 && chapterAudio[c.index].present >= chapterAudio[c.index].total && <span className="text-[9px] font-black uppercase text-emerald-600">✓ Đã tải</span>}
-                      {chapterAudio[c.index] && chapterAudio[c.index].present > 0 && chapterAudio[c.index].present < chapterAudio[c.index].total && <span className="text-[9px] font-black uppercase text-stone-400 tnum">⬇ {chapterAudio[c.index].present}/{chapterAudio[c.index].total}</span>}
                       {c.biblePending && <span className="text-[9px] font-black uppercase text-amber-600">⚠ Canon</span>}
                     </button>
                   );

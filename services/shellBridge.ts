@@ -155,37 +155,6 @@ export const getTtsDiagnosticsViaShell = async (): Promise<Record<string, unknow
   }
 };
 
-export interface ShellAudioStats { files: number; bytes: number }
-
-/** Thống kê kho âm thanh đã tải trong app (qua chẩn đoán vỏ 2.0.4+). */
-export const getAudioStatsViaShell = async (): Promise<ShellAudioStats | null> => {
-  const diag = await getTtsDiagnosticsViaShell();
-  if (!diag) return null;
-  return { files: Number(diag.audioFiles ?? 0), bytes: Number(diag.audioBytes ?? 0) };
-};
-
-/** Bao nhiêu đoạn trong danh sách đã nằm sẵn trong kho theo giọng này (vỏ 2.0.4+). */
-export const getCacheStatusViaShell = async (voice: string, segments: string[]): Promise<{ present: number; total: number } | null> => {
-  if (!hasNativeBridge()) return null;
-  try {
-    const res = await callNative<{ present: number; total: number }>('ttsCacheStatus', { voice, segments });
-    return { present: Number(res?.present ?? 0), total: Number(res?.total ?? segments.length) };
-  } catch {
-    return null;
-  }
-};
-
-/** Xoá toàn bộ kho âm thanh đã tải trong app (vỏ 2.0.4+). */
-export const clearAudioViaShell = async (): Promise<boolean> => {
-  if (!hasNativeBridge()) return false;
-  try {
-    await callNative('ttsClearAudio', {});
-    return true;
-  } catch {
-    return false;
-  }
-};
-
 /** So sánh version dạng x.y.z: <0 nếu a<b, 0 nếu bằng, >0 nếu a>b. */
 export const compareVersions = (a: string, b: string): number => {
   const pa = a.split('.').map(n => Number(n) || 0);
