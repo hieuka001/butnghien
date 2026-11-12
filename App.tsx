@@ -1222,15 +1222,24 @@ const App: React.FC = () => {
     ));
   };
 
-  const downloadTextFile = (filename: string, content: string, mime = 'text/plain;charset=utf-8') => {
-    const blob = new Blob([content], { type: mime });
-    if (isInShell()) { void saveFileViaShell(filename, blob); return; }
+  const triggerAnchorDownload = (filename: string, blob: Blob) => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
     link.download = filename;
     link.click();
     URL.revokeObjectURL(url);
+  };
+
+  const downloadTextFile = (filename: string, content: string, mime = 'text/plain;charset=utf-8') => {
+    const blob = new Blob([content], { type: mime });
+    if (isInShell()) {
+      // Ưu tiên khay chia sẻ iOS qua cầu native; cầu lỗi thì rơi về tải xuống
+      // thường — không được nuốt file như trước (đợt 24).
+      void (async () => { if (!(await saveFileViaShell(filename, blob))) triggerAnchorDownload(filename, blob); })();
+      return;
+    }
+    triggerAnchorDownload(filename, blob);
   };
 
   const buildManuscriptText = (project: StoryProject) => {
@@ -1514,13 +1523,11 @@ const App: React.FC = () => {
   };
 
   const downloadBlobFile = (filename: string, blob: Blob) => {
-    if (isInShell()) { void saveFileViaShell(filename, blob); return; }
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    link.click();
-    URL.revokeObjectURL(url);
+    if (isInShell()) {
+      void (async () => { if (!(await saveFileViaShell(filename, blob))) triggerAnchorDownload(filename, blob); })();
+      return;
+    }
+    triggerAnchorDownload(filename, blob);
   };
 
   const safeProjectFileName = (project: StoryProject) =>

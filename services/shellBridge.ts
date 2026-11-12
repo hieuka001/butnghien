@@ -2,25 +2,23 @@
 // Ngoài vỏ (trình duyệt thường) mọi hàm đều no-op/trả null để web chạy y nguyên.
 //
 // Vỏ nạp bản web trực tuyến nên cập nhật nội dung/tính năng tự đến theo deploy;
-// cầu nối này chỉ lo 2 việc native thật sự cần:
-//  1) saveFile — WKWebView không tải blob như Safari; file xuất bản (.txt/.md/
-//     .json/.docx) được đưa qua plugin ButNghienBridge để mở khay lưu/chia sẻ iOS.
-//  2) getInfo — biết phiên bản vỏ đang chạy, so với /shell-version.json để báo
-//     khi cần cài IPA mới (chỉ khi phần native thay đổi).
-
-interface ShellBridgePlugin {
-  getInfo: () => Promise<{ version: string; build?: string; platform?: string; ttsNative?: boolean }>;
-  saveFile: (options: { name: string; base64: string }) => Promise<unknown>;
-  // Vỏ 2.0.1+: cầu TTS native. Vỏ cũ không có — gọi sẽ bị reject, nơi gọi tự bắt.
-  ttsVoices?: () => Promise<{ voices: Array<{ id: string; name: string }> }>;
-  ttsSynthesize?: (options: { text: string; voice: string }) => Promise<{ base64: string }>;
-  ttsDiagnostics?: () => Promise<Record<string, unknown>>;
-}
+// cầu nối này lo các việc native thật sự cần: getInfo (báo bản vỏ mới),
+// saveFile (mở khay lưu/chia sẻ iOS cho file xuất bản), và TTS native
+// (ttsVoices/ttsSynthesize/ttsDiagnostics của engine VieNeu trong app).
+//
+// BÀI HỌC ĐỢT 24 (2026-11-12): bản cũ gọi window.Capacitor.registerPlugin() —
+// hàm đó thuộc @capacitor/core (web app phải tự bundle), native-bridge.js của
+// vỏ KHÔNG hề cung cấp → proxy luôn null, MỌI method native chết im lặng từ
+// bản vỏ 1.0.0 (banner báo cập nhật, xuất file, TTS đều dính). native-bridge
+// chỉ đảm bảo: isNativePlatform/getPlatform + nativePromise/nativeCallback.
+// => Gọi thẳng nativePromise('ButnghienBridge', method, options) như dưới đây.
 
 interface CapacitorGlobal {
   isNativePlatform?: () => boolean;
-  registerPlugin?: (name: string) => unknown;
+  nativePromise?: (pluginName: string, methodName: string, options?: unknown) => Promise<unknown>;
 }
+
+const PLUGIN_NAME = 'ButnghienBridge';
 
 const capacitor = (): CapacitorGlobal | undefined =>
   (window as unknown as { Capacitor?: CapacitorGlobal }).Capacitor;
@@ -33,22 +31,26 @@ export const isInShell = (): boolean => {
   }
 };
 
-let cachedPlugin: ShellBridgePlugin | null | undefined;
-const bridge = (): ShellBridgePlugin | null => {
-  if (cachedPlugin !== undefined) return cachedPlugin;
+const hasNativeBridge = (): boolean => {
   try {
-    cachedPlugin = (capacitor()?.registerPlugin?.('ButNghienBridge') as ShellBridgePlugin) ?? null;
+    return typeof capacitor()?.nativePromise === 'function';
   } catch {
-    cachedPlugin = null;
+    return false;
   }
-  return cachedPlugin;
 };
 
+const callNative = async <T>(method: string, options?: unknown): Promise<T> => {
+  const cap = capacitor();
+  if (!cap?.nativePromise) throw new Error('Cầu native không có nativePromise');
+  return cap.nativePromise(PLUGIN_NAME, method, options) as Promise<T>;
+};
+
+interface ShellInfo { version: string; build?: string; platform?: string; ttsNative?: boolean }
+
 export const getShellInfo = async (): Promise<{ version: string } | null> => {
-  const plugin = bridge();
-  if (!plugin) return null;
+  if (!hasNativeBridge()) return null;
   try {
-    const info = await plugin.getInfo();
+    const info = await callNative<ShellInfo>('getInfo');
     return info?.version ? { version: info.version } : null;
   } catch {
     return null;
@@ -67,10 +69,9 @@ const blobToBase64 = async (blob: Blob): Promise<string> => {
 
 /** Trả true nếu vỏ đã nhận file (khay lưu/chia sẻ iOS sẽ hiện). */
 export const saveFileViaShell = async (name: string, blob: Blob): Promise<boolean> => {
-  const plugin = bridge();
-  if (!plugin) return false;
+  if (!hasNativeBridge()) return false;
   try {
-    await plugin.saveFile({ name, base64: await blobToBase64(blob) });
+    await callNative('saveFile', { name, base64: await blobToBase64(blob) });
     return true;
   } catch {
     return false;
@@ -82,33 +83,26 @@ export interface ShellTtsVoice { id: string; name: string }
 /** Chẩn đoán cầu native TTS theo từng method, GIỮ NGUYÊN thông báo lỗi gốc —
  * để phân biệt: vỏ cũ (method chưa có) / plugin không đăng ký / lỗi phía native. */
 export const diagnoseShellTts = async (): Promise<string[]> => {
-  const plugin = bridge();
-  if (!plugin) return ['Cầu native: không dựng được proxy plugin'];
-  const lines: string[] = [];
   const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+  if (!hasNativeBridge()) return ['Cầu native: KHÔNG có nativePromise (đang ngoài app?)'];
+  const lines: string[] = ['Cầu native: có nativePromise'];
   try {
-    const info = await plugin.getInfo();
+    const info = await callNative<ShellInfo>('getInfo');
     lines.push(`getInfo: vỏ ${info?.version ?? '?'} · ttsNative: ${String(info?.ttsNative ?? '?')}`);
   } catch (e) {
     lines.push(`getInfo LỖI: ${errText(e)}`);
   }
   try {
-    if (!plugin.ttsVoices) lines.push('ttsVoices: proxy không có method');
-    else {
-      const res = await plugin.ttsVoices();
-      lines.push(`ttsVoices: OK — ${Array.isArray(res?.voices) ? res.voices.length : 0} giọng`);
-    }
+    const res = await callNative<{ voices: Array<{ id: string; name: string }> }>('ttsVoices');
+    lines.push(`ttsVoices: OK — ${Array.isArray(res?.voices) ? res.voices.length : 0} giọng`);
   } catch (e) {
     lines.push(`ttsVoices LỖI: ${errText(e)}`);
   }
   try {
-    if (!plugin.ttsDiagnostics) lines.push('ttsDiagnostics: proxy không có method');
-    else {
-      const diag = await plugin.ttsDiagnostics();
-      lines.push(`ttsDiagnostics: OK · server: ${String(diag?.listener ?? '?')} · engine: ${String(diag?.engine ?? '?')}`);
-      if (diag?.engineError) lines.push(`Lỗi engine: ${String(diag.engineError)}`);
-      lines.push(`Native tự gọi /health: ${String(diag?.loopback ?? '?')}`);
-    }
+    const diag = await callNative<Record<string, unknown>>('ttsDiagnostics');
+    lines.push(`ttsDiagnostics: OK · server: ${String(diag?.listener ?? '?')} · engine: ${String(diag?.engine ?? '?')}`);
+    if (diag?.engineError) lines.push(`Lỗi engine: ${String(diag.engineError)}`);
+    lines.push(`Native tự gọi /health: ${String(diag?.loopback ?? '?')}`);
   } catch (e) {
     lines.push(`ttsDiagnostics LỖI: ${errText(e)}`);
   }
@@ -117,10 +111,9 @@ export const diagnoseShellTts = async (): Promise<string[]> => {
 
 /** Danh sách giọng VieNeu qua cầu native (vỏ 2.0.1+); null nếu vỏ cũ/không có. */
 export const getTtsVoicesViaShell = async (): Promise<ShellTtsVoice[] | null> => {
-  const plugin = bridge();
-  if (!plugin?.ttsVoices) return null;
+  if (!hasNativeBridge()) return null;
   try {
-    const res = await plugin.ttsVoices();
+    const res = await callNative<{ voices: Array<{ id: string; name: string }> }>('ttsVoices');
     const voices = Array.isArray(res?.voices) ? res.voices : [];
     const mapped = voices
       .filter(v => v && typeof v.id === 'string')
@@ -133,10 +126,9 @@ export const getTtsVoicesViaShell = async (): Promise<ShellTtsVoice[] | null> =>
 
 /** Tổng hợp một đoạn qua engine native trong app; null nếu vỏ cũ/không trả audio. */
 export const synthesizeViaShell = async (text: string, voice: string): Promise<Blob | null> => {
-  const plugin = bridge();
-  if (!plugin?.ttsSynthesize) return null;
+  if (!hasNativeBridge()) return null;
   try {
-    const res = await plugin.ttsSynthesize({ text, voice });
+    const res = await callNative<{ base64: string }>('ttsSynthesize', { text, voice });
     if (!res?.base64) return null;
     const binary = atob(res.base64);
     const bytes = new Uint8Array(binary.length);
@@ -149,10 +141,9 @@ export const synthesizeViaShell = async (text: string, voice: string): Promise<B
 
 /** Chẩn đoán TTS phía vỏ (trạng thái server/engine/assets/loopback) — vỏ 2.0.1+. */
 export const getTtsDiagnosticsViaShell = async (): Promise<Record<string, unknown> | null> => {
-  const plugin = bridge();
-  if (!plugin?.ttsDiagnostics) return null;
+  if (!hasNativeBridge()) return null;
   try {
-    return await plugin.ttsDiagnostics();
+    return await callNative<Record<string, unknown>>('ttsDiagnostics');
   } catch {
     return null;
   }
