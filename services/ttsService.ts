@@ -123,6 +123,20 @@ export const diagnoseTts = async (): Promise<string> => {
   return lines.join("\n");
 };
 
+// Câu mẫu ngắn để "nạp giọng vào app" (đợt 28): một lần tổng hợp câu này bằng
+// đúng giọng đã chọn sẽ buộc engine native khởi động + nạp giọng đó + ghi cache
+// đĩa — từ đó bấm nghe chương là phát gần như ngay, thay vì lần nghe đầu tiên
+// phải gánh cả thời gian nạp engine trong im lặng.
+export const TTS_WARMUP_TEXT = "Bút Nghiên đã sẵn sàng đọc truyện.";
+
+/** Nạp trước engine + giọng đã chọn trong app iOS. Trả true nếu sẵn sàng.
+ * Cho phép chờ tới 120s (nạp engine lần đầu gồm 260MB tài sản). */
+export const warmupVieneuVoice = async (voiceId: string): Promise<boolean> => {
+  if (!isInShell()) return false;
+  const blob = await synthesizeViaShell(TTS_WARMUP_TEXT, voiceId || "default", 120000);
+  return Boolean(blob);
+};
+
 // Tổng hợp một đoạn văn thành audio blob qua VieNeu (cầu native hoặc bridge HTTP).
 export const synthesizeWithVieneu = async (text: string, voiceId: string): Promise<Blob> => {
   if (vieneuTransport === "native") {

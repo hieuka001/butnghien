@@ -23,7 +23,7 @@ import {
 } from './services/databaseService';
 import { readLocalTombstones, persistLocalTombstones, writeLocalTombstone, clearLocalTombstone, applyTombstones, TombstoneMap } from './services/tombstoneStore';
 import { countWords, clamp, isLikelyCutOffText, stripDirectionLabels, splitSentencesForSpeech } from './services/textUtils';
-import { SpeechPlayer, SpeechPlayerState, SpeechEngineKind, TtsVoiceOption, diagnoseTts } from './services/ttsService';
+import { SpeechPlayer, SpeechPlayerState, SpeechEngineKind, TtsVoiceOption, diagnoseTts, warmupVieneuVoice } from './services/ttsService';
 import { planAutoWriteChapters, nextInReadQueue } from './services/autoSession';
 import { isInShell, getShellInfo, saveFileViaShell, compareVersions } from './services/shellBridge';
 import {
@@ -456,6 +456,7 @@ const App: React.FC = () => {
     let cancelled = false;
     void player.refreshVoices().then(() => {
       if (cancelled) return;
+      warmVoiceInApp(player.currentVoiceId || 'default');
       // Trong app mà vẫn không thấy VieNeu: gom chẩn đoán để xem tận gốc lỗi
       // (cầu native / engine / tài sản) thay vì im lặng.
       if (player.currentEngine !== 'vieneu' && isInShell()) {
@@ -485,6 +486,27 @@ const App: React.FC = () => {
     await player.load(segments, { rate: ttsRate, mediaTitle: `${ownerProject?.title || 'Bút Nghiên'} — Chương ${chapter.index}: ${chapter.title}` });
     setTtsSegmentText(player.currentSegmentText());
     await player.play();
+  };
+
+  // Nạp giọng vào app (đợt 28): nạp engine + giọng đang chọn MỘT lần ngay khi
+  // vào màn Nghe / đổi giọng, có trạng thái rõ ràng — thay vì để lần nghe đầu
+  // tiên gánh thời gian nạp trong im lặng.
+  const [ttsWarm, setTtsWarm] = useState<{ voiceId: string; status: 'idle' | 'warming' | 'ready' | 'error' }>({ voiceId: '', status: 'idle' });
+  const warmTokenRef = useRef(0);
+  const warmVoiceInApp = (voiceId: string) => {
+    if (!isInShell() || !voiceId) return;
+    const token = ++warmTokenRef.current;
+    setTtsWarm({ voiceId, status: 'warming' });
+    void warmupVieneuVoice(voiceId).then(ok => {
+      if (warmTokenRef.current !== token) return;
+      setTtsWarm({ voiceId, status: ok ? 'ready' : 'error' });
+      if (!ok) void diagnoseTts().then(setTtsDiag);
+    });
+  };
+  const handleVoiceChange = (id: string) => {
+    setTtsVoiceId(id);
+    speechPlayerRef.current?.setVoice(id);
+    warmVoiceInApp(id);
   };
 
   const handleRetryTtsProbe = async () => {
@@ -3555,13 +3577,20 @@ const App: React.FC = () => {
                 <label className="flex items-center gap-2 bg-stone-50 rounded-xl px-3 py-2.5">
                   <span className="text-[11px] font-black uppercase text-stone-600 whitespace-nowrap">Giọng đọc</span>
                   {ttsVoices.length >= 1 ? (
-                    <select value={ttsVoiceId} disabled={ttsVoices.length <= 1} onChange={(e) => { setTtsVoiceId(e.target.value); speechPlayerRef.current?.setVoice(e.target.value); }} className="ml-auto min-w-0 max-w-[62%] bg-white rounded-lg px-2 py-1 text-[11px] font-black outline-none border disabled:opacity-70">
+                    <select value={ttsVoiceId} disabled={ttsVoices.length <= 1} onChange={(e) => handleVoiceChange(e.target.value)} className="ml-auto min-w-0 max-w-[62%] bg-white rounded-lg px-2 py-1 text-[11px] font-black outline-none border disabled:opacity-70">
                       {ttsVoices.map(voice => <option key={voice.id} value={voice.id}>{voice.name}</option>)}
                     </select>
                   ) : (
                     <span className="ml-auto text-[11px] font-bold text-stone-400">Đang dò giọng…</span>
                   )}
                 </label>
+                {isInShell() && ttsWarm.status !== 'idle' && (
+                  <p className={`px-1 text-[10px] font-bold leading-relaxed ${ttsWarm.status === 'ready' ? 'text-emerald-600' : ttsWarm.status === 'error' ? 'text-red-500' : 'text-amber-600'}`}>
+                    {ttsWarm.status === 'warming' && 'Đang nạp giọng vào app — lần đầu có thể mất 1–2 phút, những lần sau nghe ngay…'}
+                    {ttsWarm.status === 'ready' && '✓ Giọng đã nạp vào app — bấm nghe là phát ngay.'}
+                    {ttsWarm.status === 'error' && 'Nạp giọng chưa xong — xem chẩn đoán bên dưới.'}
+                  </p>
+                )}
                 {ttsDiag && (
                   <div className="bg-red-50 border border-red-100 rounded-xl px-3 py-2.5 space-y-1.5">
                     <p className="text-[10px] font-black uppercase text-red-500">Chưa thấy giọng VieNeu trong máy — chẩn đoán:</p>
@@ -3610,7 +3639,7 @@ const App: React.FC = () => {
                       {[0.75, 1, 1.25, 1.5, 2].map(rate => <option key={rate} value={rate}>{rate}×</option>)}
                     </select>
                     {ttsVoices.length >= 1 && (
-                      <select value={ttsVoiceId} disabled={ttsVoices.length <= 1} onChange={(e) => { setTtsVoiceId(e.target.value); speechPlayerRef.current?.setVoice(e.target.value); }} className="bg-white/10 rounded-xl px-2 py-2 text-[11px] font-black outline-none max-w-40 [&>option]:text-stone-900 disabled:opacity-70">
+                      <select value={ttsVoiceId} disabled={ttsVoices.length <= 1} onChange={(e) => handleVoiceChange(e.target.value)} className="bg-white/10 rounded-xl px-2 py-2 text-[11px] font-black outline-none max-w-40 [&>option]:text-stone-900 disabled:opacity-70">
                         {ttsVoices.map(voice => <option key={voice.id} value={voice.id}>{voice.name}</option>)}
                       </select>
                     )}
@@ -3745,7 +3774,7 @@ const App: React.FC = () => {
               {[0.75, 1, 1.25, 1.5, 2].map(rate => <option key={rate} value={rate}>{rate}×</option>)}
             </select>
             {ttsVoices.length >= 1 && (
-              <select value={ttsVoiceId} disabled={ttsVoices.length <= 1} onChange={(e) => { setTtsVoiceId(e.target.value); speechPlayerRef.current?.setVoice(e.target.value); }} className="bg-white/10 rounded-xl px-2 py-2 text-[11px] font-black outline-none max-w-44 [&>option]:text-stone-900 disabled:opacity-70" title="Giọng đọc">
+              <select value={ttsVoiceId} disabled={ttsVoices.length <= 1} onChange={(e) => handleVoiceChange(e.target.value)} className="bg-white/10 rounded-xl px-2 py-2 text-[11px] font-black outline-none max-w-44 [&>option]:text-stone-900 disabled:opacity-70" title="Giọng đọc">
                 {ttsVoices.map(voice => <option key={voice.id} value={voice.id}>{voice.name}</option>)}
               </select>
             )}
