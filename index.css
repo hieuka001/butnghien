@@ -55,6 +55,18 @@ textarea:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
+/* Cảm giác app thật: không nảy trang khi vuốt quá giới hạn, không zoom hai chạm,
+   không menu gọi-ra khi nhấn giữ lên nút/thanh công cụ. */
+html, body {
+  overscroll-behavior: none;
+}
+body {
+  touch-action: manipulation;
+}
+button, nav, aside {
+  -webkit-touch-callout: none;
+}
+
 /* Vùng an toàn iOS (tai thỏ / thanh Home) cho bố cục điện thoại. */
 @media (max-width: 1023px) {
   .app-shell {
