@@ -2459,7 +2459,7 @@ const App: React.FC = () => {
           return (
             <div key={idx} className={`relative p-8 rounded-3xl border ${isLogic ? 'bg-amber-50/50 border-orange-200' : 'bg-white border-stone-100 shadow-sm'} transition-all hover:shadow-md group`}>
               <div className="flex items-center gap-3 mb-4">
-                 <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white ${isLogic ? 'bg-orange-600' : 'bg-stone-800'}`}>
+                 <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white ${isLogic ? 'bg-amber-500' : 'bg-stone-800'}`}>
                     {idx + 1}
                  </div>
                  <h3 className={`font-black uppercase tracking-widest text-sm story-font ${isLogic ? 'text-stone-900' : 'text-stone-900'}`}>{title || "Chi tiết"}</h3>
@@ -2469,7 +2469,7 @@ const App: React.FC = () => {
               </div>
               {isLogic && (
                 <div className="absolute -bottom-4 -right-4 w-16 h-16 bg-white border-2 border-orange-600 rounded-full flex items-center justify-center rotate-12 shadow-lg border-dashed">
-                  <span className="text-[8px] font-black uppercase text-orange-600 text-center leading-none">Thiên Cơ<br/>Xác Thực</span>
+                  <span className="text-[8px] font-black uppercase text-amber-700 text-center leading-none">Thiên Cơ<br/>Xác Thực</span>
                 </div>
               )}
             </div>
@@ -2483,7 +2483,7 @@ const App: React.FC = () => {
     return (
       <div className="login-scene min-h-screen text-white flex items-center justify-center p-6">
         <section className="w-full max-w-5xl grid lg:grid-cols-[1fr_0.9fr] gap-6 items-stretch">
-          <div className="relative overflow-hidden rounded-[2rem] shadow-2xl flex flex-col justify-end min-h-[440px] ring-1 ring-white/25">
+          <div className="relative overflow-hidden rounded-4xl shadow-2xl flex flex-col justify-end min-h-[440px] ring-1 ring-white/25">
             <img src="/img/xianxia-hero.webp" alt="Bút lông chấm vào nghiên mực ngọc phát sáng, khói mực vàng bay lên thành nét chữ giữa cảnh tiên hiệp" className="absolute inset-0 w-full h-full object-cover" />
             <div className="absolute inset-0 bg-gradient-to-t from-[#03211a]/90 via-[#03211a]/20 to-transparent"></div>
             <div className="relative p-8 md:p-12">
@@ -2491,7 +2491,7 @@ const App: React.FC = () => {
               <h1 className="story-font text-4xl md:text-6xl font-black italic leading-tight mb-4 text-white drop-shadow-[0_4px_24px_rgba(0,0,0,0.55)]">
                 Bút Nghiên <span className="text-amber-300 not-italic">Thiên Cơ</span>
               </h1>
-              <p className="story-font text-lg text-teal-50/85 leading-relaxed">
+              <p className="story-font text-lg text-emerald-50/85 leading-relaxed">
                 Đăng nhập để mở Tàng Thư, dữ liệu Firebase và bàn viết của bạn.
               </p>
               <div className="grid sm:grid-cols-3 gap-3 mt-8">
@@ -2511,7 +2511,7 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          <form onSubmit={handleSignIn} className="bg-[#03211a]/60 backdrop-blur-2xl border border-white/15 text-white rounded-[2rem] p-6 md:p-8 shadow-[0_30px_80px_rgba(0,0,0,0.5)] flex flex-col justify-center gap-5">
+          <form onSubmit={handleSignIn} className="bg-[#03211a]/60 backdrop-blur-2xl border border-white/15 text-white rounded-4xl p-6 md:p-8 shadow-[0_30px_80px_rgba(0,0,0,0.5)] flex flex-col justify-center gap-5">
             <div>
               <img src="/img/emblem-trim.webp" alt="Biểu tượng bút và nghiên mực" className="w-14 h-14 rounded-2xl object-cover ring-1 ring-amber-200/50 shadow-lg shadow-black/40 mb-4" />
               <span className="text-[9px] font-black uppercase text-amber-300 tracking-widest">Đăng nhập</span>
@@ -2564,8 +2564,8 @@ const App: React.FC = () => {
     <div className="app-shell flex flex-col md:flex-row h-screen overflow-hidden text-stone-800 font-sans">
       <aside className="control-panel w-full md:w-[360px] max-h-[48vh] md:max-h-none border-b md:border-b-0 p-4 md:p-5 flex flex-col gap-4 shrink-0 z-20 overflow-y-auto custom-scrollbar">
         <div className="flex items-center gap-3 pb-4 border-b">
-          <img src="/img/emblem-trim.webp" alt="Bút Nghiên" className="w-10 h-10 rounded-xl object-cover ring-1 ring-amber-300/60 shadow-lg shadow-teal-950/30" />
-          <h1 onClick={() => setView('setup')} className="text-xl font-black text-stone-900 cursor-pointer italic hover:text-orange-600 transition-all">Bút Nghiên AI</h1>
+          <img src="/img/emblem-trim.webp" alt="Bút Nghiên" className="w-10 h-10 rounded-xl object-cover ring-1 ring-amber-300/60 shadow-lg shadow-emerald-950/30" />
+          <h1 onClick={() => setView('setup')} className="text-xl font-black text-stone-900 cursor-pointer italic hover:text-amber-700 transition-all">Bút Nghiên AI</h1>
         </div>
         {isFirebaseConfigured() && authUser && (
           <div className="antique-frame p-3 rounded-xl flex items-center justify-between gap-3">
@@ -2586,7 +2586,7 @@ const App: React.FC = () => {
           <div className="antique-frame p-3 rounded-xl">
             <span className="block text-[8px] font-black uppercase text-[#96762a]">Database</span>
             <span className="text-[9px] font-bold text-stone-500 line-clamp-2">{storageStatus}</span>
-            {storageUsageText && <span className="block text-[8px] font-bold text-stone-400 mt-0.5">{storageUsageText}</span>}
+            {storageUsageText && <span className="block text-[9px] font-bold text-stone-400 mt-0.5 tnum">{storageUsageText}</span>}
           </div>
           <div className="antique-frame p-3 rounded-xl">
             <span className="block text-[8px] font-black uppercase text-[#96762a]">Firebase</span>
@@ -2596,7 +2596,7 @@ const App: React.FC = () => {
             </span>
           </div>
         </div>
-        <div className="p-4 bg-[#052e26]/85 backdrop-blur-xl border border-amber-200/20 text-white rounded-lg shadow-lg shadow-teal-950/30 space-y-3">
+        <div className="p-4 bg-[#052e26]/85 backdrop-blur-xl border border-amber-200/20 text-white rounded-lg shadow-lg shadow-emerald-950/30 space-y-3">
           <div className="flex items-center justify-between gap-3">
             <div>
               <span className="block text-[8px] font-black uppercase text-emerald-300 tracking-widest">Quy trình</span>
@@ -2687,7 +2687,7 @@ const App: React.FC = () => {
             {isGeneratingOutline ? 'Đang xử lý...' : (params.projectType === 'Truyện Ngắn' ? 'Viết truyện ngắn' : 'Chọn hướng truyện')}
           </button>
         </div>
-        <button onClick={() => setView('my-stories')} className="mt-auto py-3 px-4 bg-stone-50 rounded-lg border border-stone-200 text-[10px] font-black uppercase text-stone-500 hover:bg-amber-50 hover:text-orange-600 transition-all flex items-center justify-between">
+        <button onClick={() => setView('my-stories')} className="mt-auto py-3 px-4 bg-stone-50 rounded-lg border border-stone-200 text-[10px] font-black uppercase text-stone-500 hover:bg-amber-50 hover:text-amber-700 transition-all flex items-center justify-between">
           <span>Tàng thư ({projects.length})</span>
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
         </button>
@@ -2713,10 +2713,10 @@ const App: React.FC = () => {
       <main className="flex-1 min-h-0 flex flex-col relative bg-transparent overflow-hidden">
         {generalSummary && (
           <nav className="h-14 bg-white border-b flex items-center px-4 md:px-8 gap-5 md:gap-8 z-10 shadow-sm shrink-0 overflow-x-auto no-scrollbar">
-            <button onClick={() => setView('outline')} className={`text-[10px] font-black uppercase tracking-widest h-full border-b-2 transition-all shrink-0 ${view === 'outline' ? 'border-orange-600 text-orange-600' : 'border-transparent text-stone-300 hover:text-stone-500'}`}>Lộ trình Arc</button>
-            <button onClick={() => setView('manuscript')} className={`text-[10px] font-black uppercase tracking-widest h-full border-b-2 transition-all shrink-0 ${view === 'manuscript' ? 'border-orange-600 text-orange-600' : 'border-transparent text-stone-300 hover:text-stone-500'}`}>Bản thảo ({writtenChapters.length})</button>
-            <button onClick={() => setView('bible')} className={`text-[10px] font-black uppercase tracking-widest h-full border-b-2 transition-all shrink-0 ${view === 'bible' ? 'border-orange-600 text-orange-600' : 'border-transparent text-stone-300 hover:text-stone-500'}`}>Thiên Cơ Lục</button>
-            <button onClick={openEditorWithGuard} className={`text-[10px] font-black uppercase tracking-widest h-full border-b-2 transition-all shrink-0 ${view === 'editor' ? 'border-orange-600 text-orange-600' : 'border-transparent text-stone-300 hover:text-stone-500'}`}>Chấp bút</button>
+            <button onClick={() => setView('outline')} className={`text-[10px] font-black uppercase tracking-widest h-full border-b-2 transition-all shrink-0 ${view === 'outline' ? 'border-amber-600 text-amber-700' : 'border-transparent text-stone-300 hover:text-stone-500'}`}>Lộ trình Arc</button>
+            <button onClick={() => setView('manuscript')} className={`text-[10px] font-black uppercase tracking-widest h-full border-b-2 transition-all shrink-0 ${view === 'manuscript' ? 'border-amber-600 text-amber-700' : 'border-transparent text-stone-300 hover:text-stone-500'}`}>Bản thảo ({writtenChapters.length})</button>
+            <button onClick={() => setView('bible')} className={`text-[10px] font-black uppercase tracking-widest h-full border-b-2 transition-all shrink-0 ${view === 'bible' ? 'border-amber-600 text-amber-700' : 'border-transparent text-stone-300 hover:text-stone-500'}`}>Thiên Cơ Lục</button>
+            <button onClick={openEditorWithGuard} className={`text-[10px] font-black uppercase tracking-widest h-full border-b-2 transition-all shrink-0 ${view === 'editor' ? 'border-amber-600 text-amber-700' : 'border-transparent text-stone-300 hover:text-stone-500'}`}>Chấp bút</button>
             <button onClick={handleReviewStoryLogic} disabled={isCheckingLogic || writtenChapters.length === 0} className="ml-auto px-4 py-2 bg-[#07503f] text-amber-200 rounded-full text-[9px] font-black uppercase tracking-widest disabled:opacity-40 hover:bg-[#0a6a54] hover:text-amber-100 transition-all shrink-0">
               {isCheckingLogic ? 'Đang soi logic...' : 'Kiểm tra logic'}
             </button>
@@ -2763,7 +2763,7 @@ const App: React.FC = () => {
                       <strong className="block mt-2 text-base 2xl:text-lg font-black text-amber-950 whitespace-nowrap">{params.projectType === 'Trường Thiên' ? `${params.totalChapters} chương` : 'Truyện đơn'}</strong>
                     </div>
                     <div className="surface-muted p-4 border-orange-200 bg-amber-50/80">
-                      <span className="block text-[8px] font-black uppercase text-orange-600 tracking-widest">Mục tiêu</span>
+                      <span className="block text-[8px] font-black uppercase text-amber-700 tracking-widest">Mục tiêu</span>
                       <strong className="block mt-2 text-base 2xl:text-lg font-black text-stone-950 whitespace-nowrap">{params.length} chữ</strong>
                     </div>
                   </div>
@@ -2804,7 +2804,7 @@ const App: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="bg-[#052e26]/85 backdrop-blur-xl border border-amber-200/20 text-white rounded-lg p-5 shadow-lg shadow-teal-950/30 space-y-5">
+                <div className="bg-[#052e26]/85 backdrop-blur-xl border border-amber-200/20 text-white rounded-lg p-5 shadow-lg shadow-emerald-950/30 space-y-5">
                   <div>
                     <span className="text-[9px] font-black uppercase text-emerald-300 tracking-widest">Luồng bắt buộc</span>
                     <h3 className="text-xl font-black story-font mt-2">Không chấp bút khi chưa khóa khung truyện</h3>
@@ -2948,8 +2948,8 @@ const App: React.FC = () => {
 
           {view === 'outline' && (
             <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in pb-20">
-              <section className="p-6 bg-white border rounded-3xl shadow-sm border-l-4 border-l-orange-600">
-                <h3 className="text-[10px] font-black text-orange-600 uppercase mb-2">Đại cục Trường Thiên</h3>
+              <section className="p-6 bg-white border rounded-3xl shadow-sm border-l-4 border-l-amber-600">
+                <h3 className="text-[10px] font-black text-amber-700 uppercase mb-2">Đại cục Trường Thiên</h3>
                 <div className="space-y-4">{renderOutlineText(generalSummary)}</div>
               </section>
               <section className="grid grid-cols-1 md:grid-cols-4 gap-3">
@@ -3076,9 +3076,9 @@ const App: React.FC = () => {
                                 <div className="flex items-center gap-2">
                                   {chap.content ? (
                                     <>
-                                      <button onClick={() => handleReadChapter(chap, vol.index)} className="flex-1 py-1.5 bg-amber-50 text-orange-600 rounded-lg text-[9px] font-black uppercase hover:bg-orange-600 hover:text-white transition-all">Đọc</button>
-                                      <button onClick={() => void handleListenChapter(chap)} className="flex-1 py-1.5 bg-teal-50 text-teal-700 rounded-lg text-[9px] font-black uppercase hover:bg-teal-600 hover:text-white transition-all">Nghe</button>
-                                      <button onClick={() => handleRewriteChapter(chap, vol.index)} className="flex-1 py-1.5 bg-stone-100 text-stone-600 rounded-lg text-[9px] font-black uppercase hover:bg-stone-800 hover:text-white transition-all">Viết lại</button>
+                                      <button onClick={() => handleReadChapter(chap, vol.index)} className="flex-1 py-2 bg-emerald-50 text-emerald-700 rounded-lg text-[10px] font-black uppercase hover:bg-emerald-600 hover:text-white transition-all">Đọc</button>
+                                      <button onClick={() => void handleListenChapter(chap)} className="flex-1 py-2 bg-amber-50 text-amber-700 rounded-lg text-[10px] font-black uppercase hover:bg-amber-400 hover:text-stone-900 transition-all">Nghe</button>
+                                      <button onClick={() => handleRewriteChapter(chap, vol.index)} className="flex-1 py-2 bg-stone-100 text-stone-600 rounded-lg text-[10px] font-black uppercase hover:bg-stone-800 hover:text-white transition-all">Viết lại</button>
                                       <button onClick={(e) => handleDeleteChapter(chap.index, vol.index, e)} className="p-1.5 bg-red-50 text-red-400 rounded-lg hover:bg-red-600 hover:text-white transition-all">
                                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                                       </button>
@@ -3095,7 +3095,7 @@ const App: React.FC = () => {
 
                       <button 
                         onClick={() => handlePrepareWriteChapter(vol.index)}
-                        className="w-full py-4 bg-amber-50 text-orange-600 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-stone-900 hover:text-white transition-all flex items-center justify-center gap-2 mt-2 shadow-sm"
+                        className="btn-primary w-full py-4 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center justify-center gap-2 mt-2"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" /></svg>
                         Viết chương theo lộ trình này
@@ -3105,7 +3105,7 @@ const App: React.FC = () => {
                   );
                 })}
                 
-                <button onClick={handleAddNextArc} disabled={isGeneratingOutline} className="w-full py-8 bg-stone-50 border-2 border-dashed border-stone-200 text-stone-400 rounded-3xl font-black uppercase text-[10px] tracking-widest hover:bg-amber-50 hover:text-orange-600 hover:border-orange-300 transition-all flex flex-col items-center gap-3 shadow-inner">
+                <button onClick={handleAddNextArc} disabled={isGeneratingOutline} className="w-full py-8 bg-stone-50 border-2 border-dashed border-stone-200 text-stone-400 rounded-3xl font-black uppercase text-[10px] tracking-widest hover:bg-amber-50 hover:text-amber-700 hover:border-orange-300 transition-all flex flex-col items-center gap-3 shadow-inner">
                   {isGeneratingOutline ? (generationStatus || 'Đang lập Arc mới...') : (
                     <>
                       <div className="w-10 h-10 bg-white border border-stone-100 rounded-full flex items-center justify-center shadow-sm">
@@ -3186,7 +3186,7 @@ const App: React.FC = () => {
               </section>
               {projects.length === 0 && (
                 <div className="surface p-10 text-center space-y-4">
-                  <img src="/img/emblem-trim.webp" alt="Bút và nghiên mực" className="w-20 h-20 mx-auto rounded-3xl object-cover ring-1 ring-amber-300/60 shadow-lg shadow-teal-950/25" />
+                  <img src="/img/emblem-trim.webp" alt="Bút và nghiên mực" className="w-20 h-20 mx-auto rounded-3xl object-cover ring-1 ring-amber-300/60 shadow-lg shadow-emerald-950/25" />
                   <p className="story-font text-2xl font-black text-stone-900">Tàng Thư đang trống</p>
                   <p className="text-sm text-stone-500 max-w-md mx-auto leading-relaxed">Chưa có tác phẩm nào được lưu. Quay lại Studio, khóa hồ sơ rồi chọn hướng truyện để chấp bút tác phẩm đầu tiên.</p>
                   <button onClick={() => setView('setup')} className="btn-primary px-6 py-3 text-[10px] font-black uppercase tracking-widest">Về Studio sáng tác</button>
@@ -3198,28 +3198,28 @@ const App: React.FC = () => {
                   <div key={p.id} className="surface cv-auto p-8 hover:shadow-2xl transition-all group flex flex-col h-80">
                     <div className="flex-1">
                       <div className="flex justify-between items-start mb-4">
-                        <span className="px-3 py-1 bg-amber-50 text-orange-600 rounded-full text-[9px] font-black uppercase">{p.params.projectType}</span>
+                        <span className="px-3 py-1 bg-amber-50 text-amber-700 rounded-full text-[9px] font-black uppercase">{p.params.projectType}</span>
                         <div className="flex gap-2">
-                           <button onClick={(e) => handleExportManuscript(p, e)} className="p-2 bg-emerald-50 text-emerald-500 rounded-lg hover:bg-emerald-600 hover:text-white transition-all shadow-sm" title="Xuất bản thảo TXT">
+                           <button onClick={(e) => handleExportManuscript(p, e)} className="w-9 h-9 flex items-center justify-center bg-stone-100 text-stone-500 rounded-lg hover:bg-stone-800 hover:text-white transition-all shadow-sm" title="Xuất bản thảo TXT">
                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6M7 3h7l5 5v13a1 1 0 01-1 1H7a1 1 0 01-1-1V4a1 1 0 011-1z" /></svg>
                            </button>
-                           <button onClick={(e) => { e.stopPropagation(); const latestProj = projects.find(proj => proj.id === p.id) || p; downloadTextFile(`ButNghien_${latestProj.title.replace(/\s+/g, '_')}.json`, JSON.stringify(latestProj, null, 2), 'application/json;charset=utf-8'); }} className="p-2 bg-amber-50 text-orange-400 rounded-lg hover:bg-orange-600 hover:text-white transition-all shadow-sm" title="Xuất JSON">
+                           <button onClick={(e) => { e.stopPropagation(); const latestProj = projects.find(proj => proj.id === p.id) || p; downloadTextFile(`ButNghien_${latestProj.title.replace(/\s+/g, '_')}.json`, JSON.stringify(latestProj, null, 2), 'application/json;charset=utf-8'); }} className="w-9 h-9 flex items-center justify-center bg-stone-100 text-stone-500 rounded-lg hover:bg-stone-800 hover:text-white transition-all shadow-sm" title="Xuất JSON">
                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                            </button>
-                           <button onClick={(e) => { e.stopPropagation(); loadProject(p); setView('player'); }} className="p-2 bg-teal-50 text-teal-500 rounded-lg hover:bg-teal-600 hover:text-white transition-all shadow-sm" title="Nghe & viết tự động">
+                           <button onClick={(e) => { e.stopPropagation(); loadProject(p); setView('player'); }} className="w-9 h-9 flex items-center justify-center bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-600 hover:text-white transition-all shadow-sm" title="Nghe & viết tự động">
                              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" /></svg>
                            </button>
-                           <button onClick={(e) => handleDuplicateProject(p, e)} className="p-2 bg-sky-50 text-sky-400 rounded-lg hover:bg-sky-600 hover:text-white transition-all shadow-sm" title="Nhân bản dự án">
+                           <button onClick={(e) => handleDuplicateProject(p, e)} className="w-9 h-9 flex items-center justify-center bg-stone-100 text-stone-500 rounded-lg hover:bg-stone-800 hover:text-white transition-all shadow-sm" title="Nhân bản dự án">
                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H10a2 2 0 01-2-2V7z" /></svg>
                            </button>
-                           <button onClick={(e) => handleDeleteProject(p.id, e)} className="p-2 bg-red-50 text-red-300 rounded-lg hover:bg-red-600 hover:text-white transition-all shadow-sm" title="Xóa dự án">
+                           <button onClick={(e) => handleDeleteProject(p.id, e)} className="w-9 h-9 flex items-center justify-center bg-red-50 text-red-400 rounded-lg hover:bg-red-600 hover:text-white transition-all shadow-sm" title="Xóa dự án">
                               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                            </button>
                         </div>
                       </div>
                       <h3 className="font-black text-xl uppercase text-stone-800 story-font group-hover:text-stone-900 mb-2 line-clamp-1">{p.title}</h3>
                       <p className="text-[10px] text-stone-400 italic line-clamp-4 leading-relaxed">{p.generalSummary}</p>
-                      {(() => { const stats = projectQuickStats(p); return stats.chapterCount > 0 ? <p className="text-[10px] font-bold text-stone-500 mt-2">{stats.chapterCount} chương · {stats.totalWords.toLocaleString('vi-VN')} chữ</p> : null; })()}
+                      {(() => { const stats = projectQuickStats(p); return stats.chapterCount > 0 ? <p className="text-[10px] font-bold text-stone-500 mt-2 tnum">{stats.chapterCount} chương · {stats.totalWords.toLocaleString('vi-VN')} chữ</p> : null; })()}
                     </div>
                     <div className="flex gap-2 pt-6 border-t border-stone-50 mt-auto">
                       <button onClick={() => loadProject(p)} className="btn-primary flex-1 py-3 rounded-xl text-[10px] font-black uppercase">Mở dự án</button>
@@ -3233,7 +3233,7 @@ const App: React.FC = () => {
           {view === 'editor' && (
             <div className="max-w-3xl mx-auto pb-48 animate-in fade-in">
               {params.projectType === 'Trường Thiên' && !hasRoadmapReady ? (
-                <section className="p-8 md:p-10 bg-amber-50 border border-amber-100 rounded-[2rem] shadow-sm space-y-5">
+                <section className="p-8 md:p-10 bg-amber-50 border border-amber-100 rounded-4xl shadow-sm space-y-5">
                   <span className="inline-flex px-3 py-1 bg-white text-amber-700 rounded-full text-[9px] font-black uppercase tracking-widest">Chưa mở khóa chấp bút</span>
                   <h2 className="text-3xl font-black story-font text-stone-900">Cần hoàn thiện lộ trình trước</h2>
                   <div className="space-y-2">
@@ -3246,9 +3246,9 @@ const App: React.FC = () => {
                   </button>
                 </section>
               ) : !story || isGenerating ? (
-                <section className="p-6 md:p-10 bg-white border rounded-[2rem] md:rounded-[3rem] shadow-2xl space-y-8 border-t-[12px] border-t-stone-900 mt-6 md:mt-10 relative overflow-hidden">
+                <section className="p-6 md:p-10 bg-white border rounded-4xl md:rounded-5xl shadow-2xl space-y-8 border-t-[12px] border-t-stone-900 mt-6 md:mt-10 relative overflow-hidden">
                   <div className="text-center space-y-2">
-                     <span className="text-[10px] font-black uppercase text-orange-600 tracking-[0.3em]">Thiên Cơ Lệnh</span>
+                     <span className="text-[10px] font-black uppercase text-amber-700 tracking-[0.3em]">Thiên Cơ Lệnh</span>
                      <h3 className="text-2xl md:text-3xl font-black italic story-font text-stone-900">
                       Chương {currentChapterIndex} - {volumes.find(v => v.index === activeArcIndex)?.title}
                      </h3>
@@ -3258,7 +3258,7 @@ const App: React.FC = () => {
                     <div className="p-5 bg-amber-50/70 border border-amber-100 rounded-2xl space-y-3">
                       <div className="flex items-center justify-between gap-3">
                         <h4 className="text-xs font-black text-stone-900 uppercase">{currentChapterPlan.title}</h4>
-                        <span className="px-3 py-1 bg-white text-orange-600 rounded-full text-[9px] font-black shadow-sm">{currentChapterPlan.targetWords || params.length} chữ</span>
+                        <span className="px-3 py-1 bg-white text-amber-700 rounded-full text-[9px] font-black shadow-sm">{currentChapterPlan.targetWords || params.length} chữ</span>
                       </div>
                       <p className="text-xs text-orange-700 leading-relaxed">{currentChapterPlan.objective || currentChapterPlan.summary}</p>
                       {!!currentChapterPlan.beats?.length && (
@@ -3298,7 +3298,7 @@ const App: React.FC = () => {
                 <div className="space-y-12 animate-in fade-in zoom-in-95 duration-700">
                   <header className="text-center space-y-6">
                     <div className="flex flex-col items-center gap-3">
-                      <div className="px-4 py-1.5 bg-amber-50 text-orange-600 rounded-full text-[10px] font-black uppercase tracking-[0.2em] shadow-sm">
+                      <div className="px-4 py-1.5 bg-amber-50 text-amber-700 rounded-full text-[10px] font-black uppercase tracking-[0.2em] shadow-sm">
                         Số chữ: {getWordCount(story)} / mục tiêu {getChapterPlan(currentChapterIndex)?.targetWords || params.length}
                       </div>
                       <h2 className="text-3xl md:text-5xl font-black italic story-font text-stone-900 leading-tight">
@@ -3306,12 +3306,12 @@ const App: React.FC = () => {
                       </h2>
                     </div>
                     <div className="flex flex-wrap justify-center gap-4">
-                      <button onClick={handleWriteNextChapter} className="text-[10px] font-black uppercase text-orange-600 bg-amber-50 px-8 py-3 rounded-full hover:bg-amber-100 transition-all shadow-sm">Viết Chương Tiếp Theo</button>
+                      <button onClick={handleWriteNextChapter} className="text-[10px] font-black uppercase text-amber-700 bg-amber-50 px-8 py-3 rounded-full hover:bg-amber-100 transition-all shadow-sm">Viết Chương Tiếp Theo</button>
                       <button onClick={() => setView('outline')} className="text-[10px] font-black uppercase text-stone-400 border border-stone-200 px-8 py-3 rounded-full hover:bg-stone-50 transition-all">Về Lộ Trình</button>
                     </div>
                   </header>
                   {currentDraftIsPending && (
-                    <section className="bg-white border border-amber-100 rounded-[2rem] shadow-xl p-5 md:p-6 space-y-4">
+                    <section className="bg-white border border-amber-100 rounded-4xl shadow-xl p-5 md:p-6 space-y-4">
                       <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
                         <div>
                           <span className={`inline-flex px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${currentDraftIsAutosaved ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-amber-50 text-amber-700 border-amber-100'}`}>
@@ -3366,7 +3366,7 @@ const App: React.FC = () => {
                       )}
                     </section>
                   )}
-                  <article className="manuscript-reader story-font text-lg md:text-2xl text-stone-800 text-left shadow-2xl p-6 md:p-20 bg-white/95 rounded-[2rem] md:rounded-[3rem] border border-stone-50 relative">
+                  <article className="manuscript-reader story-font text-lg md:text-2xl text-stone-800 text-left shadow-2xl p-6 md:p-20 bg-white/95 rounded-4xl md:rounded-5xl border border-stone-50 relative">
                     {renderStoryParagraphs(story)}
                   </article>
                 </div>
@@ -3400,7 +3400,7 @@ const App: React.FC = () => {
                   <section className="mb-10 bg-white border border-amber-100 rounded-3xl p-8 shadow-sm space-y-6">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                       <div>
-                        <h3 className="text-[10px] font-black text-orange-600 uppercase tracking-widest">Báo cáo logic truyện</h3>
+                        <h3 className="text-[10px] font-black text-amber-700 uppercase tracking-widest">Báo cáo logic truyện</h3>
                         <p className="story-font text-xl text-stone-800 mt-2 italic">{logicReport.summary}</p>
                       </div>
                       <div className="w-20 h-20 rounded-2xl bg-stone-900 text-white flex flex-col items-center justify-center shadow-xl">
@@ -3424,7 +3424,7 @@ const App: React.FC = () => {
                     )}
                     <div className="grid md:grid-cols-2 gap-4">
                       <div className="p-4 bg-amber-50 rounded-2xl">
-                        <h4 className="text-[9px] font-black uppercase text-orange-600 mb-2">Gợi ý biên tập</h4>
+                        <h4 className="text-[9px] font-black uppercase text-amber-700 mb-2">Gợi ý biên tập</h4>
                         <ul className="space-y-2">
                           {logicReport.suggestions.map((suggestion, idx) => (
                             <li key={idx} className="text-xs text-stone-800 leading-relaxed">{suggestion}</li>
@@ -3457,20 +3457,20 @@ const App: React.FC = () => {
                 {autoSession?.message && <p className="text-xs text-red-500 leading-relaxed">{autoSession.message}</p>}
                 {generationStatus && autoSession?.running && <p className="text-[11px] text-stone-400">{generationStatus}</p>}
                 <div className="flex gap-2 text-[10px] font-black uppercase">
-                  <span className="px-2 py-1 bg-teal-50 text-teal-700 rounded-lg">Đã viết phiên này: {autoSession?.writtenThisSession.length || 0}{autoSession?.targetCount ? `/${autoSession.targetCount}` : ''}</span>
+                  <span className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-lg">Đã viết phiên này: {autoSession?.writtenThisSession.length || 0}{autoSession?.targetCount ? `/${autoSession.targetCount}` : ''}</span>
                   <span className={`px-2 py-1 rounded-lg ${ttsEngine === 'vieneu' ? 'bg-emerald-50 text-emerald-600' : 'bg-stone-100 text-stone-500'}`}>{ttsEngine === 'vieneu' ? 'Giọng VieNeu' : 'Giọng trình duyệt'}</span>
                 </div>
                 <div className="grid grid-cols-2 gap-2 pt-1">
                   <label className="flex items-center gap-2 bg-stone-50 rounded-xl px-3 py-2.5 cursor-pointer">
-                    <input type="checkbox" checked={autoWriteEnabled} onChange={(e) => setAutoWriteEnabled(e.target.checked)} disabled={autoSession?.running} className="accent-teal-600 w-4 h-4" />
+                    <input type="checkbox" checked={autoWriteEnabled} onChange={(e) => setAutoWriteEnabled(e.target.checked)} disabled={autoSession?.running} className="accent-emerald-600 w-4 h-4" />
                     <span className="text-[11px] font-black uppercase text-stone-600">Tự viết tiếp</span>
                   </label>
                   <label className="flex items-center gap-2 bg-stone-50 rounded-xl px-3 py-2.5 cursor-pointer">
-                    <input type="checkbox" checked={autoReadEnabled} onChange={(e) => setAutoReadEnabled(e.target.checked)} disabled={autoSession?.running} className="accent-teal-600 w-4 h-4" />
+                    <input type="checkbox" checked={autoReadEnabled} onChange={(e) => setAutoReadEnabled(e.target.checked)} disabled={autoSession?.running} className="accent-emerald-600 w-4 h-4" />
                     <span className="text-[11px] font-black uppercase text-stone-600">Tự đọc</span>
                   </label>
                   <label className="flex items-center gap-2 bg-stone-50 rounded-xl px-3 py-2.5 cursor-pointer">
-                    <input type="checkbox" checked={autoReviewEnabled} onChange={(e) => setAutoReviewEnabled(e.target.checked)} disabled={autoSession?.running || !autoWriteEnabled} className="accent-teal-600 w-4 h-4" />
+                    <input type="checkbox" checked={autoReviewEnabled} onChange={(e) => setAutoReviewEnabled(e.target.checked)} disabled={autoSession?.running || !autoWriteEnabled} className="accent-emerald-600 w-4 h-4" />
                     <span className="text-[11px] font-black uppercase text-stone-600">Cụm 2 + 3</span>
                   </label>
                   <label className="flex items-center gap-2 bg-stone-50 rounded-xl px-3 py-2.5">
@@ -3493,12 +3493,12 @@ const App: React.FC = () => {
               </div>
 
               {ttsSession && (
-                <div className="bg-[#052e26] text-white rounded-3xl p-5 space-y-3 shadow-xl shadow-teal-950/25">
+                <div className="bg-[#052e26] text-white rounded-3xl p-5 space-y-3 shadow-xl shadow-emerald-950/25">
                   <div className="flex items-center gap-2">
                     <span>🔊</span>
                     <span className="font-black story-font text-sm truncate">Chương {ttsSession.chapterIndex}: {ttsSession.title}</span>
                   </div>
-                  <p className="text-xs leading-relaxed text-teal-50/85 line-clamp-3 min-h-10">{ttsState === 'loading' ? 'Đang tổng hợp giọng đọc…' : ttsSegmentText}</p>
+                  <p className="text-xs leading-relaxed text-emerald-50/85 line-clamp-3 min-h-10">{ttsState === 'loading' ? 'Đang tổng hợp giọng đọc…' : ttsSegmentText}</p>
                   <div className="flex items-center gap-2">
                     <button onClick={() => void speechPlayerRef.current?.previous()} disabled={ttsIndex <= 0} className="px-3 py-2.5 bg-white/10 rounded-xl text-xs font-black hover:bg-white/25 transition-all disabled:opacity-35">⏮</button>
                     {ttsState === 'playing' ? (
@@ -3509,7 +3509,7 @@ const App: React.FC = () => {
                     <button onClick={() => void speechPlayerRef.current?.next()} disabled={ttsIndex >= ttsSession.total - 1} className="px-3 py-2.5 bg-white/10 rounded-xl text-xs font-black hover:bg-white/25 transition-all disabled:opacity-35">⏭</button>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-black text-teal-50/70">Đoạn {Math.min(ttsIndex + 1, ttsSession.total)}/{ttsSession.total}</span>
+                    <span className="text-[10px] font-black text-emerald-50/70 tnum">Đoạn {Math.min(ttsIndex + 1, ttsSession.total)}/{ttsSession.total}</span>
                     <select value={ttsRate} onChange={(e) => { const rate = Number(e.target.value); setTtsRateState(rate); speechPlayerRef.current?.setRate(rate); }} className="ml-auto bg-white/10 rounded-xl px-2 py-2 text-[11px] font-black outline-none [&>option]:text-stone-900">
                       {[0.75, 1, 1.25, 1.5, 2].map(rate => <option key={rate} value={rate}>{rate}×</option>)}
                     </select>
@@ -3527,14 +3527,14 @@ const App: React.FC = () => {
                   const isReading = autoSession?.readingIndex === c.index || ttsSession?.chapterIndex === c.index;
                   const isWriting = autoSession?.writingIndex === c.index;
                   return (
-                    <button key={c.index} onClick={() => { if (c.content) void handleListenChapter(c); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all ${isReading ? 'bg-teal-50' : 'hover:bg-stone-50'}`}>
-                      <span className={`w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-[10px] font-black ${c.content ? 'bg-teal-600 text-white' : 'bg-stone-100 text-stone-400'}`}>{c.index}</span>
+                    <button key={c.index} onClick={() => { if (c.content) void handleListenChapter(c); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all ${isReading ? 'bg-emerald-50' : 'hover:bg-stone-50'}`}>
+                      <span className={`w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-[10px] font-black ${c.content ? 'bg-emerald-600 text-white' : 'bg-stone-100 text-stone-400'}`}>{c.index}</span>
                       <span className="flex-1 min-w-0">
                         <span className="block text-xs font-bold text-stone-700 truncate">{c.title || `Chương ${c.index}`}</span>
-                        <span className="block text-[10px] text-stone-400">{c.content ? `${countWords(c.content)} chữ` : 'Chưa viết'}</span>
+                        <span className="block text-[10px] text-stone-400 tnum">{c.content ? `${countWords(c.content)} chữ` : 'Chưa viết'}</span>
                       </span>
                       {isWriting && <span className="text-[9px] font-black uppercase text-orange-500">✍ Đang viết</span>}
-                      {isReading && <span className="text-[9px] font-black uppercase text-teal-600">🔊 Đang đọc</span>}
+                      {isReading && <span className="text-[9px] font-black uppercase text-emerald-600">🔊 Đang đọc</span>}
                       {c.biblePending && <span className="text-[9px] font-black uppercase text-amber-600">⚠ Canon</span>}
                     </button>
                   );
@@ -3552,7 +3552,7 @@ const App: React.FC = () => {
                  <h2 className="text-3xl font-black italic story-font text-stone-900">Bản thảo lưu trữ</h2>
                  <div className="flex flex-wrap gap-2">
                    <span className="px-4 py-1 bg-stone-100 text-stone-500 rounded-full text-[10px] font-black">{writtenChapters.length} Chương</span>
-                   <span className="px-4 py-1 bg-stone-100 text-stone-500 rounded-full text-[10px] font-black">{manuscriptTotalWords.toLocaleString('vi-VN')} chữ</span>
+                   <span className="px-4 py-1 bg-stone-100 text-stone-500 rounded-full text-[10px] font-black tnum">{manuscriptTotalWords.toLocaleString('vi-VN')} chữ</span>
                    {manuscriptWeekWords > 0 && <span className="px-4 py-1 bg-emerald-50 text-emerald-600 rounded-full text-[10px] font-black">7 ngày qua: +{manuscriptWeekWords.toLocaleString('vi-VN')} chữ</span>}
                  </div>
                </div>
@@ -3560,12 +3560,12 @@ const App: React.FC = () => {
                  <input value={manuscriptQuery} onChange={(e) => setManuscriptQuery(e.target.value)} placeholder="Tìm trong bản thảo (không cần gõ dấu)..." className="flex-1 px-4 py-3 rounded-xl border border-stone-200 bg-white text-sm font-medium text-stone-700 outline-none focus:border-amber-400" />
                  {manuscriptQuery && <button onClick={() => setManuscriptQuery('')} className="px-4 py-3 bg-stone-100 text-stone-500 rounded-xl text-[10px] font-black uppercase">Xóa tìm</button>}
                  <div className="flex flex-wrap gap-2">
-                   <button onClick={() => { if (activeProject) handleExportManuscript(activeProject); }} className="px-4 py-3 bg-emerald-50 text-emerald-600 rounded-xl text-[10px] font-black uppercase hover:bg-emerald-600 hover:text-white transition-all">Xuất .txt</button>
-                   <button onClick={() => setView('player')} className="px-4 py-3 bg-teal-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-teal-700 transition-all">▶ Nghe tự động</button>
-                   <button onClick={() => { if (activeProject) handleExportMarkdown(activeProject, includeBibleInExport); }} className="px-4 py-3 bg-amber-50 text-orange-600 rounded-xl text-[10px] font-black uppercase hover:bg-orange-600 hover:text-white transition-all">Xuất .md</button>
-                   <button onClick={() => { if (activeProject) void handleExportDocx(activeProject, includeBibleInExport); }} className="px-4 py-3 bg-sky-50 text-sky-600 rounded-xl text-[10px] font-black uppercase hover:bg-sky-600 hover:text-white transition-all">Xuất .docx</button>
+                   <button onClick={() => { if (activeProject) handleExportManuscript(activeProject); }} className="px-4 py-3 bg-stone-100 text-stone-600 rounded-xl text-[10px] font-black uppercase hover:bg-stone-800 hover:text-white transition-all">Xuất .txt</button>
+                   <button onClick={() => setView('player')} className="btn-primary px-4 py-3 rounded-xl text-[10px] font-black uppercase">▶ Nghe tự động</button>
+                   <button onClick={() => { if (activeProject) handleExportMarkdown(activeProject, includeBibleInExport); }} className="px-4 py-3 bg-stone-100 text-stone-600 rounded-xl text-[10px] font-black uppercase hover:bg-stone-800 hover:text-white transition-all">Xuất .md</button>
+                   <button onClick={() => { if (activeProject) void handleExportDocx(activeProject, includeBibleInExport); }} className="px-4 py-3 bg-stone-100 text-stone-600 rounded-xl text-[10px] font-black uppercase hover:bg-stone-800 hover:text-white transition-all">Xuất .docx</button>
                    <label className="flex items-center gap-2 px-3 py-3 bg-white border border-stone-200 rounded-xl text-[10px] font-black uppercase text-stone-500 cursor-pointer">
-                     <input type="checkbox" checked={includeBibleInExport} onChange={(e) => setIncludeBibleInExport(e.target.checked)} className="accent-orange-600" />
+                     <input type="checkbox" checked={includeBibleInExport} onChange={(e) => setIncludeBibleInExport(e.target.checked)} className="accent-amber-600" />
                      Kèm Thiên Cơ Lục
                    </label>
                  </div>
@@ -3577,18 +3577,18 @@ const App: React.FC = () => {
                    const parentVol = volumes.find(v => (v.chapters || []).some(ch => ch.index === c.index));
                    const matchCount = manuscriptMatchByIndex.get(c.index);
                    return (
-                     <div key={c.index} className="cv-auto p-6 md:p-8 bg-white border rounded-[2rem] flex flex-col gap-4 group shadow-sm hover:shadow-xl transition-all">
+                     <div key={c.index} className="cv-auto p-6 md:p-8 bg-white border rounded-4xl flex flex-col gap-4 group shadow-sm hover:shadow-xl transition-all">
                        <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
                          <div className="flex flex-col gap-2">
                            <span className="text-[10px] font-black uppercase text-orange-400 tracking-widest">Chương {c.index} ({getWordCount(c.content || "")} chữ){matchCount ? ` · khớp ${matchCount} lượt` : ''}{c.biblePending ? ' · ⚠ Canon chờ cập nhật' : ''}</span>
                            <h4 className="font-black text-stone-800 story-font text-xl uppercase tracking-tight">{c.title}</h4>
                          </div>
                          <div className="flex flex-wrap items-center gap-2">
-                           <button onClick={() => handleReadChapter(c, parentVol?.index || activeArcIndex)} className="px-6 py-3 bg-amber-50 text-orange-600 rounded-xl text-[10px] font-black uppercase hover:bg-stone-900 hover:text-white transition-all shadow-sm">Đọc</button>
-                           <button onClick={() => void handleListenChapter(c)} className="px-6 py-3 bg-teal-50 text-teal-700 rounded-xl text-[10px] font-black uppercase hover:bg-teal-600 hover:text-white transition-all shadow-sm">Nghe</button>
+                           <button onClick={() => handleReadChapter(c, parentVol?.index || activeArcIndex)} className="px-6 py-3 bg-emerald-50 text-emerald-700 rounded-xl text-[10px] font-black uppercase hover:bg-emerald-600 hover:text-white transition-all shadow-sm">Đọc</button>
+                           <button onClick={() => void handleListenChapter(c)} className="px-6 py-3 bg-amber-50 text-amber-700 rounded-xl text-[10px] font-black uppercase hover:bg-amber-400 hover:text-stone-900 transition-all shadow-sm">Nghe</button>
                            <button onClick={() => handleRewriteChapter(c, parentVol?.index || activeArcIndex)} className="px-6 py-3 bg-stone-50 text-stone-500 rounded-xl text-[10px] font-black uppercase hover:bg-stone-800 hover:text-white transition-all shadow-sm">Viết lại</button>
                            {c.previousContent && (
-                             <button onClick={() => setExpandedPreviousChapter(expandedPreviousChapter === c.index ? null : c.index)} className="px-4 py-3 bg-violet-50 text-violet-600 rounded-xl text-[10px] font-black uppercase hover:bg-violet-600 hover:text-white transition-all shadow-sm">Bản trước</button>
+                             <button onClick={() => setExpandedPreviousChapter(expandedPreviousChapter === c.index ? null : c.index)} className="px-4 py-3 bg-amber-50 text-amber-700 rounded-xl text-[10px] font-black uppercase hover:bg-amber-400 hover:text-stone-900 transition-all shadow-sm">Bản trước</button>
                            )}
                            <button onClick={(e) => handleDeleteChapter(c.index, parentVol?.index || activeArcIndex, e)} className="p-3 bg-red-50 text-red-400 rounded-xl hover:bg-red-600 hover:text-white transition-all">
                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
@@ -3596,10 +3596,10 @@ const App: React.FC = () => {
                          </div>
                        </div>
                        {expandedPreviousChapter === c.index && c.previousContent && (
-                         <div className="border border-violet-100 bg-violet-50/40 rounded-2xl p-5 space-y-3">
+                         <div className="border border-amber-200 bg-amber-50/40 rounded-2xl p-5 space-y-3">
                            <div className="flex flex-wrap justify-between items-center gap-2">
-                             <span className="text-[10px] font-black uppercase tracking-widest text-violet-500">Bản trước — {getWordCount(c.previousContent)} chữ{c.previousContentAt ? ` · lưu lúc ${new Date(c.previousContentAt).toLocaleString('vi-VN')}` : ''}</span>
-                             <button onClick={() => handleRestorePreviousContent(c)} className="px-4 py-2 bg-violet-600 text-white rounded-lg text-[10px] font-black uppercase hover:bg-violet-700 transition-all">Khôi phục bản này</button>
+                             <span className="text-[10px] font-black uppercase tracking-widest text-amber-600">Bản trước — {getWordCount(c.previousContent)} chữ{c.previousContentAt ? ` · lưu lúc ${new Date(c.previousContentAt).toLocaleString('vi-VN')}` : ''}</span>
+                             <button onClick={() => handleRestorePreviousContent(c)} className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-[10px] font-black uppercase hover:bg-emerald-700 transition-all">Khôi phục bản này</button>
                            </div>
                            <div className="max-h-96 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-stone-600 bg-white/70 rounded-xl p-4">{c.previousContent}</div>
                          </div>
@@ -3616,7 +3616,7 @@ const App: React.FC = () => {
       </main>
       
       {ttsSession && view !== 'player' && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-1.5rem)] max-w-3xl bg-[#052e26]/95 backdrop-blur-xl border border-amber-200/25 text-white rounded-3xl shadow-2xl shadow-teal-950/40 px-5 py-4 space-y-3">
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-1.5rem)] max-w-3xl bg-[#052e26]/95 backdrop-blur-xl border border-amber-200/25 text-white rounded-3xl shadow-2xl shadow-emerald-950/40 px-5 py-4 space-y-3">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 min-w-0">
               <span className="text-base">🔊</span>
@@ -3627,7 +3627,7 @@ const App: React.FC = () => {
             </div>
             <button onClick={handleCloseTts} className="shrink-0 w-8 h-8 rounded-full bg-white/10 hover:bg-white/25 transition-all text-sm" title="Đóng trình nghe">✕</button>
           </div>
-          <p className="text-xs leading-relaxed text-teal-50/85 line-clamp-2 min-h-8">{ttsState === 'loading' ? 'Đang tổng hợp giọng đọc…' : ttsSegmentText}</p>
+          <p className="text-xs leading-relaxed text-emerald-50/85 line-clamp-2 min-h-8">{ttsState === 'loading' ? 'Đang tổng hợp giọng đọc…' : ttsSegmentText}</p>
           <div className="flex flex-wrap items-center gap-2">
             <button onClick={() => void speechPlayerRef.current?.previous()} disabled={ttsIndex <= 0} className="px-3 py-2 bg-white/10 rounded-xl text-xs font-black hover:bg-white/25 transition-all disabled:opacity-35" title="Đoạn trước">⏮</button>
             {ttsState === 'playing' ? (
@@ -3636,7 +3636,7 @@ const App: React.FC = () => {
               <button onClick={() => void speechPlayerRef.current?.play()} className="px-5 py-2 bg-amber-300 text-stone-900 rounded-xl text-xs font-black uppercase hover:brightness-110 transition-all">{ttsState === 'loading' ? 'Đang tải…' : ttsState === 'ended' ? 'Nghe lại' : 'Nghe tiếp'}</button>
             )}
             <button onClick={() => void speechPlayerRef.current?.next()} disabled={ttsIndex >= ttsSession.total - 1} className="px-3 py-2 bg-white/10 rounded-xl text-xs font-black hover:bg-white/25 transition-all disabled:opacity-35" title="Đoạn sau">⏭</button>
-            <span className="text-[10px] font-black text-teal-50/70">Đoạn {Math.min(ttsIndex + 1, ttsSession.total)}/{ttsSession.total}</span>
+            <span className="text-[10px] font-black text-emerald-50/70 tnum">Đoạn {Math.min(ttsIndex + 1, ttsSession.total)}/{ttsSession.total}</span>
             <select value={ttsRate} onChange={(e) => { const rate = Number(e.target.value); setTtsRateState(rate); speechPlayerRef.current?.setRate(rate); }} className="ml-auto bg-white/10 rounded-xl px-2 py-2 text-[11px] font-black outline-none [&>option]:text-stone-900" title="Tốc độ đọc">
               {[0.75, 1, 1.25, 1.5, 2].map(rate => <option key={rate} value={rate}>{rate}×</option>)}
             </select>
@@ -3648,7 +3648,7 @@ const App: React.FC = () => {
             {ttsState === 'error' && <span className="text-[10px] font-black text-red-300">Lỗi phát — thử đoạn kế tiếp hoặc đóng mở lại</span>}
           </div>
           {ttsEngine === 'browser' && (
-            <p className="text-[10px] text-teal-50/60">Đang dùng giọng của trình duyệt. Muốn giọng VieNeu tự nhiên hơn: chạy TTS Bridge trên máy này (mục Nghe truyện trong README của repo / file zip kèm theo) rồi mở lại chương.</p>
+            <p className="text-[10px] text-emerald-50/60">Đang dùng giọng của trình duyệt. Muốn giọng VieNeu tự nhiên hơn: chạy TTS Bridge trên máy này (mục Nghe truyện trong README của repo / file zip kèm theo) rồi mở lại chương.</p>
           )}
         </div>
       )}
