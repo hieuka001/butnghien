@@ -3197,9 +3197,9 @@ const App: React.FC = () => {
                 {projects.map(p => (
                   <div key={p.id} className="surface cv-auto p-8 hover:shadow-2xl transition-all group flex flex-col h-80">
                     <div className="flex-1">
-                      <div className="flex justify-between items-start mb-4">
+                      <div className="flex justify-between items-start gap-3 mb-4">
                         <span className="px-3 py-1 bg-amber-50 text-amber-700 rounded-full text-[9px] font-black uppercase whitespace-nowrap shrink-0">{p.params.projectType}</span>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 flex-wrap justify-end">
                            <button onClick={(e) => handleExportManuscript(p, e)} className="w-9 h-9 flex items-center justify-center bg-stone-100 text-stone-500 rounded-lg hover:bg-stone-800 hover:text-white transition-all shadow-sm" title="Xuất bản thảo TXT">
                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6M7 3h7l5 5v13a1 1 0 01-1 1H7a1 1 0 01-1-1V4a1 1 0 011-1z" /></svg>
                            </button>
