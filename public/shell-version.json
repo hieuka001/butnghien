@@ -1,5 +1,5 @@
 {
   "ipaUrl": "https://github.com/hieuka001/butnghien-ios/releases",
-  "latestShell": "2.0.4",
-  "note": "Bản vỏ iOS 2.0.4: kho âm thanh tải về bền trong app (tải một lần, nghe lại phát ngay, trần 4GB). Chỉ khi số này tăng mới cần cài lại IPA; cập nhật nội dung/tính năng khác tự đến qua bản web."
+  "latestShell": "2.0.5",
+  "note": "Bản vỏ iOS 2.0.5: lõi giọng đọc trực tiếp, không lưu lại âm thanh đã đọc; dọn kho âm thanh cũ. Chỉ khi số này tăng mới cần cài lại IPA; cập nhật nội dung/tính năng khác tự đến qua bản web."
 }
